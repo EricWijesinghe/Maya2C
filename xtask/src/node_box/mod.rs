@@ -12,7 +12,7 @@
 //!
 //! Per-OS steps: docs/ecosystem/node-in-a-box-windows.md and -linux.md.
 
-mod acl;
+pub(crate) mod acl;
 mod checks;
 mod config;
 mod service;

@@ -99,8 +99,9 @@ pub(crate) fn unhex(s: &str) -> Result<Vec<u8>, KeystoreError> {
         .collect()
 }
 
-/// Writes `bytes` to a new file at `path`, owner-only on Unix. Refuses to
-/// overwrite: replacing a keystore is an operator decision, not a side effect of init.
+/// Writes `bytes` to a new file at `path`, owner-only (Unix mode 0600, a
+/// Windows DACL for this account alone). Refuses to overwrite: replacing a
+/// keystore is an operator decision, not a side effect of init.
 fn write_private_new(path: &Path, bytes: &[u8]) -> Result<(), KeystoreError> {
     use std::io::Write;
     let mut options = std::fs::OpenOptions::new();
@@ -110,8 +111,16 @@ fn write_private_new(path: &Path, bytes: &[u8]) -> Result<(), KeystoreError> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
+    #[cfg(windows)]
+    {
+        // Unshared until the DACL is replaced, so no other handle opens first.
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(0);
+    }
     let mut file = options.open(path)?;
-    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    let written = crate::owner_only::restrict(path)
+        .and_then(|()| file.write_all(bytes))
+        .and_then(|()| file.sync_all());
     if let Err(error) = written {
         // A truncated keystore would make every later init refuse as "exists".
         drop(file);

@@ -933,3 +933,11 @@ Eric 2026-11-17 pre-approval put PR #596 into re-freeze bundle 3.
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — Windows key and passphrase files are owner-only (Claude, audit NEW-01, under Eric's 2026-11-24 security-max directive)
+
+- **Decision:** new validator and signer key files get a DACL for their creating account alone, set before the secret is written; a passphrase file whose DACL grants another account is refused, as the Unix 0600 rule already refuses one (ADR-049 amendment 2026-11-24).
+- **Why:** mainnet validators run on Windows, where a new file inherits its folder's ACL; on this PC a file under `D:\Temp` inherited read for Users and Authenticated Users.
+- **Operator impact:** a Windows node or signer started with a passphrase file that other accounts can read now refuses to start, and the error names the `icacls` command that fixes it. Existing key files are not changed.
+- **No new dependency in a core crate:** it uses `whoami`, `icacls` and PowerShell from `%SystemRoot%`, as `l1-wallet` already does.
+

@@ -132,8 +132,8 @@ impl Drop for Children {
     }
 }
 
-/// Writes a passphrase file owner-only on Unix: the node refuses one any other
-/// local user can read.
+/// Writes a passphrase file owner-only (Unix mode 0600, a Windows DACL for this
+/// account alone): the node refuses one any other local account can read.
 fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     std::fs::write(path, text)?;
     #[cfg(unix)]
@@ -141,6 +141,8 @@ fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
+    #[cfg(windows)]
+    maya_signer::owner_only::restrict(path)?;
     Ok(())
 }
 

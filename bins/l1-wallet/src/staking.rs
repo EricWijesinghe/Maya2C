@@ -175,6 +175,8 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&pass_path, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
+        #[cfg(windows)]
+        maya_signer::owner_only::restrict(&pass_path).unwrap();
         let sealed_text = sealed::seal(
             key.to_bytes().as_slice(),
             &key.verifying_key().to_bytes(),
@@ -197,6 +199,8 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&pass_path, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
+        #[cfg(windows)]
+        maya_signer::owner_only::restrict(&pass_path).unwrap();
         assert!(load_validator_key_with(&path, Some(&pass_path)).is_err());
     }
 

@@ -175,3 +175,80 @@ fn a_compacted_database_keeps_records_written_after_compaction() {
         "a record written after compaction was lost on reopen"
     );
 }
+
+/// Windows (audit NEW-01): a folder that grants Everyone read on everything
+/// created in it, the case a new file's inherited DACL gets wrong.
+#[cfg(windows)]
+fn everyone_readable_dir() -> TempDir {
+    let dir = TempDir::new().unwrap();
+    icacls(dir.path(), &["/grant", "*S-1-1-0:(OI)(CI)R"]);
+    dir
+}
+
+#[cfg(windows)]
+fn icacls(path: &std::path::Path, args: &[&str]) {
+    let status = std::process::Command::new("icacls")
+        .arg(path)
+        .args(args)
+        .output()
+        .unwrap()
+        .status;
+    assert!(status.success(), "icacls {args:?}");
+}
+
+/// The file's DACL in SDDL, read independently of the code under test.
+#[cfg(windows)]
+fn sddl(path: &std::path::Path) -> String {
+    let out = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "(Get-Acl -LiteralPath $env:P).Sddl",
+        ])
+        .env("P", path)
+        .output()
+        .unwrap();
+    String::from_utf8(out.stdout).unwrap()
+}
+
+#[cfg(windows)]
+#[test]
+fn a_new_keystore_in_a_folder_everyone_can_read_is_owner_only() {
+    let dir = everyone_readable_dir();
+    let path = dir.path().join("key.json");
+    keystore::create(&path, &seed(1), b"correct horse").unwrap();
+    let acl = sddl(&path);
+    assert!(
+        !acl.contains(";;;WD)"),
+        "Everyone can read the new keystore: {acl}"
+    );
+    keystore::open(&path, b"correct horse").expect("the owner still opens it");
+}
+
+#[cfg(windows)]
+#[test]
+fn a_passphrase_file_everyone_can_read_is_refused_on_windows() {
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("pass");
+    std::fs::write(&path, "correct horse battery\n").unwrap();
+    let me = std::env::var("USERNAME").unwrap();
+    icacls(
+        &path,
+        &[
+            "/inheritance:r",
+            "/grant:r",
+            &format!("{me}:F"),
+            "*S-1-1-0:R",
+        ],
+    );
+    assert!(
+        maya_signer::sealed::read_passphrase_file(&path).is_err(),
+        "an Everyone-readable passphrase file was accepted"
+    );
+
+    // Owner-only, no inherited entries: accepted.
+    icacls(&path, &["/inheritance:r", "/grant:r", &format!("{me}:F")]);
+    icacls(&path, &["/remove", "*S-1-1-0"]);
+    let read = maya_signer::sealed::read_passphrase_file(&path).unwrap();
+    assert_eq!(read.as_slice(), b"correct horse battery");
+}

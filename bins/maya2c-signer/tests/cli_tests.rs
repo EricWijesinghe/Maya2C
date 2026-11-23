@@ -44,6 +44,8 @@ fn write_private(path: &Path, text: &str) {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).unwrap();
     }
+    #[cfg(windows)]
+    maya_signer::owner_only::restrict(path).unwrap();
 }
 
 impl Setup {

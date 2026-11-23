@@ -53,7 +53,9 @@ fn read_passphrase(flag: Option<&Path>) -> Result<Option<Zeroizing<Vec<u8>>>, Bo
     Ok(Some(pass))
 }
 
-/// Creates `path` for writing, refusing to overwrite, owner-only on Unix.
+/// Creates `path` for writing, refusing to overwrite, owner-only (Unix mode
+/// 0600; on Windows a DACL for this account alone, set before any byte is
+/// written, audit NEW-01).
 fn create_new(path: &Path) -> Result<std::fs::File, Box<dyn Error>> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
@@ -62,9 +64,17 @@ fn create_new(path: &Path) -> Result<std::fs::File, Box<dyn Error>> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    Ok(options
+    #[cfg(windows)]
+    {
+        // Unshared until the DACL is replaced, so no other handle opens first.
+        use std::os::windows::fs::OpenOptionsExt;
+        options.share_mode(0);
+    }
+    let file = options
         .open(path)
-        .map_err(|e| format!("{}: {e} (refusing to overwrite a key)", path.display()))?)
+        .map_err(|e| format!("{}: {e} (refusing to overwrite a key)", path.display()))?;
+    maya_signer::owner_only::restrict(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(file)
 }
 
 /// The file contents for `key`: sealed when a passphrase is given.
@@ -245,7 +255,48 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
         }
+        #[cfg(windows)]
+        maya_signer::owner_only::restrict(&path).unwrap();
         path
+    }
+
+    /// Audit NEW-01: a key written into a folder that grants Everyone read on
+    /// what is created in it must not inherit that entry.
+    #[cfg(windows)]
+    #[test]
+    fn a_new_key_in_a_folder_everyone_can_read_is_owner_only() {
+        let run = |args: &[&str], path: &Path| {
+            std::process::Command::new("icacls")
+                .arg(path)
+                .args(args)
+                .output()
+                .unwrap()
+        };
+        let private = dir();
+        let shared = dir();
+        assert!(
+            run(&["/grant", "*S-1-1-0:(OI)(CI)R"], shared.path())
+                .status
+                .success()
+        );
+        let pass = pass_file(private.path(), "a long enough passphrase");
+        let key = shared.path().join("v.key");
+        generate(&key, Some(&pass)).unwrap();
+        let acl = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "(Get-Acl -LiteralPath $env:P).Sddl",
+            ])
+            .env("P", &key)
+            .output()
+            .unwrap();
+        let acl = String::from_utf8(acl.stdout).unwrap();
+        assert!(
+            !acl.contains(";;;WD)"),
+            "Everyone can read the new key: {acl}"
+        );
+        load(&key, Some(&pass)).unwrap();
     }
 
     #[test]

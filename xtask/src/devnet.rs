@@ -28,8 +28,9 @@ const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
 /// Result alias: every failure here is a message for the operator.
 pub type Result<T> = std::result::Result<T, String>;
 
-/// Writes a passphrase file owner-only on Unix: the node and signer refuse a
-/// passphrase file that another local user can read.
+/// Writes a passphrase file owner-only (Unix mode 0600; Windows: this account
+/// and SYSTEM, inheritance removed): the node and signer refuse a passphrase
+/// file that another local account can read.
 pub fn write_private(path: &Path, text: &str) -> Result<()> {
     std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))?;
     #[cfg(unix)]
@@ -37,6 +38,14 @@ pub fn write_private(path: &Path, text: &str) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    #[cfg(windows)]
+    {
+        use crate::node_box::acl;
+        let user = std::env::var("USERNAME").map_err(|e| format!("USERNAME: {e}"))?;
+        for step in acl::key_acl_steps(acl::Os::Windows, &path.display().to_string(), &user) {
+            acl::run_step(&step)?;
+        }
     }
     Ok(())
 }

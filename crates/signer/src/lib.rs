@@ -12,6 +12,7 @@
 pub mod backend;
 pub mod channel;
 pub mod keystore;
+pub mod owner_only;
 pub mod protection;
 pub mod sealed;
 pub mod service;

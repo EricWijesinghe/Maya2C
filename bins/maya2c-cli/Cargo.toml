@@ -27,6 +27,9 @@ cli = ["dep:l1-wallet", "dep:jsonrpsee", "dep:clap", "dep:rpassword", "custom-l1
 [dependencies]
 maya-address = { path = "../../crates/address" }
 maya-vm = { path = "../../crates/vm" }
+# `maya2c dev` writes the validator passphrase file owner-only on Windows too,
+# with the same DACL rule the node checks it against (audit NEW-01).
+maya-signer = { path = "../../crates/signer" }
 # ADR-046: money is a U256 (the node's wire amounts, decimal strings).
 primitive-types.workspace = true
 # `maya2c dev`: transaction construction and the wallet's keystore and RPC
