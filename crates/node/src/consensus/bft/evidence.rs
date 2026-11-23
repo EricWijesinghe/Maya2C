@@ -12,6 +12,7 @@
 
 use maya_dag_bft::{Equivocation, Message};
 
+use super::attest::Attestation;
 use super::wire::{BROADCAST, Envelope};
 use crate::core::staking_payload::StakingAction;
 use crate::error::{NodeError, Result};
@@ -57,6 +58,27 @@ pub fn to_text(evidence: &Equivocation) -> String {
         }
         _ => unreachable!("report builds a ReportEquivocation"),
     }
+}
+
+/// File name for an attestation double-sign: who, which epoch, which height.
+#[must_use]
+pub fn attestation_file_name(first: &Attestation) -> String {
+    format!(
+        "attestation-e{}-h{}-v{}.hex",
+        first.epoch, first.height, first.validator
+    )
+}
+
+/// Two lines of hex, one attestation frame each. Not a `ReportEquivocation`:
+/// the chain does not accept attestation evidence yet (audit CON-05), so this
+/// is kept for when it does, and for the operator.
+#[must_use]
+pub fn attestation_to_text(first: &Attestation, second: &Attestation) -> String {
+    format!(
+        "{}\n{}\n",
+        hex::encode(first.encode()),
+        hex::encode(second.encode())
+    )
 }
 
 /// Reads what [`to_text`] wrote.

@@ -4,7 +4,8 @@
 //! `<data-dir>/bft/epoch-N/safety.log` before sending it, and replays the log
 //! on start so it never signs a round twice. A validator restarted onto a
 //! fresh or restored data directory has no log: it could sign again a round it
-//! already signed, which is equivocation, and equivocation is slashed.
+//! already signed, which is equivocation; a double proposal is slashed, and a
+//! double attestation is kept as evidence (not yet slashable, audit CON-05).
 //!
 //! A remote signer (`--remote-signer`) is not checked: `maya2c-signer` keeps
 //! its own fsynced slashing-protection database on the signer host (one record
@@ -68,7 +69,7 @@ fn decide(f: Facts, bft_dir: &Path) -> Result<(), String> {
         "refusing to start this validator: its BFT safety log ({}) is missing, and its chain \
          (height {}) is recent. The log is how a restarted validator knows which rounds it \
          already signed. Without it this node can sign a round a second time: that is \
-         equivocation, the network records it as evidence, and the stake is slashed. \
+         equivocation, the network records it as evidence, and a double proposal is slashed. \
          Restore the old <data-dir>/bft directory if you have it (never delete bft/). If this \
          key has signed nothing in the current epoch (a new validator, one down since an \
          earlier epoch, or one stopped at an epoch boundary before it signed in the new \

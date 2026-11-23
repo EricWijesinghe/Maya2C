@@ -1029,6 +1029,19 @@ async fn act(
             ),
         }
     }
+    for (first, second) in &step.attestation_equivocations {
+        // Kept for when the chain accepts attestation evidence (audit CON-05).
+        use custom_l1_node::consensus::bft::evidence;
+        let path = evidence_dir.join(evidence::attestation_file_name(first));
+        let saved = std::fs::create_dir_all(evidence_dir)
+            .and_then(|()| std::fs::write(&path, evidence::attestation_to_text(first, second)));
+        if let Err(error) = saved {
+            eprintln!(
+                "bft: attestation double-sign by validator {} NOT saved: {error}",
+                first.validator
+            );
+        }
+    }
 }
 
 /// Runs DAG-BFT until the process stops.

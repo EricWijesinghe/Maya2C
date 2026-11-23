@@ -14,6 +14,7 @@ use libp2p::gossipsub::{Message as GossipMessage, MessageId};
 use libp2p::request_response::{self, Message};
 use tokio::sync::oneshot;
 
+use super::txcheck::{Finished, TxJob};
 use super::{NodeDriver, NodeEvent};
 use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
@@ -78,9 +79,22 @@ impl NodeDriver {
             self.report(source, id, Verdict::Ignore);
             return;
         }
-        let verdict = if message.topic == txs_topic().hash() {
-            self.gossiped_transaction(data)
-        } else if message.topic == blocks_topic().hash() {
+        if message.topic == txs_topic().hash() {
+            // Checked off this task; reported when the check finishes.
+            let job = TxJob {
+                source,
+                id: id.clone(),
+                author,
+                sequence_number: message.sequence_number,
+                signature: signature.to_vec(),
+                data: data.to_vec(),
+            };
+            if !self.tx_checks.submit(job) {
+                self.report(source, id, Verdict::Ignore);
+            }
+            return;
+        }
+        let verdict = if message.topic == blocks_topic().hash() {
             self.gossiped_block(source, author, data, now)
         } else if message.topic == bft_topic().hash() {
             self.gossiped_bft(data)
@@ -106,9 +120,20 @@ impl NodeDriver {
         verdict
     }
 
-    fn gossiped_transaction(&mut self, data: &[u8]) -> Verdict {
-        let result = self.mempool.insert_encoded(data);
+    /// Reports a gossiped transaction's verdict once its check (`node::txcheck`)
+    /// has finished, as the inline check used to.
+    pub(super) fn finish_tx_check(&mut self, done: Finished) {
+        let (job, result) = match done {
+            Ok(done) => done,
+            Err(error) => {
+                // The job went with the worker; gossipsub ages the unreported
+                // message out unrelayed.
+                eprintln!("a transaction check stopped: {error}");
+                return;
+            }
+        };
         let verdict = classify_transaction(&result);
+        let data = &job.data;
         match result {
             // The hash is recomputed from the decoded transaction rather than
             // taken from anything the sender supplied.
@@ -120,7 +145,8 @@ impl NodeDriver {
             Ok(false) => {}
             Err(e) => self.emit(NodeEvent::TransactionRejected(e.to_string())),
         }
-        verdict
+        self.report(job.source, &job.id, verdict);
+        self.attest(verdict, job.author, job.sequence_number, &job.signature, data);
     }
 
     pub(super) fn gossiped_block(

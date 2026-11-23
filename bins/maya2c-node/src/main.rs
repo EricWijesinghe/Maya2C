@@ -353,7 +353,7 @@ fn print_usage() {
          refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block\n  \
          --i-know-this-validator-never-signed  start a committee validator whose <data-dir>/bft is missing\n                           \
          on a recent chain. Only for a key that signed nothing this epoch: otherwise it can sign\n                           \
-         a round twice, which is equivocation and is slashed\n  \
+         a round twice, which is equivocation: a double proposal is slashed\n  \
          --allow-sleep        Windows: start a validator even if the AC power plan can sleep the PC\n  \
          --validator-key <PATH>  DAG-BFT validator key; without it the node observes\n  \
          --generate-validator-key <PATH>  write a new validator key, print its public key;\n                           \
