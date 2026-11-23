@@ -94,16 +94,22 @@ impl StateDB {
     ///
     /// As [`StateDB::stored_threat_indicator`].
     pub fn stored_threat_indicators(&self) -> Result<Vec<(Author, ThreatIndicator)>> {
-        self.scan_prefix(INDICATOR_PREFIX)?
-            .into_iter()
-            .map(|(key, value)| {
-                let author = key
-                    .strip_prefix(INDICATOR_PREFIX)
-                    .and_then(|rest| Author::try_from(rest).ok())
-                    .ok_or_else(|| NodeError::Decode("threat indicator key".to_string()))?;
-                Ok((author, decode(&value)?))
-            })
-            .collect()
+        decode_indicators(self.scan_prefix(INDICATOR_PREFIX)?)
+    }
+
+    /// At most `limit` indicators whose author sorts strictly after `after`,
+    /// in author order: one page, read by seeking to it rather than by
+    /// decoding every indicator before it.
+    ///
+    /// # Errors
+    ///
+    /// As [`StateDB::stored_threat_indicators`].
+    pub fn threat_indicators_page(
+        &self,
+        after: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<(Author, ThreatIndicator)>> {
+        decode_indicators(self.scan_prefix_page(INDICATOR_PREFIX, after, limit)?)
     }
 
     /// What every committed indicator obliges a node to do at `height`: one
@@ -142,4 +148,50 @@ const fn bytes_eq(left: &[u8], right: &[u8]) -> bool {
         index += 1;
     }
     true
+}
+
+/// Indicator records as scanned, decoded with their authors.
+fn decode_indicators(records: Vec<(Vec<u8>, Vec<u8>)>) -> Result<Vec<(Author, ThreatIndicator)>> {
+    records
+        .into_iter()
+        .map(|(key, value)| {
+            let author = key
+                .strip_prefix(INDICATOR_PREFIX)
+                .and_then(|rest| Author::try_from(rest).ok())
+                .ok_or_else(|| NodeError::Decode("threat indicator key".to_string()))?;
+            Ok((author, decode(&value)?))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+
+    #[test]
+    fn a_page_seeks_past_after_and_reads_at_most_its_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = StateDB::open(dir.path()).unwrap();
+        for n in 1..=9u8 {
+            db.raw_put(&[INDICATOR_PREFIX, &[n; 32]].concat(), &[n])
+                .unwrap();
+        }
+        // A key just past the prefix range must not leak into a page.
+        db.raw_put(b"t:io:", &[0]).unwrap();
+        let page = |after: Option<&[u8]>, limit| {
+            db.scan_prefix_page(INDICATOR_PREFIX, after, limit)
+                .unwrap()
+                .into_iter()
+                .map(|(_, v)| v[0])
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(page(None, 3), [1, 2, 3]);
+        assert_eq!(page(Some(&[3; 32]), 3), [4, 5, 6], "strictly after");
+        assert_eq!(page(Some(&[8; 32]), 3), [9], "a short page ends the set");
+        assert_eq!(page(Some(&[9; 32]), 3), Vec::<u8>::new());
+        assert_eq!(page(None, 0), Vec::<u8>::new());
+        // An `after` that names no stored author still pages from its place.
+        assert_eq!(page(Some(&[4, 0]), 2), [4, 5]);
+    }
 }

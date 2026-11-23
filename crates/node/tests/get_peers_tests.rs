@@ -1,8 +1,10 @@
 //! `get_peers`, end to end: two real nodes connect over WebSocket (the way a
 //! helper's laptop reaches the seed through the public relay), and the seed's
-//! RPC lists the joiner as inbound WebSocket, with no address in the answer.
-//! Then the joiner leaves and the list empties. This is what the live network
-//! dashboard (`apps/status`, `/live`) is built on.
+//! RPC lists the joiner as a WebSocket peer, with no address, direction,
+//! score or quarantine flag in the public answer; an operator RPC (wired with
+//! peer addresses, loopback only) adds the direction. Then the joiner leaves
+//! and the list empties. This is what the live network dashboard
+//! (`apps/status`, `/live`) is built on.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -67,10 +69,12 @@ fn genesis() -> Block {
     )
 }
 
-/// An RPC server over `state`, answering `get_peers` from `node`.
+/// An RPC server over `state`, answering `get_peers` from `node`; with
+/// `operator`, also wired with peer addresses (the loopback-only view).
 async fn rpc_for(
     state: Arc<StateDB>,
     node: NodeHandle,
+    operator: bool,
 ) -> (
     custom_l1_node::rpc::RpcServer,
     jsonrpsee::http_client::HttpClient,
@@ -83,7 +87,12 @@ async fn rpc_for(
         )
         .unwrap(),
     ));
-    let context = RpcContext::new(chain, Mempool::new(state)).with_network_view(node);
+    let context = RpcContext::new(chain, Mempool::new(state)).with_network_view(node.clone());
+    let context = if operator {
+        context.with_peers(node)
+    } else {
+        context
+    };
     let server = serve("127.0.0.1:0".parse().unwrap(), context)
         .await
         .unwrap();
@@ -109,7 +118,7 @@ async fn the_seed_lists_a_websocket_joiner_without_its_address_and_drops_it_when
     let mut seed_events = seed.subscribe();
     tokio::time::sleep(Duration::from_millis(300)).await; // listener up
 
-    let (_server, client) = rpc_for(seed_state, seed.clone()).await;
+    let (_server, client) = rpc_for(seed_state, seed.clone(), false).await;
     let empty: NetworkView = client.request("get_peers", rpc_params![]).await.unwrap();
     assert_eq!(empty.peer_id, seed.peer_id().to_string());
     assert!(empty.peers.is_empty());
@@ -124,7 +133,9 @@ async fn the_seed_lists_a_websocket_joiner_without_its_address_and_drops_it_when
     assert_eq!(view.peers.len(), 1, "{view:?}");
     let p = &view.peers[0];
     assert_eq!(p.peer_id, joiner.peer_id().to_string());
-    assert_eq!(p.direction, "inbound");
+    assert_eq!(p.direction, None, "direction is operator-only");
+    assert_eq!(p.score, None, "score is operator-only");
+    assert_eq!(p.quarantined, None, "quarantine is operator-only");
     assert_eq!(p.transport, "websocket");
     assert!(p.connections >= 1);
 
@@ -132,17 +143,24 @@ async fn the_seed_lists_a_websocket_joiner_without_its_address_and_drops_it_when
     let raw: serde_json::Value = client.request("get_peers", rpc_params![]).await.unwrap();
     let text = raw.to_string();
     assert!(!text.contains("127.0.0.1"), "address leaked: {text}");
+    for field in ["direction", "score", "quarantined"] {
+        assert!(
+            !text.contains(&format!("\"{field}\"")),
+            "{field} leaked: {text}"
+        );
+    }
 
-    // The joiner's own view sees the seed as outbound.
+    // The joiner's operator view sees the seed as outbound.
     let (_jdir, joiner_state) = {
         let d = TempDir::new().unwrap();
         let s = Arc::new(StateDB::open(d.path()).unwrap());
         (d, s)
     };
-    let (_jserver, jclient) = rpc_for(joiner_state, joiner.clone()).await;
+    let (_jserver, jclient) = rpc_for(joiner_state, joiner.clone(), true).await;
     let jview: NetworkView = jclient.request("get_peers", rpc_params![]).await.unwrap();
     assert_eq!(jview.peers.len(), 1);
-    assert_eq!(jview.peers[0].direction, "outbound");
+    assert_eq!(jview.peers[0].direction.as_deref(), Some("outbound"));
+    assert!(jview.peers[0].quarantined.is_some());
 
     drop(joiner);
     drop(jclient);
