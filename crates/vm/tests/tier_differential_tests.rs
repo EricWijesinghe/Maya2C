@@ -256,7 +256,9 @@ fn a_data_segment_costs_the_same_gas_on_every_host_and_tier() {
     for (tier, vm) in vms() {
         let exec = vm.execute(&code, CONTRACT, &[], 1_000_000, MemoryState::at_height(7));
         let gas = exec.outcome.expect("runs").gas_used;
-        assert_eq!(gas, 20, "{tier}: 16-byte data segment gas");
+        // 20 units of fuel (the pin before ADR-142) plus ADR-142's priced
+        // compile and instantiation, which are the same on every host.
+        assert_eq!(gas, 221_120, "{tier}: 16-byte data segment gas");
     }
 }
 
