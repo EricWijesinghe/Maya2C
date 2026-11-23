@@ -343,8 +343,8 @@ fn every_payload_kind_has_distinct_signing_bytes() {
             amount: primitive_types::U256::from(1_000),
         }),
         TxKind::Propose(Box::new(ProposalSubmission {
-            voting_blocks: 480,
-            timelock_blocks: 960,
+            voting_blocks: 7_200,
+            timelock_blocks: 14_400,
             upgrade: None,
             changes: vec![(1, maya_dex::Amount::from_u64(25))],
         })),

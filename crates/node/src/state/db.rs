@@ -769,6 +769,48 @@ impl StateDB {
         Ok(merged)
     }
 
+    /// [`Self::merged_records`] limited to keys below `end`.
+    ///
+    /// Reads only the keys it returns (plus one), so the cost is the size of
+    /// the answer rather than of the prefix: what an ordered index such as
+    /// governance's due list (`g:due:`) needs.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Storage`] on an iteration failure.
+    pub(crate) fn merged_records_before(
+        &self,
+        overlay: &Overlay,
+        prefix: &[u8],
+        end: &[u8],
+    ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+        let mut merged = BTreeMap::new();
+        // `BTreeMap::range` panics on an inverted range.
+        if end <= prefix {
+            return Ok(merged);
+        }
+        for item in self
+            .db
+            .iterator(IteratorMode::From(prefix, rocksdb::Direction::Forward))
+        {
+            let (key, value) = item.map_err(storage_err)?;
+            if !key.starts_with(prefix) || &*key >= end {
+                break;
+            }
+            merged.insert(key.to_vec(), value.to_vec());
+        }
+        for (key, value) in overlay.records.range(prefix.to_vec()..end.to_vec()) {
+            if !key.starts_with(prefix) {
+                break;
+            }
+            match value {
+                Some(bytes) => merged.insert(key.clone(), bytes.clone()),
+                None => merged.remove(key),
+            };
+        }
+        Ok(merged)
+    }
+
     /// Validates and stages one transaction against `overlay`.
     ///
     /// Order matters: the sender is debited and re-staged *before* recipients

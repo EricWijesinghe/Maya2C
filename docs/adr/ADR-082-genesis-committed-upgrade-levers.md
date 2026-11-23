@@ -83,17 +83,27 @@ would stop the chain over a vote that passed.
 `announced_at` and suite sunsets. It has no version and no features, so the
 council can retire a suite and schedule nothing else. Its own 2-of-3 approvals
 (ADR-050) and nonce apply unchanged. It has **no emergency window** (H3), and
-its lead is `COUNCIL_SUNSET_LEAD_BLOCKS`, about 13.6 days at one block per
-second (1,000,000 + 172,800 blocks).
+its lead is `COUNCIL_SUNSET_LEAD_BLOCKS`, about 41.6 days at one block per
+second (1,000,000 + 2,592,000 = 3,592,000 blocks).
 
 **Why the council lead is what it is (H3).** A vault delay is at most
 `vault::MAX_DELAY_BLOCKS` (1,000,000 blocks, about 11.6 days). A council sunset
 announced just before a withdrawal could freeze the funds past the sunset height
 unless the lead covers the delay. The migration window is the time users have to
 move to another suite. The lead is the sum, derived from the constants. The
-reviewer's figure of about 18.6 days assumes a 7-day migration window. The code's
-`MIN_MIGRATION_WINDOW` is 172,800 blocks (2 days). The figure is recorded in
-DECISIONS.md, and the decision on the window is open before mainnet.
+reviewer's figure of about 18.6 days assumed a 7-day migration window. The code's
+`MIN_MIGRATION_WINDOW` is 2,592,000 blocks (30 days at 1 block/s), decided in
+the re-freeze bundle (DECISIONS.md, 2026-11-13), which replaces the 2-day window
+recorded on 2026-11-08.
+
+**Update 2026-11-12 (block-time fix A).** These are new value decisions at the
+canonical 1 block/s, not a unit fix: the earlier figures were already stated at
+1 block/s, so the numbers themselves changed. The floors are now
+`MIN_VOTING_BLOCKS` 7,200 (2 hours, was 480), `MIN_TIMELOCK_BLOCKS` 14,400
+(4 hours, was 960), `MIN_MIGRATION_WINDOW` 2,592,000 (30 days, was 172,800) and
+`MIN_EMERGENCY_WINDOW` 259,200 (3 days, was 17,280), so
+`COUNCIL_SUNSET_LEAD_BLOCKS` is 3,592,000 blocks (about 41.6 days). The lead is
+derived, so it moves with the window.
 
 **No exit-only mode.** An exit a broken suite can still sign would let an attacker
 exit a victim's funds too. Users migrate by transferring to an address under
@@ -186,7 +196,7 @@ block that carries the new tag, and the upgrade schedule does not govern it.
   `pow_limit_bits` is folded in. The tree pins no PoW id. A pinned BFT id with
   empty levers is recorded in `genesis_tests.rs` (see below).
 - **Leads are long.** A governance upgrade takes at least 30 days from
-  execution to activation. A council sunset takes about 13.6 days (H3). A chain cannot be tested
+  execution to activation. A council sunset takes about 41.6 days (H3). A chain cannot be tested
   across those heights, so the on-chain halt is checked at the state level and
   the chain-level halt on genesis-seeded entries.
 - **Mempool admission** and the stateless verifier use the effective schedule
@@ -194,6 +204,53 @@ block that carries the new tag, and the upgrade schedule does not govern it.
   caller (above).
 - **Account migration for a sunset suite is not built.** It is a later
   activation (`BACKLOG.md`).
+
+## Amendment 2026-11-13: the settlement pass reads only due proposals
+
+**Problem.** `settle_governance`, the pass that executes a passed
+`ScheduleUpgrade` (and every other proposal), read every `g:prop:` record on
+every block: open, queued and settled alike. Settled records are never deleted,
+the deposit returns on cancel, and nothing limits proposals per account, so an
+attacker could grow that set for transaction fees alone, up to 32 per block
+(`MAX_GOVERNANCE_TX_PER_BLOCK`). The x15 windows (PR #500) did not cause the
+problem; they made each proposal live longer. Measured cost and the attack's
+price: `reports/sessions/2026-11-13-governance-settle-index.md`.
+
+**Decision.** An index keyed by the height a proposal next changes state,
+under the governance layer that already exists:
+
+- `g:due:<height u64 BE><proposal id>`, value empty. `propose` writes two keys:
+  `voting_closes + 1` (finalize) and `executable_from` (execute, or expire if
+  admission fails). The two keys cover every transition: `expires_after` is
+  reached only by a proposal that sat `Queued` past `executable_from`, and that
+  proposal's `executable_from` key is already due.
+- The pass reads keys at or below its height (a bounded range read, so a
+  replay that skips heights still finds them), deletes them, and settles the
+  proposals they name in identifier order: the order the full scan used. The
+  per-proposal step is the same function as before, and a proposal the index
+  does not name was a no-op in the full scan. An equivalence test
+  (`governance_settle_tests.rs`) checks the two paths agree on random sets.
+- **At most `MAX_PROPOSALS_DUE_PER_HEIGHT` (64) keys per height.** Without it
+  the index only moves the cost: the voting period ranges over 1.49 M values,
+  so 32 proposals a block for 17 days could all come due at one height. A
+  proposal that would overflow a height is refused, and its author picks a
+  voting period or timelock one block different. An attacker cannot shut
+  governance out this way: it would have to fill 64 slots at each of about
+  1.49 M heights while adding 64 a block.
+- **No new prefix.** `g:` is already the governance layer (`RECORD_LAYERS`), so
+  the index is under the root, journaled by the overlay, and restored on
+  reorg (invariant 25). It does change the governance layer's root whenever a
+  proposal exists, which is why it lands before genesis (re-freeze).
+- **No migration.** A proposal opened by an earlier binary has no index keys,
+  and this pass would never settle it. A chain carrying one, such as the
+  current testnet, re-geneses with the re-freeze bundle. It does not upgrade
+  in place.
+
+**Rejected.** A cap on concurrently open proposals: the deposit is refundable,
+so an attacker holding the cap blocks every honest proposal for the price of
+locked coin. A per-block budget with carry-over: it bounds a block too, but it
+moves when a proposal finalizes, and an attacker who floods a height delays
+everyone else's proposal behind it.
 
 ## Rejected alternatives
 

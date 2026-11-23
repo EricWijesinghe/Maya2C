@@ -66,6 +66,25 @@ pub(crate) const LOCK_PREFIX: &[u8] = b"g:lock:";
 /// Prefix under which each address's work credit lives.
 pub(crate) const WORK_PREFIX: &[u8] = b"g:work:";
 
+/// Prefix of the settlement index: `g:due:<height u64 BE><proposal>`.
+///
+/// One key per height at which a proposal can change state, so the end-of-block
+/// pass reads the proposals due now instead of every proposal ever opened
+/// (ADR-082 amendment 2026-11-13). Big-endian so key order is height order.
+pub(crate) const DUE_PREFIX: &[u8] = b"g:due:";
+
+/// Storage key saying proposal `id` is due at `height`.
+#[must_use]
+pub fn due_key(height: u64, id: &[u8; 32]) -> Vec<u8> {
+    join(DUE_PREFIX, &[&height.to_be_bytes(), id.as_slice()])
+}
+
+/// Prefix matching every proposal due at `height`.
+#[must_use]
+pub fn due_height_prefix(height: u64) -> Vec<u8> {
+    join(DUE_PREFIX, &[&height.to_be_bytes()])
+}
+
 /// Storage key for one proposal.
 #[must_use]
 pub fn proposal_key(id: &[u8; 32]) -> Vec<u8> {
