@@ -99,13 +99,17 @@ pub fn restrict(path: &Path) -> std::io::Result<()> {
 pub fn check(path: &Path) -> std::io::Result<()> {
     #[cfg(windows)]
     {
-        let others = others_granted(&sys::sddl(path)?, &sys::current_user_sid()?);
+        let me = sys::current_user_sid()?;
+        let others = others_granted(&sys::sddl(path)?, &me);
         if !others.is_empty() {
+            // The fix names this process's SID: a node run as SYSTEM refuses the
+            // operator's own grant, so "%USERNAME%" would be the wrong account.
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 format!(
-                    "{} is open to other accounts ({}); make it owner-only: \
-                     icacls \"{}\" /inheritance:r /grant:r \"%USERNAME%\":F",
+                    "{} is open to accounts other than this one ({me}), SYSTEM and \
+                     Administrators: {}; fix: icacls \"{}\" /inheritance:r /grant:r *{me}:F, \
+                     then icacls /remove:g each listed account",
                     path.display(),
                     others.join(", "),
                     path.display()

@@ -135,12 +135,24 @@ run on a Windows PC (2026-10-11 decision). Now:
   running the process before any byte is written
   (`maya_signer::owner_only::restrict`, `icacls /inheritance:r /grant:r`).
 - **Passphrase files** are refused when their DACL grants any account other
-  than the owner, SYSTEM or Administrators (`owner_only::check`, the Hub
-  key check's allow list). Deny and inherit-only entries are ignored; an entry
-  the parser cannot read, a null DACL and a missing DACL are refused. Like the
-  Unix rule, this is a hard error. The message gives the `icacls` command
-  that fixes the file. `cargo xtask node setup` already sets these ACLs, and
-  `maya2c dev` and the `xtask` devnet writers now do too.
+  than the account running the node, SYSTEM or Administrators
+  (`owner_only::check`, the Hub key check's allow list). Deny and inherit-only
+  entries are ignored; an entry the parser cannot read, a null DACL and a
+  missing DACL are refused. Like the Unix rule, this is a hard error. The
+  message gives the `icacls` command that fixes the file, for the running
+  account's SID. "The account running the node" matters: the boot task that
+  `cargo xtask node setup` prints runs the node as SYSTEM, so the operator's
+  own grant counts as another account. Setup therefore grants the key files
+  to SYSTEM only and removes the operator's grant (the operator stays owner);
+  `node doctor` checks against SYSTEM too. `maya2c dev` and the `xtask` devnet
+  writers grant the account that runs their nodes. Test:
+  `setup_acl_passes_the_node_check_when_the_node_runs_as_system`
+  (`xtask/src/node_box/acl.rs`, Windows only).
+- **Upgrading a live Windows validator to this rule:** before the new binary
+  starts, list every passphrase file's ACL (`icacls <file>`) and remove any
+  grant other than the account the node runs as, SYSTEM and Administrators —
+  an entry inherited from the drive root (Users, Authenticated Users) is
+  enough to stop the node. Runbook: `docs/runbooks/validator-start-guards.md`.
 - **How:** the system's own `whoami`, `icacls` and Windows PowerShell
   (`Get-Acl`, path passed in an environment variable), by full path under
   `%SystemRoot%`, so no Windows security API dependency enters a crate the

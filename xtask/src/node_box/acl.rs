@@ -35,30 +35,66 @@ fn strings(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| (*s).to_owned()).collect()
 }
 
-/// The commands that leave `path` readable and writable by `user` and SYSTEM
-/// only. Grants come before inheritance is removed: removing inheritance
-/// first would strip the operator's own access and lock the key away.
-pub fn key_acl_steps(os: Os, path: &str, user: &str) -> Vec<Step> {
+/// The commands that leave `path` readable and writable by `account` (the
+/// account the node runs as) and SYSTEM only. Grants come before inheritance
+/// is removed: removing inheritance first would strip the operator's own
+/// access and lock the key away. When the node runs as another account than
+/// the `operator` running setup (the boot task runs it as SYSTEM), the
+/// operator's own grant is removed last: the node refuses a passphrase file
+/// that grants any account but its own, SYSTEM and Administrators
+/// (`maya_signer::owner_only::check`). The operator keeps ownership, so can
+/// still list and change the ACL.
+pub fn key_acl_steps(os: Os, path: &str, account: &str, operator: &str) -> Vec<Step> {
     match os {
-        Os::Windows => vec![
-            Step {
-                program: "icacls",
-                args: [
-                    vec![path.to_owned(), "/grant:r".to_owned(), format!("{user}:F")],
-                    strings(&["/grant:r", "SYSTEM:F"]),
-                ]
-                .concat(),
-            },
-            Step {
-                program: "icacls",
-                args: [vec![path.to_owned()], strings(&["/inheritance:r"])].concat(),
-            },
-        ],
+        Os::Windows => {
+            let mut grant = vec![
+                path.to_owned(),
+                "/grant:r".to_owned(),
+                format!("{account}:F"),
+            ];
+            if !is_system(account) {
+                grant.extend(strings(&["/grant:r", "SYSTEM:F"]));
+            }
+            let mut steps = vec![
+                Step {
+                    program: "icacls",
+                    args: grant,
+                },
+                Step {
+                    program: "icacls",
+                    args: [vec![path.to_owned()], strings(&["/inheritance:r"])].concat(),
+                },
+            ];
+            if !same_account(operator, account) {
+                steps.push(Step {
+                    program: "icacls",
+                    args: vec![path.to_owned(), "/remove:g".to_owned(), operator.to_owned()],
+                });
+            }
+            steps
+        }
         Os::Unix => vec![Step {
             program: "chmod",
             args: vec!["600".to_owned(), path.to_owned()],
         }],
     }
+}
+
+/// The last part of `DOMAIN\name`, lower-cased: how account names compare.
+fn short_name(principal: &str) -> String {
+    principal
+        .rsplit('\\')
+        .next()
+        .unwrap_or(principal)
+        .to_ascii_lowercase()
+}
+
+fn same_account(a: &str, b: &str) -> bool {
+    short_name(a) == short_name(b)
+}
+
+fn is_system(principal: &str) -> bool {
+    short_name(principal) == "system"
 }
 
 /// The account names an `icacls <file>` listing grants access to. Each line
@@ -75,15 +111,10 @@ pub fn principals(icacls_output: &str, path: &str) -> Vec<String> {
         .collect()
 }
 
-/// Whether a principal may touch a key: the operator's account or SYSTEM.
-/// `DOMAIN\name` and `COMPUTER\name` compare by their last part.
-pub fn is_allowed(principal: &str, user: &str) -> bool {
-    let name = principal
-        .rsplit('\\')
-        .next()
-        .unwrap_or(principal)
-        .to_ascii_lowercase();
-    name == user.to_ascii_lowercase() || name == "system"
+/// Whether a principal may touch a key: the account the node runs as, or
+/// SYSTEM. `DOMAIN\name` and `COMPUTER\name` compare by their last part.
+pub fn is_allowed(principal: &str, account: &str) -> bool {
+    same_account(principal, account) || is_system(principal)
 }
 
 /// The principals on `icacls_output` that are not allowed.
@@ -143,6 +174,14 @@ pub fn current_violations(os: Os, path: &Path, user: &str) -> Result<Vec<String>
                 .arg(path)
                 .output()
                 .map_err(|e| format!("icacls: {e}"))?;
+            // An unreadable ACL lists no principals; that must not pass as clean.
+            if !out.status.success() {
+                return Err(format!(
+                    "icacls {shown}: {} {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stdout).trim()
+                ));
+            }
             let text = String::from_utf8_lossy(&out.stdout);
             Ok(violations(&text, &shown, user))
         }
@@ -161,7 +200,7 @@ mod tests {
 
     #[test]
     fn windows_grants_the_user_and_system_before_removing_inheritance() {
-        let steps = key_acl_steps(Os::Windows, PATH, "EricW");
+        let steps = key_acl_steps(Os::Windows, PATH, "EricW", "EricW");
         assert_eq!(steps.len(), 2);
         assert_eq!(
             steps[0].args,
@@ -172,8 +211,65 @@ mod tests {
     }
 
     #[test]
+    fn a_node_run_as_system_gets_system_only_and_the_operator_grant_removed() {
+        let steps = key_acl_steps(Os::Windows, PATH, "SYSTEM", "EricW");
+        let args: Vec<_> = steps.iter().map(|s| s.args.clone()).collect();
+        assert_eq!(
+            args,
+            [
+                vec![PATH, "/grant:r", "SYSTEM:F"],
+                vec![PATH, "/inheritance:r"],
+                vec![PATH, "/remove:g", "EricW"],
+            ]
+        );
+    }
+
+    /// Setup's real steps on a real file, then the node's own passphrase rule
+    /// as the boot task's account (SYSTEM, S-1-5-18). Before the fix setup left
+    /// the operator's grant, which the node refused as another account.
+    #[cfg(windows)]
+    #[test]
+    fn setup_acl_passes_the_node_check_when_the_node_runs_as_system() {
+        let operator = std::env::var("USERNAME").unwrap();
+        let path =
+            std::env::temp_dir().join(format!("maya2c-acl-{}.passphrase", std::process::id()));
+        std::fs::write(&path, "x").unwrap();
+        let shown = path.display().to_string();
+        let sddl = || {
+            let out = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "(Get-Acl -LiteralPath $env:P).Sddl",
+                ])
+                .env("P", &path)
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&out.stdout).trim().to_owned()
+        };
+        for step in key_acl_steps(Os::Windows, &shown, &operator, &operator) {
+            run_step(&step).unwrap();
+        }
+        let old_rule = maya_signer::owner_only::others_granted(&sddl(), "S-1-5-18");
+        for step in key_acl_steps(Os::Windows, &shown, "SYSTEM", &operator) {
+            run_step(&step).unwrap();
+        }
+        let new_rule = maya_signer::owner_only::others_granted(&sddl(), "S-1-5-18");
+        let doctor = current_violations(Os::Windows, &path, "SYSTEM").unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            old_rule.len(),
+            1,
+            "the operator-and-SYSTEM ACL should be refused: {old_rule:?}"
+        );
+        assert!(new_rule.is_empty(), "node would refuse: {new_rule:?}");
+        assert!(doctor.is_empty(), "doctor would fail: {doctor:?}");
+    }
+
+    #[test]
     fn unix_sets_mode_0600_on_the_key() {
-        let steps = key_acl_steps(Os::Unix, "/home/op/validator.key", "op");
+        let steps = key_acl_steps(Os::Unix, "/home/op/validator.key", "op", "op");
         assert_eq!(
             steps,
             [Step {

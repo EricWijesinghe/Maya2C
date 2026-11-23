@@ -43,7 +43,8 @@ pub fn write_private(path: &Path, text: &str) -> Result<()> {
     {
         use crate::node_box::acl;
         let user = std::env::var("USERNAME").map_err(|e| format!("USERNAME: {e}"))?;
-        for step in acl::key_acl_steps(acl::Os::Windows, &path.display().to_string(), &user) {
+        for step in acl::key_acl_steps(acl::Os::Windows, &path.display().to_string(), &user, &user)
+        {
             acl::run_step(&step)?;
         }
     }
