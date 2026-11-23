@@ -4,9 +4,13 @@
 //! pin in `crates/vm/Cargo.toml` is consensus-critical. The other suites show
 //! gas is deterministic (same call, same gas) and identical across tiers; they
 //! do not notice the whole schedule moving by one unit. These numbers do. They
-//! were recorded on wasmtime 48.0.8 before the 48.0.10 bump and must hold
-//! unchanged across it. If a wasmtime bump changes one, the bump is a gas
-//! schedule change and needs to be treated as one, not re-recorded quietly.
+//! were recorded on wasmtime 48.0.8 before the 48.0.10 bump and held
+//! unchanged across it on Windows. If a wasmtime bump changes one, the bump is
+//! a gas schedule change and needs to be treated as one, not re-recorded
+//! quietly. One vector was re-recorded, for a config change rather than a
+//! bump: "host calls" has a data segment, and turning copy-on-write memory
+//! images off (ADR-034 amendment 2026-11-23) made its gas the same on every
+//! OS. The reason is written next to it.
 //!
 //! Each vector also pins its boundary: the smallest gas limit the call
 //! succeeds with. wasmtime checks fuel at function entries and loop
@@ -135,8 +139,14 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 8))))
             (i64.const 8)))"#,
-        4_283,
-        4_260,
+        // Re-recorded 2026-11-23 after `memory_init_cow(false)` (ADR-034
+        // amendment): 204 = 20 for instantiating the 16-byte segment (pinned
+        // by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`) plus
+        // 184 for the loop and its 16 host calls. The old 4,283 was a Windows
+        // copy-on-write artefact (4,099 for the padded 4 KiB page + 184);
+        // Linux measured 186 (2 + 184) for the same module.
+        204,
+        181,
         0x756c_6176_3779_656b,
     ),
 ];

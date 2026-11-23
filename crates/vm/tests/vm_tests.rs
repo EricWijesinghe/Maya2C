@@ -51,11 +51,13 @@ fn the_wasmtime_version_pin_has_not_drifted() {
     // Fuel accounting is not stable across wasmtime releases, so the version is
     // consensus-critical. If this fails, the dependency moved and the gas
     // schedule may have moved with it — that is a hard fork, not an upgrade.
-    let actual = env!("CARGO_PKG_VERSION_MAJOR");
-    let _ = actual;
-    assert_eq!(
-        WASMTIME_VERSION, "48.0.10",
-        "the recorded wasmtime version changed; verify the gas schedule"
+    // Compared against the manifest's `=x.y.z`, not a literal, so a bump that
+    // forgets the constant (it once read 48.0.7 under a 48.0.8 pin) fails.
+    let manifest = include_str!("../Cargo.toml");
+    let pin = format!("wasmtime = {{ version = \"={WASMTIME_VERSION}\"");
+    assert!(
+        manifest.lines().any(|l| l.trim_start().starts_with(&pin)),
+        "WASMTIME_VERSION {WASMTIME_VERSION} is not the wasmtime pin in crates/vm/Cargo.toml"
     );
 }
 
