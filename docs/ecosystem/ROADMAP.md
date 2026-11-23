@@ -55,7 +55,7 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 - `chat-pay` (M): Send MAYA inside a chat; the wallet signs (ECOSYSTEM.md section 3)
 - `chat-expression` (L): Reactions, replies, disappearing and delete-for-both messages, custom emoji, profile themes, stories, pairwise anonymous identities, gifts as tips, safety pack. **Design only** ([ADR-140](../adr/ADR-140-chat-expression-and-privacy.md)); ten `planned` ledger entries
 - `explorer-v2` (M): Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending
-- `status-v2` (S): Public network status with a history of incidents and gate progress. Started 2026-11-10: the site's [Live network](https://maya2c.dev/network/) page draws validators, blocks and finality from the existing endpoints
+- `status-v2` (S): Public network status with a history of incidents and gate progress. Started 2026-11-10: the site's [Live network](https://maya2c.dev/network/) page draws validators, blocks and finality from the existing endpoints *(built on `feat/status-v2`: chained, operator-signed incident log; halt drafts; gate and SLO views; see architecture-vision.md)*
 
 **C. Identity and trust**
 
@@ -66,7 +66,7 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 - `sdks-1.0` (M): Stable Rust, TypeScript, Python and Go SDKs with versioned releases. **Status:** Rust gateway client `maya2c-sdk` and Go Bech32m address codec built; not published (features.toml `rust-gateway-sdk`)
 - `dev-portal` (M): Docs, tutorials, playground and contract templates
 - `public-api` (M): Indexer API (REST, later GraphQL) for wallets and dashboards. **Status:** event subscriptions built (P-44: WebSocket `/v1/subscribe`, signed webhooks; in-memory, see `docs/site/authored/api.md`)
-- `mcp-server` (S): AI assistants can read the chain and draft (never sign) transactions
+- `mcp-server` (S): AI assistants can read the chain and draft (never sign) transactions. **Status:** read-only debugging tools (replay, trace, explain refusal, compare account) built, v3 P6
 - `node-in-a-box` (M): One-click validator and node installer with health checks
 - `testnet-kit` (S): Faucet, local devnet and attack lab for developers
 - `validator-recruitment` (M): Public validator onboarding and operator guide, so the validator count can grow beyond the disclosed launch set
@@ -75,9 +75,9 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 **J. Trust you can verify (research 2026-11-10)**
 
 - `release-log-anchor`: A swapped or back-dated release is caught even if GitHub or Rekor is compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust release`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
-- `public-invariant-monitor`: Anyone can watch for a conservation break or halt without trusting the foundation's watcher
+- `public-invariant-monitor`: Anyone can watch for a conservation break or halt without trusting the foundation's watcher. **Status:** built, `apps/invariant-monitor` (features.toml `public-invariant-monitor`); not yet run against the live testnet
 - `signed-incidents`: Outages and attacks recorded so the foundation cannot quietly edit them later. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust incident`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
-- `validator-ledger`: Validator behaviour (signing, missed rounds, equivocation, stake concentration) public and derived only from signed consensus data
+- `validator-ledger`: Validator behaviour (signing, missed rounds, equivocation, stake concentration) public and derived only from signed consensus data. **Status:** CLI built, `apps/validator-ledger` (features.toml `validator-ledger`): checkpoint signers per epoch; stake, rounds and equivocation printed as MISSING; page and RPC not built
 - `foundation-canary`: Users learn if the foundation is compelled or compromised. **Built on `feat/w1a-trust-apps`: `apps/trust-log`, `maya2c-trust canary`; prints the anchor to submit, checks one on chain; no notary submit tool yet**
 
 **K. Protection for people (research 2026-11-10)**
@@ -113,7 +113,7 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 
 **A. Core user apps**
 
-- `wallet-mobile` (L): Android wallet (light client); iOS after the MacBook
+- `wallet-mobile` (L): Android wallet (light client); iOS after the MacBook. **Status:** P-10 skeleton on `feat/p10-android-wallet` (Tauri 2 Android project, 360 px layout check; Keystore storage still TODO, features.toml `android-wallet` stub)
 - `wallet-extension` (M): Browser extension wallet for web apps
 - `notifications` (M): Opt-in alerts (payment received, validator down) without a central server
 
