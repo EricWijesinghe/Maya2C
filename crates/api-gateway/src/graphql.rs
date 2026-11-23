@@ -28,7 +28,20 @@ use std::sync::Arc;
 
 use async_graphql::{Context, EmptyMutation, EmptySubscription, Object, Schema, SimpleObject};
 
+use crate::error::GatewayError;
 use crate::node::NodeClient;
+
+/// Hands a resolver failure to the client as REST and JSON-RPC do: the full
+/// text goes to the log, and only [`GatewayError::public_message`] is returned.
+/// A bare `?` would send the node's error text to the caller unchanged.
+fn client_error(error: &GatewayError) -> async_graphql::Error {
+    match error {
+        GatewayError::Upstream(_) => tracing::warn!(%error, "upstream failure"),
+        GatewayError::Rejected(_) => tracing::info!(%error, "request refused by the node"),
+        _ => {}
+    }
+    async_graphql::Error::new(error.public_message())
+}
 
 /// Maximum nesting depth of a query.
 ///
@@ -44,6 +57,13 @@ pub const MAX_DEPTH: usize = 6;
 /// HTTP request can provoke — which is the quantity that actually matters,
 /// because each one is a round trip to the node.
 pub const MAX_COMPLEXITY: usize = 200;
+
+/// Largest request body the GraphQL route will read, in bytes.
+///
+/// The GraphQL service buffers its whole body before parsing, and axum's
+/// default body limit covers only its own extractors, so this cap is applied
+/// on the route. A query that fits [`MAX_COMPLEXITY`] is far smaller.
+pub const MAX_REQUEST_BYTES: usize = 64 * 1024;
 
 /// An account's balance and nonce.
 #[derive(SimpleObject)]
@@ -74,7 +94,10 @@ impl Query {
     /// Balance and nonce for one account.
     async fn account(&self, ctx: &Context<'_>, address: String) -> async_graphql::Result<Account> {
         let node = ctx.data::<Arc<dyn NodeClient>>()?;
-        let balance = node.get_balance(&address).await?;
+        let balance = node
+            .get_balance(&address)
+            .await
+            .map_err(|error| client_error(&error))?;
         Ok(Account {
             address,
             balance: balance.balance,
@@ -85,7 +108,10 @@ impl Query {
     /// Circulating and total supply.
     async fn supply(&self, ctx: &Context<'_>) -> async_graphql::Result<Supply> {
         let node = ctx.data::<Arc<dyn NodeClient>>()?;
-        let supply = node.get_supply().await?;
+        let supply = node
+            .get_supply()
+            .await
+            .map_err(|error| client_error(&error))?;
         Ok(Supply {
             circulating: supply.circulating,
             total: supply.total,
@@ -104,7 +130,10 @@ impl Query {
         height: u64,
     ) -> async_graphql::Result<Option<async_graphql::Json<serde_json::Value>>> {
         let node = ctx.data::<Arc<dyn NodeClient>>()?;
-        let block = node.get_block_by_height(height).await?;
+        let block = node
+            .get_block_by_height(height)
+            .await
+            .map_err(|error| client_error(&error))?;
         if block.is_null() {
             return Ok(None);
         }

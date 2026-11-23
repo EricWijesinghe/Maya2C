@@ -325,19 +325,14 @@ impl EvidenceCollector {
             .take()
             .ok_or_else(|| anyhow::anyhow!("No active scenario run"))?;
 
-        let end_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |d| d.as_secs());
+        let end_time = unix_now();
 
         run.end_time = Some(end_time);
         run.duration_ms = Some((end_time - run.start_time) * 1000);
         run.verdict = verdict;
 
         // Save to file
-        let date = chrono::DateTime::from_timestamp(run.start_time as i64, 0)
-            .unwrap_or_default()
-            .format("%Y-%m-%d")
-            .to_string();
+        let date = utc_date(run.start_time);
 
         let run_dir = self
             .base_dir
@@ -362,18 +357,8 @@ impl EvidenceCollector {
 
     /// Generate human-readable summary
     fn generate_summary(&self, run: &ScenarioEvidence) -> String {
-        let start = chrono::DateTime::from_timestamp(run.start_time as i64, 0)
-            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-            .unwrap_or_default();
-
-        let end = run
-            .end_time
-            .map(|t| {
-                chrono::DateTime::from_timestamp(t as i64, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
-                    .unwrap_or_default()
-            })
-            .unwrap_or_default();
+        let start = utc_datetime(run.start_time).unwrap_or_default();
+        let end = run.end_time.and_then(utc_datetime).unwrap_or_default();
 
         let mut summary = String::new();
         summary.push_str(&format!("# Scenario Evidence: {}\n\n", run.scenario_name));
@@ -532,7 +517,7 @@ pub fn generate_aggregate_report(runs: &[ScenarioEvidence], output: &Path) -> Re
     report.push_str("# Attacknet Aggregate Report\n\n");
     report.push_str(&format!(
         "Generated: {}\n\n",
-        chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+        utc_datetime(unix_now()).unwrap_or_default()
     ));
 
     // Summary table
@@ -594,4 +579,65 @@ pub fn generate_aggregate_report(runs: &[ScenarioEvidence], output: &Path) -> Re
     std::fs::write(output, report).context("Writing aggregate report")?;
 
     Ok(())
+}
+
+/// Seconds since the Unix epoch, now.
+pub(crate) fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// The instant `secs` after the epoch, or `None` past year 9999.
+fn utc(secs: u64) -> Option<time::OffsetDateTime> {
+    time::OffsetDateTime::from_unix_timestamp(i64::try_from(secs).ok()?).ok()
+}
+
+fn ymd(t: time::OffsetDateTime) -> String {
+    format!("{:04}-{:02}-{:02}", t.year(), u8::from(t.month()), t.day())
+}
+
+/// `YYYY-MM-DD` in UTC: the run directory name. An instant outside the
+/// representable range files under the epoch rather than failing the run.
+pub(crate) fn utc_date(secs: u64) -> String {
+    ymd(utc(secs).unwrap_or(time::OffsetDateTime::UNIX_EPOCH))
+}
+
+/// `YYYY-MM-DD HH:MM:SS UTC`, or `None` outside the representable range.
+pub(crate) fn utc_datetime(secs: u64) -> Option<String> {
+    let t = utc(secs)?;
+    let (h, m, s) = t.to_hms();
+    Some(format!("{} {h:02}:{m:02}:{s:02} UTC", ymd(t)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn utc_date_is_the_civil_date() {
+        assert_eq!(utc_date(1_700_000_000), "2023-11-14");
+        assert_eq!(utc_date(1_704_164_645), "2024-01-02");
+        assert_eq!(utc_date(0), "1970-01-01");
+    }
+
+    #[test]
+    fn utc_datetime_is_seconds_with_a_utc_suffix() {
+        assert_eq!(
+            utc_datetime(1_700_000_000).as_deref(),
+            Some("2023-11-14 22:13:20 UTC")
+        );
+        assert_eq!(
+            utc_datetime(1_704_164_645).as_deref(),
+            Some("2024-01-02 03:04:05 UTC")
+        );
+    }
+
+    #[test]
+    fn an_unrepresentable_instant_is_not_wrapped_to_1969() {
+        // chrono's `as i64` turned u64::MAX into -1, i.e. 1969-12-31.
+        assert_eq!(utc_date(u64::MAX), "1970-01-01");
+        assert_eq!(utc_datetime(u64::MAX), None);
+        assert_eq!(utc_datetime(253_402_300_800), None); // 10000-01-01
+    }
 }

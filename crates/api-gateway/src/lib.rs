@@ -53,6 +53,7 @@ use async_graphql_axum::GraphQL;
 use axum::Router;
 use axum::routing::post_service;
 use maya_web_security::{secure, security_txt};
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::node::NodeClient;
 use crate::rest::AppState;
@@ -71,9 +72,13 @@ fn routes(node: Arc<dyn NodeClient>) -> Router {
     let state = Arc::new(AppState { node });
 
     // `post_service`, not `post`: `GraphQL` is a tower `Service` rather than an
-    // axum handler, and the two are not interchangeable.
-    rest::router(state)
+    // axum handler, and the two are not interchangeable. Its own router carries
+    // the body cap, so the cap reaches this route and no other.
+    let graphql_routes = Router::new()
         .route("/graphql", post_service(GraphQL::new(schema)))
+        .layer(RequestBodyLimitLayer::new(graphql::MAX_REQUEST_BYTES));
+    rest::router(state)
+        .merge(graphql_routes)
         .merge(security_txt())
         .layer(cors())
 }

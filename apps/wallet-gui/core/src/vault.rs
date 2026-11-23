@@ -237,6 +237,11 @@ impl OsKeychain {
         Self { service }
     }
 
+    // TODO(P-10, Android Keystore): keyring 4's `v1` API has no Android store;
+    // there `Entry::new` returns `Invalid("platform")` (keyring's own
+    // `test_new_before_store`), so an Android build fails closed: no wallet can
+    // be created, and nothing falls back to a plain file. Threat model and the
+    // plan (a Keystore-bound store behind this trait): apps/wallet-gui/ANDROID.md.
     fn entry(&self, name: &str) -> Result<keyring::Entry> {
         keyring::Entry::new(&self.service, name)
             .map_err(|e| WalletError::Keychain(format!("opening entry '{name}': {e}")))
