@@ -12,7 +12,7 @@
   .w { fill: #0b1a24; stroke: #8fb4ff; } .wt { fill: #8fb4ff; font-size: 10.5px; font-weight: 700; }
   .pl { fill: #1a1a1a; stroke: #8a9ca3; } .plt { fill: #b9c6ca; font-size: 10.5px; font-weight: 700; }
 </style>
-<rect width="1200" height="580" fill="#050b0f"/>
+<rect x="1" y="1" width="1198" height="578" rx="22" fill="#050b0f" stroke="#2cc3cf" stroke-opacity=".35" stroke-width="2"/>
 <text x="30" y="38" font-size="20" font-weight="800">Ecosystem map</text>
 <text x="1170" y="38" text-anchor="end" class="s">status chips are the features.toml values at this commit</text>
 

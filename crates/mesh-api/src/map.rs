@@ -27,15 +27,25 @@ pub const CHANGES_TX_PREFIX: &str = "block-balance-changes:";
 pub fn currency() -> Currency {
     Currency {
         symbol: SYMBOL.to_string(),
-        decimals: 0,
+        decimals: DECIMALS,
     }
 }
 
-/// `after - before` as a signed decimal string, without overflow: both are
-/// `u64`, the difference always fits `i128`.
+/// [`maya_amount::COIN_DECIMALS`] as Mesh's `u32`. A reconciler that reads 0
+/// here shows every balance 10^24 times too large.
+const DECIMALS: u32 = 24;
+const _: () = assert!(DECIMALS as usize == maya_amount::COIN_DECIMALS);
+
+/// `after - before` as a signed decimal string. Both are 256-bit, so the
+/// magnitude is taken in the order that cannot underflow and the sign is
+/// written separately.
 #[must_use]
 pub fn delta(change: &Change) -> String {
-    (i128::from(change.after) - i128::from(change.before)).to_string()
+    if change.after >= change.before {
+        change.after.saturating_sub(change.before).to_string()
+    } else {
+        format!("-{}", change.before.saturating_sub(change.after))
+    }
 }
 
 fn operation(index: u64, change: &Change) -> Operation {
@@ -121,10 +131,14 @@ mod tests {
     fn change(address: &str, before: u64, after: u64) -> Change {
         Change {
             address: address.into(),
-            before,
-            after,
+            before: maya_amount::Amount::from_u64(before),
+            after: maya_amount::Amount::from_u64(after),
         }
     }
+
+    /// 2^256 - 1, the largest balance the node can hold.
+    const MAX_DEC: &str =
+        "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
     #[test]
     fn every_moved_balance_is_one_operation_and_they_sum_to_the_net_change() {
@@ -164,5 +178,25 @@ mod tests {
         assert_eq!(b.transactions.len(), 1);
         assert_eq!(delta(&change("x", u64::MAX, 0)), format!("-{}", u64::MAX));
         assert_eq!(delta(&change("x", 0, u64::MAX)), u64::MAX.to_string());
+        // Beyond u64 and i128: the full 256-bit range in both directions.
+        let max = Change {
+            address: "x".into(),
+            before: maya_amount::Amount([u64::MAX; 4]),
+            after: maya_amount::Amount::from_u64(0),
+        };
+        assert_eq!(delta(&max), format!("-{MAX_DEC}"));
+        let rise = Change {
+            before: max.after,
+            after: max.before,
+            ..max
+        };
+        assert_eq!(delta(&rise), MAX_DEC);
+    }
+
+    #[test]
+    fn the_currency_carries_the_chains_24_decimals() {
+        // Mesh reads `value` in base units and divides by 10^decimals.
+        assert_eq!(currency().decimals, 24);
+        assert_eq!(currency().symbol, "MAYA");
     }
 }

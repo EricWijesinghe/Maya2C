@@ -83,9 +83,10 @@ is why it is named here rather than done.
 miner-influenced within the consensus tolerance, so a timestamp-based deadline is
 a deadline an adversary can nudge."*
 
-It is worse than that. `chain.rs` reads `header.timestamp` **only** for
-difficulty retargeting. There is no future-drift bound, no median-time-past, no
-validity rule of any kind. A miner may write any `u64` it likes.
+It is worse than that. On the PoW path `chain.rs` reads `header.timestamp` for
+difficulty retargeting and requires it to exceed the median-time-past (ADR-063);
+fixed-target DAG-BFT skips that check. There is no future-drift bound in
+consensus, so a miner may write a timestamp far ahead of the real clock.
 
 So a feed carries `updated_height` and nothing else, and `oracle_read` takes
 `max_age_blocks`. A timestamp-based freshness check on this chain would read as

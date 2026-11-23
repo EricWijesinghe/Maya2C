@@ -46,6 +46,10 @@ pub const HASHRATE_WINDOW: Duration = Duration::from_secs(600);
 /// without bound.
 pub const WORKER_RETENTION: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// Most rigs the book holds at once. A connected rig is never evicted, so this is
+/// the only bound on the map; past it, a new rig's telemetry is not recorded.
+pub const MAX_WORKERS: usize = 65_536;
+
 /// A rig's accumulated statistics.
 #[derive(Clone, Debug, Default)]
 struct WorkerEntry {
@@ -133,7 +137,9 @@ impl TelemetryBook {
 
     /// Records a credited share.
     pub fn record_accepted(&mut self, key: &WorkerKey, weight: u64, now_millis: u64) {
-        let entry = self.entry(key, now_millis);
+        let Some(entry) = self.entry(key, now_millis) else {
+            return;
+        };
         entry.roll_window(now_millis);
         entry.accepted += 1;
         entry.weight = entry.weight.saturating_add(weight);
@@ -144,7 +150,9 @@ impl TelemetryBook {
 
     /// Records a refused share.
     pub fn record_rejected(&mut self, key: &WorkerKey, reason: RejectReason, now_millis: u64) {
-        let entry = self.entry(key, now_millis);
+        let Some(entry) = self.entry(key, now_millis) else {
+            return;
+        };
         entry.rejected += 1;
         if reason == RejectReason::Stale {
             // Broken out because staleness is as often the pool's fault as the
@@ -156,7 +164,9 @@ impl TelemetryBook {
 
     /// Records the target a channel is now on.
     pub fn record_target(&mut self, key: &WorkerKey, bits: u32, now_millis: u64) {
-        let entry = self.entry(key, now_millis);
+        let Some(entry) = self.entry(key, now_millis) else {
+            return;
+        };
         entry.target_bits = bits;
         entry.last_seen_millis = now_millis;
     }
@@ -169,7 +179,9 @@ impl TelemetryBook {
         reported_hashrate: f32,
         now_millis: u64,
     ) {
-        let entry = self.entry(key, now_millis);
+        let Some(entry) = self.entry(key, now_millis) else {
+            return;
+        };
         entry.connected = connected;
         if reported_hashrate.is_finite() && reported_hashrate >= 0.0 {
             entry.reported_hashrate = reported_hashrate;
@@ -190,7 +202,9 @@ impl TelemetryBook {
         fan_percent: u8,
         now_millis: u64,
     ) {
-        let entry = self.entry(key, now_millis);
+        let Some(entry) = self.entry(key, now_millis) else {
+            return;
+        };
         entry.reported_power_milliwatts = power_milliwatts;
         entry.reported_temperature_millicelsius = temperature_millicelsius;
         entry.reported_fan_percent = fan_percent;
@@ -277,13 +291,21 @@ impl TelemetryBook {
         self.workers.is_empty()
     }
 
-    /// The entry for a worker, created on first sight.
-    fn entry(&mut self, key: &WorkerKey, now_millis: u64) -> &mut WorkerEntry {
-        self.workers.entry(key.clone()).or_insert(WorkerEntry {
+    /// The entry for a worker, created on first sight, or `None` when the book is
+    /// at [`MAX_WORKERS`] and no retained entry can be evicted to make room.
+    // shortcut: a full scan on each refused create, revisit with a time-ordered eviction index
+    fn entry(&mut self, key: &WorkerKey, now_millis: u64) -> Option<&mut WorkerEntry> {
+        if !self.workers.contains_key(key) && self.workers.len() >= MAX_WORKERS {
+            self.evict_stale(now_millis);
+            if self.workers.len() >= MAX_WORKERS {
+                return None;
+            }
+        }
+        Some(self.workers.entry(key.clone()).or_insert(WorkerEntry {
             window_start_millis: now_millis,
             last_seen_millis: now_millis,
             ..WorkerEntry::default()
-        })
+        }))
     }
 }
 
@@ -395,6 +417,24 @@ mod tests {
         // number here would be reporting one made entirely of claims.
         let stats = book.stats_for(&worker, 0).unwrap();
         assert_eq!(stats.reported_joules_per_hash(), None);
+    }
+
+    #[test]
+    fn the_book_stops_growing_at_its_cap_even_when_every_rig_is_connected() {
+        // The map is bounded: a connected entry is never evicted, so the cap is
+        // the only limit on growth. At the cap a new rig is not recorded; the
+        // share path still runs, only its telemetry is dropped.
+        let mut book = TelemetryBook::new();
+        for i in 0..MAX_WORKERS {
+            book.record_connection(&key(&format!("rig-{i}")), true, 1.0, 0);
+        }
+        assert_eq!(book.len(), MAX_WORKERS);
+
+        let extra = key("one-more");
+        book.record_connection(&extra, true, 1.0, 0);
+        book.record_accepted(&extra, 1, 0);
+        assert_eq!(book.len(), MAX_WORKERS);
+        assert!(book.stats_for(&extra, 0).is_none());
     }
 
     #[test]
