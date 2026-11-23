@@ -83,3 +83,66 @@ config.wasm_features(
   `token_swap_tests` under the new rule.
 - The lesson: a setting the code cannot express is not a setting. The
   determinism table is now backed by a test for every proposal it names.
+
+## Amendment 2026-11-23: copy-on-write memory images off
+
+**Status:** Accepted (Eric, 2026-11-23: took the "#641 fix only" option, which included this gas change from genesis). Ported into PR #641 from PR #674.
+
+**Finding.** The V3-P3 tier work explained the Windows "Pulley charges
+61,440 more fuel" result from 2026-09-27, and it was not about Pulley.
+wasmtime 48 turns active data segments into a memory image padded to the
+compiler's page size. Where the image can be mapped copy-on-write (Linux,
+memfd), the segments cost nothing. Where it cannot (Windows), a startup
+function copies the whole padded image, and that function is fuel-metered.
+Measured with one 16-byte segment and nothing else
+(`a_data_segment_costs_the_same_gas_on_every_host_and_tier`):
+
+| Host | Cranelift | Pulley |
+|---|---|---|
+| Linux (WSL2 Ubuntu 24.04), old config | 2 | 2 |
+| Windows 11, old config | 4,099 | 65,539 |
+| Windows 11 and Linux, `memory_init_cow(false)` | 20 | 20 |
+
+So a Cranelift node on Windows and a Cranelift node on Linux charged
+different gas for every contract with a data segment (Rust-built contracts
+normally have one; `token_swap` used 4,154 on Windows). A call whose
+`gas_limit` falls between the two figures succeeds on one platform and runs
+out of gas on the other, and only the success writes storage: a state-root
+split between validators on different operating systems, which anyone can
+trigger by choosing the gas limit.
+
+**Decision.** `deterministic_config` calls `config.memory_init_cow(false)`.
+Every host then copies exactly the segments' bytes through the same metered
+code, so data-segment gas is a function of the module alone. It is in
+`config_digest`, so every cached module is recompiled.
+
+**Consequences.**
+
+- Gas changes for every contract with a data segment: on Linux it rises by
+  about the segments' byte count, on Windows it falls by about one page. It
+  takes effect at mainnet genesis. Testnet nodes must move together (or
+  re-genesis); a mixed testnet would disagree on exactly the calls above.
+- Instantiation copies segment bytes instead of mapping them. Contracts are
+  capped at `MAX_MODULE_BYTES` = 512 KiB, so the copy is bounded.
+- The two tier-differential tests that were ignored on Windows now run
+  there and pass; the Pulley tier stays off for its speed (19x slower), not
+  for a divergence.
+- `crates/vm/tests/gas_golden_tests.rs` "host calls: storage and events"
+  (its one vector with a data segment) moves to 204 gas / boundary 181 on
+  every host: 20 for the segment module plus 184 for the loop and host calls.
+  It was 4,283 on Windows (4,099 + 184) and 186 on Linux (2 + 184). Every
+  other vector is unchanged.
+- `config_digest` now hashes `WASMTIME_VERSION` instead of a hard-coded
+  version string, and the version-pin test reads the `=x.y.z` from the
+  manifest, so a wasmtime bump changes the digest and a stale constant fails.
+- **Still open (not fixed here):** the stack limit is `max_wasm_stack` in
+  bytes, and frame sizes differ between Cranelift and Pulley (reproduced in
+  PR #674) and probably between x86-64 and aarch64 (NOT VERIFIED). A
+  contract recursing to a depth between two hosts' limits succeeds on one
+  and traps on the other. Needs a decision: a frame-counted call-depth limit,
+  or genesis validators restricted to x86-64 Cranelift (ADR-016), written
+  down. Gas is host-independent after this amendment; stack depth is not
+  shown to be.
+- Lesson: "deterministic" has to be tested across the operating systems
+  validators run, not only across tiers on one machine. The pinned-number
+  test above fails on any host that charges differently.
