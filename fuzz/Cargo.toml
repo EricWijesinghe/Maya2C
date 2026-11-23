@@ -55,6 +55,13 @@ maya-mev = { path = "../crates/mev" }
 # Stored RWA records, read back from state rather than from the wire.
 maya-rwa = { path = "../crates/rwa" }
 blake3 = "1"
+# vm_tier_differential: contract-shaped modules run on every execution tier.
+# Fuzz-only; the VM itself never links a module generator.
+maya-vm = { path = "../crates/vm" }
+# `wasmparser` is what reads the import and export shapes the target passes in; without
+# it wasm-smith panics on `available_imports`.
+wasm-smith = { version = "0.259", features = ["wasmparser"] }
+wat = "1"
 
 # Sanitizer builds are slow enough that unoptimized decoding would dominate the
 # profile. Debug assertions stay on: an arithmetic overflow in a decode path is
@@ -252,6 +259,16 @@ bench = false
 [[bin]]
 name = "reorg_prune"
 path = "fuzz_targets/reorg_prune.rs"
+test = false
+doc = false
+bench = false
+
+# Cranelift vs Pulley on generated contracts: same gas, output, events, traps
+# and final state in every tier (V3-P3). Slow per exec (two compiles and an
+# interpreter), so it finds bugs by breadth of modules, not by speed.
+[[bin]]
+name = "vm_tier_differential"
+path = "fuzz_targets/vm_tier_differential.rs"
 test = false
 doc = false
 bench = false

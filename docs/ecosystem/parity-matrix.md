@@ -117,7 +117,7 @@ Queue abbreviations: P-1..P-16 = `.claude/plans/q1-90day-roadmap.plan.md`; V3-*,
 
 | Facility | Who | Source | Maya2C | Queue |
 |---|---|---|---|---|
-| WASM VM | NEAR, Polkadot, CosmWasm, ICP | (common) | `features.toml:2014` REAL/verified; tiers `3018` | shipped / V3-P3 |
+| WASM VM | NEAR, Polkadot, CosmWasm, ICP | (common) | `features.toml:2014` REAL/verified; tiers `3018` | shipped; V3-P3 tier fuzz + golden corpus in PR #674 (tiers RESEARCH, node runs Cranelift) |
 | EVM compat | hundreds; Tezos X EVM + Michelson on one ledger, testnet 2026-05 (P); Hedera Pectra parity (P) | https://spotlight.tezos.com/tezos-x-from-roadmap-to-reality/ ; https://www.tezos.com/tezos-x/ | `features.toml:3380` multivm-phase-a RESEARCH | P-8 |
 | Move / Cairo / multi-language | Sui, Aptos; Arbitrum Stylus with Move compiler 2026-02 (T) | https://blockeden.xyz/blog/2026/02/01/arbitrum-2026-roadmap-arbos-dia-gaming-catalyst-stylus/ | Rust-to-WASM only | covered by P-8 phase B |
 | Contract timers / scheduled execution | ICP timers (P), Hedera scheduled tx (P) | https://www.hedera.com/roadmap | **none** (P-7 is payments only) | gap P-39 |

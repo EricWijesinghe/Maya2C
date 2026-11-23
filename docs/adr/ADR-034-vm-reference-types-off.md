@@ -83,3 +83,75 @@ config.wasm_features(
   `token_swap_tests` under the new rule.
 - The lesson: a setting the code cannot express is not a setting. The
   determinism table is now backed by a test for every proposal it names.
+
+## Amendment 2026-11-23: copy-on-write memory images off
+
+**Status:** Proposed. Written by Claude under Eric's blanket "I approve
+everything, proceed" (Eric 2026-11-14). That text does not name gas-schedule
+changes, so it is cited as the reason the work was done, not as approval of
+this change. It moves to Accepted when two human reviewers and the
+rust-reviewer and security-reviewer passes are recorded on PR #674.
+
+**Finding.** The V3-P3 tier work explained the Windows "Pulley charges
+61,440 more fuel" result from 2026-09-27, and it was not about Pulley.
+wasmtime 48 turns active data segments into a memory image padded to the
+compiler's page size. Where the image can be mapped copy-on-write (Linux,
+memfd), the segments cost nothing. Where it cannot (Windows), a startup
+function copies the whole padded image, and that function is fuel-metered.
+Measured with one 16-byte segment and nothing else
+(`a_data_segment_costs_the_same_gas_on_every_host_and_tier`):
+
+| Host | Cranelift | Pulley |
+|---|---|---|
+| Linux (WSL2 Ubuntu 24.04), old config | 2 | 2 |
+| Windows 11, old config | 4,099 | 65,539 |
+| Windows 11 and Linux, `memory_init_cow(false)` | 20 | 20 |
+
+So a Cranelift node on Windows and a Cranelift node on Linux charged
+different gas for every contract with a data segment (Rust-built contracts
+normally have one; `token_swap` used 4,154 on Windows). A call whose
+`gas_limit` falls between the two figures succeeds on one platform and runs
+out of gas on the other, and only the success writes storage: a state-root
+split between validators on different operating systems, which anyone can
+trigger by choosing the gas limit.
+
+**Decision.** `deterministic_config` calls `config.memory_init_cow(false)`.
+Every host then copies exactly the segments' bytes through the same metered
+code, so data-segment gas is a function of the module alone. It is in
+`config_digest`, so every cached module is recompiled.
+
+**Consequences.**
+
+- Gas changes for every contract with a data segment: on Linux it rises by
+  about the segments' byte count, on Windows it falls by about one page. It
+  takes effect at mainnet genesis, with no activation height, because it
+  lands before genesis.
+- **Testnet operational step.** A testnet binary carrying this change must
+  replace every validator's binary at once (stop all, upgrade all, start
+  all), or the testnet is re-genesised. A mixed testnet (old and new
+  binaries, or Linux and Windows nodes on the old binary) disagrees on
+  exactly the calls above. The same line is in the PR body for the release
+  notes.
+- Instantiation copies segment bytes instead of mapping them. Contracts are
+  capped at `MAX_MODULE_BYTES` = 512 KiB, so the copy is bounded.
+- On master before this change `tier_differential_tests.rs` had 2 tests,
+  both ignored on Windows. Both now run there and pass, and the file has 6:
+  the hand corpus, `token_swap` (its wasm is committed under `target-contracts/`;
+  the test now fails instead of skipping if it is missing), the fuzz corpus, the corpus file names, the pinned data
+  segment and the spec vectors. The Pulley tier stays off for its speed
+  (19x slower), not for a divergence.
+- **Spec and vectors.** Rule VMI-1 in `spec/11-vm-instantiation.md`, with
+  hand-written vectors in `spec/tests/vm_instantiation.json` (16-byte
+  segment: 20 gas, ok at `gas_limit` 20, `OutOfGas` at 19), replayed on
+  every tier by `the_vm_instantiation_vectors_hold_in_every_tier`.
+- **Golden values, not only tier agreement.** `tests/tier_corpus/golden.txt`
+  (fuzz corpus, 512 cells) and `hand_golden.txt` (hand corpus, 24 cells)
+  pin what every tier on every host must produce. They are regenerated
+  with `MAYA_VM_BLESS_TIER_GOLDEN=1` only for a deliberate gas-schedule or
+  wasmtime change, which needs an ADR or amendment citing the old and new
+  values. With `memory_init_cow(true)` restored on Linux, both tiers agree
+  and the hand golden fails (`storage and events`: 186 against 204): the
+  check this bug needed.
+- Lesson: "deterministic" has to be tested across the operating systems
+  validators run, not only across tiers on one machine. The pinned numbers
+  above fail on any host that charges differently.

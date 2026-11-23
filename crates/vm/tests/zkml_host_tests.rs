@@ -202,8 +202,9 @@ fn the_model_id_and_public_inputs_arrive_intact_and_signed() {
 #[test]
 fn verification_is_charged_its_full_price() {
     // Measured as a difference against the same module without the call,
-    // because the rest of the module is not free: wasmtime charges ~4,096 fuel
-    // to initialise data segments, which has nothing to do with this function.
+    // because the rest of the module is not free: initialising its data
+    // segments costs fuel for every segment byte (ADR-034 amendment
+    // 2026-11-23), which has nothing to do with this function.
     let price = verification_fuel(VK_LEN as usize, PROOF_LEN as usize, PUBLIC_COUNT as usize);
     let (outcome, _) = run(
         &standard(),

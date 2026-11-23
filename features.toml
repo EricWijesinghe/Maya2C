@@ -3242,12 +3242,12 @@ note = "ADR-015. Node vote signatures are ML-DSA-87 validator signatures over VO
 id = "vm-execution-tiers"
 name = "WASM execution tiers (Cranelift, Pulley) with identical gas"
 domain = "Consensus and execution"
-paths = "`crates/vm/src/tier.rs`"
+paths = "`crates/vm/src/tier.rs`, `fuzz/fuzz_targets/vm_tier_differential.rs`"
 tier = "core"
 class = "RESEARCH"
 status = "working"
 tests = ["crates/vm/tests/tier_differential_tests.rs"]
-note = "Master Prompt 5 §2. Differential corpus + token_swap: gas, output, events, storage and error class identical in Cranelift cold/cached and Pulley. Pulley 19x slower on this host (reports/05-vm.md)."
+note = "Master Prompt 5 §2, V3-P3. CI corpus test: hand corpus (Cranelift cold, cached and Pulley) and 64 fuzz-generated modules (tests/tier_corpus; Cranelift cold, cached and Pulley) give identical gas, output, events, trap code and storage, and match committed golden values (golden.txt, hand_golden.txt), checked on Windows 11 and Linux (WSL2); token_swap (its wasm is committed under target-contracts/, and the test fails if it is missing) is compared across tiers. Spec rule VMI-1 vectors (spec/tests/vm_instantiation.json). Differential fuzz target vm_tier_differential (wasm-smith, oracle feeds and zkML verdict drawn from the input), Linux only. The old Windows-only divergence (+61,440 fuel) was data-segment gas depending on the OS (copy-on-write memory image), which also split Cranelift on Windows from Cranelift on Linux; fixed 2026-11-23 with memory_init_cow off (ADR-034 amendment) and pinned by a_data_segment_costs_the_same_gas_on_every_host_and_tier. Exception found 2026-11-23 by the fuzz target: guest stack depth is a byte budget, so deep recursion exhausts Pulley's stack before Cranelift's (tier_stack_depth_tests.rs, ignored; the same may hold for Cranelift across CPU architectures, NOT VERIFIED). Pulley stays off: 19x slower on this host."
 
 [[subsystem]]
 id = "btc-spv"
