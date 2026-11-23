@@ -45,6 +45,7 @@ pub mod compose;
 pub mod confirm;
 pub mod error;
 pub mod hd;
+pub mod multisig;
 pub mod networks;
 pub mod node_url;
 pub mod payment;

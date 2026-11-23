@@ -71,8 +71,10 @@ on.**
   `multisig_tests::two_wallets_paying_the_same_outputs_at_the_same_nonce_have_different_ids`.
 - **The Ledger app shows the genesis.** `apps/ledger-maya2c` parses the v2
   suite domain and the tag, and puts the genesis id on the review screen
-  ("Network genesis"). A device that signs for whatever chain it is handed
-  would let a request dressed as a testnet transfer spend mainnet funds.
+  (labelled "Genesis"; it was "Network genesis" until 2026-11-14, when the
+  Nano S Plus pager was found cutting that label to "Netwo...sis"). A device
+  that signs for whatever chain it is handed would let a request dressed as a
+  testnet transfer spend mainnet funds.
 - **`StateDB::bind_chain` is idempotent for the same tag** and refuses a
   different one, so a caller may bind before `Chain::open` binds again.
 - **Independent checks.** `spec/tests/encoding.json` pins the signing bytes
