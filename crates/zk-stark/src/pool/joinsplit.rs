@@ -9,7 +9,7 @@
 //! | `36i + 1` | input `i` value layer: `lo, hi, 0.. ‖ address` |
 //! | `36i + 2` | input `i` commitment: `layer ‖ rho ‖ rand` |
 //! | `36i + 3 … 36i + 34` | input `i` Merkle path, 32 levels, up to the anchor |
-//! | `36i + 35` | input `i` nullifier: `sk ‖ NULLIFIER, rho, 0..` |
+//! | `36i + 35` | input `i` nullifier: `sk ‖ NULLIFIER, cm[0..7]` |
 //! | `72 + 2j`, `73 + 2j` | output `j` value layer and commitment |
 //! | 76–127 | padding: honest permutations, nothing else |
 //!
@@ -60,7 +60,7 @@ pub const INPUT_ROWS: usize = 4 + TREE_DEPTH;
 const OUT_BASE: usize = INPUTS * INPUT_ROWS;
 
 // Registers, after the permutation columns.
-const IN_REG: usize = DIGEST + 2 * NONCE + 2 + 1; // sk, rho, rand, v(2), dummy
+const IN_REG: usize = DIGEST + 2 * NONCE + 2 + 1 + DIGEST; // sk, rho, rand, v(2), dummy, cm
 const OUT_REG: usize = DIGEST + 2 * NONCE + 2; // address, rho, rand, v(2)
 /// Input `i`'s register block.
 #[must_use]
@@ -84,6 +84,8 @@ pub mod input {
     pub const V: usize = 16;
     /// Dummy flag.
     pub const DUMMY: usize = 18;
+    /// The note's commitment, carried from its row into the nullifier's.
+    pub const CM: usize = 19;
 }
 /// Offsets inside an output block.
 pub mod output {
@@ -304,11 +306,15 @@ fn eval_input<AB: AirBuilder<F = F>>(b: &mut AB, r: &Row<'_, AB>, i: usize) {
     for k in 0..NONCE {
         eq(b, &s(CM), inp(DIGEST + k), reg(input::RHO + k));
         eq(b, &s(CM), inp(DIGEST + NONCE + k), reg(input::RAND + k));
-        eq(b, &s(NF), inp(DIGEST + 1 + k), reg(input::RHO + k));
+    }
+    // The nullifier hashes the commitment, not `rho` alone: `rho` is free to
+    // whoever made the note, so two notes sharing it must not share `nf`.
+    for k in 0..DIGEST {
+        eq(b, &s(CM), v::<AB>(r.dig[k]), reg(input::CM + k));
     }
     eq(b, &s(NF), inp(DIGEST), E::<AB>::from(nf_tag));
-    for k in DIGEST + 1 + NONCE..16 {
-        eq(b, &s(NF), inp(k), E::<AB>::ZERO);
+    for k in 0..DIGEST - 1 {
+        eq(b, &s(NF), inp(DIGEST + 1 + k), reg(input::CM + k));
     }
     let real = E::<AB>::ONE - reg(input::DUMMY);
     for k in 0..DIGEST {

@@ -124,6 +124,7 @@ fn registers(w: &JoinSplitWitness) -> Vec<F> {
         r[at + input::RAND..at + input::RAND + NONCE].copy_from_slice(&s.note.rand);
         r[at + input::V..at + input::V + 2].copy_from_slice(&limbs(s.note.value));
         r[at + input::DUMMY] = F::from_bool(s.is_dummy);
+        r[at + input::CM..at + input::CM + DIGEST].copy_from_slice(&s.note.commitment());
     }
     for (j, n) in w.outputs.iter().enumerate() {
         let at = out_reg(j);
@@ -167,7 +168,7 @@ fn input_rows(s: &SpendWitness) -> (Vec<[F; WIDTH]>, Vec<(F, Digest)>) {
         extra.push((F::from_bool(right), *sib));
         cur = crate::hash::permute(st)[..DIGEST].try_into().expect("8");
     }
-    states.push(state(&s.sk, &nullifier_right(&s.note.rho)));
+    states.push(state(&s.sk, &nullifier_right(&s.note.commitment())));
     extra.push((F::ZERO, [F::ZERO; DIGEST]));
     (states, extra)
 }

@@ -5,7 +5,7 @@ use p3_matrix::Matrix as _;
 use p3_matrix::dense::RowMajorMatrix;
 
 use super::joinsplit::{self, JoinSplitAir, in_reg, input};
-use super::note::{Note, SpendingKey, nullifier_right, value_digest};
+use super::note::{NONCE, Note, SpendingKey, nullifier_right, value_digest};
 use super::tree::{CommitmentTree, merkle_path};
 use super::wallet::{self, Payment, Spend};
 use super::*;
@@ -253,10 +253,19 @@ fn a_note_owned_by_someone_else_cannot_be_spent() {
 }
 
 #[test]
-fn the_nullifier_must_use_the_note_s_own_rho() {
+fn the_nullifier_must_use_the_note_s_own_commitment() {
     let (w, _) = fixture(50, 50, 0);
     let mut trace = witness::trace(&w);
-    let other = [F::ONE, F::TWO, F::ONE, F::TWO];
+    let other = [
+        F::ONE,
+        F::TWO,
+        F::ONE,
+        F::TWO,
+        F::ONE,
+        F::TWO,
+        F::ONE,
+        F::TWO,
+    ];
     rehash(
         &mut trace,
         joinsplit::INPUT_ROWS - 1,
@@ -265,6 +274,67 @@ fn the_nullifier_must_use_the_note_s_own_rho() {
     let mut public = witness::public_of(&w);
     public.nullifiers[0] = compress(&w.inputs[0].sk, &nullifier_right(&other));
     assert!(refused(trace, &public));
+}
+
+#[test]
+fn the_nullifier_cannot_skip_the_commitment() {
+    // A nullifier over `rho` alone (`NULLIFIER, rho, 0, 0, 0`), with the
+    // public nullifier recomputed to match.
+    let (w, _) = fixture(50, 50, 0);
+    let mut trace = witness::trace(&w);
+    let mut right = crate::gadgets::domain(crate::gadgets::Domain::Nullifier);
+    right[1..=NONCE].copy_from_slice(&w.inputs[0].note.rho);
+    rehash(
+        &mut trace,
+        joinsplit::INPUT_ROWS - 1,
+        state(&w.inputs[0].sk, &right),
+    );
+    let mut public = witness::public_of(&w);
+    public.nullifiers[0] = compress(&w.inputs[0].sk, &right);
+    assert!(refused(trace, &public));
+}
+
+#[test]
+fn the_commitment_register_must_hold_the_note_s_own_commitment() {
+    // A forged cm register, held constant like the real one, with the
+    // nullifier row and the public nullifier recomputed over it: only the
+    // tie between the register and the commitment row refuses this.
+    let (w, _) = fixture(50, 50, 0);
+    let mut trace = witness::trace(&w);
+    let forged = [F::ONE; crate::hash::DIGEST];
+    for (k, x) in forged.iter().enumerate() {
+        set_register(&mut trace, in_reg(0) + input::CM + k, *x);
+    }
+    rehash(
+        &mut trace,
+        joinsplit::INPUT_ROWS - 1,
+        state(&w.inputs[0].sk, &nullifier_right(&forged)),
+    );
+    let mut public = witness::public_of(&w);
+    public.nullifiers[0] = compress(&w.inputs[0].sk, &nullifier_right(&forged));
+    assert!(refused(trace, &public));
+}
+
+#[test]
+fn the_joinsplit_layout_is_pinned() {
+    // Any change here changes which proofs every node accepts: it needs a
+    // re-genesis or an activation height, not a silent merge.
+    assert_eq!(in_reg(1), 27, "input register block");
+    assert_eq!(joinsplit::EXTRA, 102 + 4 * 54, "columns after Poseidon2");
+    assert_eq!(joinsplit::ROWS, 128);
+}
+
+#[test]
+fn notes_sharing_a_rho_do_not_share_a_nullifier() {
+    // `rho` is the creator's choice; a payer who reuses it across two notes
+    // to one recipient must not make one of them unspendable.
+    let key = SpendingKey::random().expect("key");
+    let first = Note::new(50, key.address()).expect("note");
+    let mut second = Note::new(50, key.address()).expect("note");
+    second.rho = first.rho;
+    assert_ne!(first.commitment(), second.commitment());
+    let sk = key.0.to_field();
+    assert_ne!(first.nullifier(&sk), second.nullifier(&sk));
 }
 
 #[test]

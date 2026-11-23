@@ -4112,7 +4112,7 @@ columns the verifier supplies, so no witness can switch a check off.
 | `36i + 1` | input `i` value layer: `lo, hi, 0.. ‖ address` |
 | `36i + 2` | input `i` commitment: `layer ‖ rho ‖ rand` |
 | `36i + 3 … 36i + 34` | input `i` Merkle path, 32 levels, up to the anchor |
-| `36i + 35` | input `i` nullifier: `sk ‖ NULLIFIER, rho, 0..` |
+| `36i + 35` | input `i` nullifier: `sk ‖ NULLIFIER, cm[0..7]` |
 | `72 + 2j`, `73 + 2j` | output `j` value layer and commitment |
 | 76–127 | padding: honest permutations, nothing else |
 \end{verbatim}
@@ -4156,7 +4156,7 @@ Keys, notes, commitments and nullifiers.
 \begin{verbatim}
 address = compress(sk, KEY)
 cm      = compress(compress(lo, hi, 0.. ‖ address), rho ‖ rand)
-nf      = compress(sk, NULLIFIER, rho, 0, 0, 0)
+nf      = compress(sk, NULLIFIER, cm[0..7])
 \end{verbatim}
 
 Values are two 27-bit limbs, so a note holds less than \texttt{2\textasciicircum{}54} (about
@@ -4164,10 +4164,13 @@ Values are two 27-bit limbs, so a note holds less than \texttt{2\textasciicircum
 to four limbs in one equation and every such sum must stay below the
 BabyBear modulus, \texttt{p ≈ 15·2\textasciicircum{}27} — see \texttt{joinsplit.rs}.
 
-\texttt{rho} (4 elements, \textasciitilde{}124 bits) makes every note unique, so every nullifier
-is; \texttt{rand} hides the commitment. The nullifier needs \texttt{sk}, so only the
-owner can compute it, and it is a function of the note, so spending a note
-twice publishes the same nullifier twice.
+\texttt{rho} (4 elements, \textasciitilde{}124 bits) makes an honest note unique; \texttt{rand} hides the
+commitment. The nullifier needs \texttt{sk}, so only the owner can compute it, and
+it is a function of the note, so spending a note twice publishes the same
+nullifier twice. It hashes the commitment rather than \texttt{rho} alone: \texttt{rho} is
+chosen by whoever creates the note, and two notes sharing a \texttt{rho} must not
+share a nullifier. Seven of the commitment's eight elements fit beside the
+domain tag (\textasciitilde{}217 bits).
 
 \subsection{pool/tree.rs}
 The note-commitment tree: incremental, depth 32, stored as a frontier.
