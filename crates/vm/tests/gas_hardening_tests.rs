@@ -226,11 +226,14 @@ fn a_failed_call_reports_the_memory_it_touched_on_top_of_its_limit() {
 }
 
 #[test]
-fn a_call_that_recurses_forever_reports_its_whole_limit() {
-    // Where the native stack overflows depends on frame size, so on the ISA
-    // and the compiler's flags: the fuel used by then is not the same on
-    // every validator. The figure must not depend on it (PR #549 review,
-    // HIGH): the whole limit, and every page the gas could have paid for.
+fn a_call_that_recurses_forever_stops_on_the_depth_bound_alike_at_any_limit() {
+    // Where the native stack overflows depends on frame size, so on the
+    // validator's binary: the fuel used by then is not the same on every
+    // validator (PR #549 review, HIGH). Since re-freeze R-6 the call-depth
+    // bound (`maya_vm::depth`) stops the recursion first, at a frame count
+    // the wasm decides, so the call fails at the same instruction and
+    // reports the same gas whatever its limit. GAS-2's overflow figure is
+    // kept for a native overflow, which the bound leaves unreachable.
     let code = wasm(
         r#"(module (memory (export "memory") 1)
             (func $down (param i64) (result i64)
@@ -239,17 +242,19 @@ fn a_call_that_recurses_forever_reports_its_whole_limit() {
               (call $down (i64.const 0))))"#,
     );
     let vm = Vm::new().unwrap();
+    let mut used = Vec::new();
     for limit in [10_000_000u64, 50_000_000] {
         let run = vm.execute(&code, CONTRACT, &[], limit, MemoryState::at_height(1));
         assert!(
-            matches!(&run.outcome, Err(VmError::Trap(text)) if text.contains("stack")),
+            matches!(&run.outcome, Err(VmError::Trap(text))
+                if text.contains("unreachable") && !text.contains("stack overflow")),
             "{:?}",
             run.outcome
         );
-        let pages =
-            ((limit - gas::cold_call_fuel(&code).unwrap()) / gas::MEMORY_PAGE_FUEL).min(256);
-        assert_eq!(run.gas_used, limit + pages * gas::MEMORY_PAGE_FUEL);
+        used.push(run.gas_used);
     }
+    assert_eq!(used[0], used[1], "the gas a bounded recursion reports");
+    assert!(used[0] < 10_000_000, "{}", used[0]);
 }
 
 #[test]
@@ -393,7 +398,7 @@ fn a_module_with_too_many_locals_is_refused_before_it_compiles() {
 }
 
 /// A contract that recurses `depth` calls deep and returns: the shape of the
-/// `golden-recursion-5000-deep-completes-on-every-build` vector (09 R-6).
+/// `golden-recursion-*-the-depth-bound` vectors (re-freeze R-6, GAS-10).
 fn recursion_to(depth: u64) -> Vec<u8> {
     wasm(&format!(
         r#"(module (memory (export "memory") 1)
@@ -408,15 +413,15 @@ fn recursion_to(depth: u64) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "measurement; run with --ignored --nocapture on each ISA and record the depth in ADR-142"]
-fn measure_the_deepest_recursion_this_isa_completes() {
-    // 09 R-6: where the native stack overflows depends on frame sizes, so on
-    // the ISA, Cranelift's flags and the host build (release and dev differ
-    // by 14 levels on one machine, ADR-142 amendment 4). This finds this
-    // build's boundary for `recursion_to`; no vector can pin it.
+fn the_deepest_completing_recursion_is_the_bound_s_on_every_build() {
+    // Before re-freeze R-6 this searched for where the native stack
+    // overflowed, and found a different depth per binary (10,915 on Windows
+    // release, 10,919 on Linux release, ADR-142 amendment 6). With the bound
+    // it finds the depth the module decides, the same on every ISA, OS and
+    // profile CI runs it on; the next depth traps on the bound.
     let vm = Vm::new().unwrap();
     let limit = 250_000_000;
-    let completes = |depth| {
+    let run = |depth| {
         vm.execute(
             &recursion_to(depth),
             CONTRACT,
@@ -425,28 +430,22 @@ fn measure_the_deepest_recursion_this_isa_completes() {
             MemoryState::at_height(1),
         )
         .outcome
-        .is_ok()
     };
     let (mut low, mut high) = (1u64, 1_000_000u64);
-    assert!(completes(low) && !completes(high));
+    assert!(run(low).is_ok() && run(high).is_err());
     while high - low > 1 {
         let mid = low + (high - low) / 2;
-        if completes(mid) {
+        if run(mid).is_ok() {
             low = mid;
         } else {
             high = mid;
         }
     }
-    let run = vm.execute(
-        &recursion_to(low),
-        CONTRACT,
-        &[],
-        limit,
-        MemoryState::at_height(1),
-    );
     eprintln!(
-        "R-6 {} deepest completing depth {low}, gas {} at limit {limit}; depth {high} overflows",
-        std::env::consts::ARCH,
-        run.gas_used
+        "R-6 {} deepest completing depth {low}",
+        std::env::consts::ARCH
     );
+    assert_eq!(low, 1_487);
+    assert!(matches!(run(high), Err(VmError::Trap(text))
+            if text.contains("unreachable") && !text.contains("stack overflow")));
 }

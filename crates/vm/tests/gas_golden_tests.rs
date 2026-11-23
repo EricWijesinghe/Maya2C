@@ -17,7 +17,9 @@
 //! host work (`crate::gas`) on top of the fuel, and a call whose metered work
 //! passes its limit fails, so each least sufficient limit equals the gas. The
 //! outputs did not move. That is a schedule change by design, recorded with
-//! the ADR, not a wasmtime drift.
+//! the ADR, not a wasmtime drift. Then the call-depth bound (re-freeze R-6,
+//! `maya_vm::depth`) added its bookkeeping, 12 units for every function
+//! call, `invoke` included: 12 on each vector, more on the one that calls.
 //!
 //! Each vector also pins its boundary: the smallest gas limit the call
 //! succeeds with. wasmtime checks fuel at function entries and loop
@@ -41,8 +43,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
         "empty",
         r#"(module (memory (export "memory") 1)
           (func (export "invoke") (param i32) (result i64) (i64.const 8)))"#,
-        210_302,
-        210_302,
+        210_314,
+        210_314,
         0,
     ),
     (
@@ -56,8 +58,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i64.add (local.get $i) (i64.const 1)))
               (br_if $l (i64.lt_u (local.get $i) (i64.const 5000))))
             (i64.store (i32.const 0) (local.get $acc)) (i64.const 8)))"#,
-        382_595,
-        382_595,
+        382_607,
+        382_607,
         0x0f9f_1e3e,
     ),
     (
@@ -75,8 +77,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
           (func (export "invoke") (param i32) (result i64)
             (i64.store (i32.const 0) (call $double (call $fib (i64.const 15))))
             (i64.const 8)))"#,
-        639_637,
-        639_637,
+        663_337,
+        663_337,
         0x4c4,
     ),
     (
@@ -93,8 +95,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 3000))))
             (i64.store (i32.const 0) (i64.extend_i32_u (global.get $g))) (i64.const 8)))"#,
-        516_426,
-        516_426,
+        516_438,
+        516_438,
         0x5,
     ),
     (
@@ -111,8 +113,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 2000))))
             (i64.store (i32.const 0) (i64.load (i32.const 800))) (i64.const 8)))"#,
-        500_386,
-        500_386,
+        500_398,
+        500_398,
         0x0909_0909_0909_090a,
     ),
     (
@@ -126,8 +128,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
               (local.set $i (i32.add (local.get $i) (i32.const 1)))
               (br_if $l (i32.lt_u (local.get $i) (i32.const 500))))
             (i64.store (i32.const 0) (i64.reinterpret_f64 (local.get $x))) (i64.const 8)))"#,
-        319_548,
-        319_548,
+        319_560,
+        319_560,
         0x7ff8_0000_0000_0000,
     ),
     (
@@ -152,8 +154,8 @@ const VECTORS: &[(&str, &str, u64, u64, u64)] = &[
         // 184 for the loop and its 16 host calls. The old 4,283 was a Windows
         // copy-on-write artefact (4,099 for the padded 4 KiB page + 184);
         // Linux measured 186 (2 + 184) for the same module.
-        691_090,
-        691_090,
+        691_102,
+        691_102,
         0x756c_6176_3779_656b,
     ),
 ];

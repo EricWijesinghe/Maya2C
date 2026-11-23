@@ -993,3 +993,21 @@ Eric chose "all format fixes" in the 2026-11-14 re-freeze MCQ. Two of them land 
 - **Settle-time range check:** a passed proposal whose value fails `ParameterChange::validate` at execution (a release tightened the bound mid-vote) now expires instead of failing every candidate block, matching the promotion pass.
 - **Review fixes (2026-11-16):** the spec rule is CON-17, not CON-16 (#573 holds CON-16 for the header hash id; claimed in adr-claims.txt). Execution writes `g:params` only when a key that applies at once changed, the rule promotion already follows, so a validity-only or upgrade-only proposal no longer materialises an unchanged table. Kept as they are, with the reason in ADR-082: `MAX_LINKED_GAP` stays 50,000 (13.9 h at 1 block/s, node-local, the byte cap binds), and the vote lock stays at execution for validity changes, as for upgrades. #549's `VmMaxTxGas`/`VmMaxBlockGas` must be classified as validity rules when the two PRs meet.
 - Consequence for operators: default pruning, bootstrap and snapshot depths are unchanged. **This binary is not a rolling upgrade:** `dag_epoch()` divides by `EPOCH_LENGTH`, so old and new binaries hash mining shares against different DAG caches from height 30,000. It needs the planned re-genesis. Activating work claims later must re-check the work-to-stake weight ratio, since steady-state work credit grows with the 15x longer half-life.
+
+## 2026-11-24 — Call depth is bounded by the wasm, not the native stack (re-freeze R-6, G4 option b)
+
+Recursion used to stop where wasmtime's native stack check fired, and that
+point belongs to each validator's binary (10,915 levels on Windows release,
+10,919 on Linux release, same CPU, ADR-142 amendment 6): one fee-paying call
+recursing between the two split the state root. Eric's brief of 2026-11-24
+puts security first, and the area brief lists R-6 as a fix, so G4's option
+(b) is taken rather than (a), operating one binary, which nothing could
+enforce. Every module is rewritten before it compiles (`maya_vm::depth`,
+hand-written beside the shape scan, no new dependency): a counter of frame
+slots, each frame `8 + params + locals + max operand height`, trapping above
+16,384. Measured, the deepest admitted chain uses at most 26% of the 512 KiB
+native stack on x86-64 Windows for every shape tested, and a CI test fails
+if any shape passes a third on the platforms CI builds. The cost: 12 units of
+fuel per function call (every gas vector moved by exactly that) and a
+recursion depth of 1,487 for the smallest frame. Spec GAS-10 (10-vm-gas
+v0.4.0), ADR-142 amendment 8, vectors at 1,486, 1,487 and 1,488 levels.

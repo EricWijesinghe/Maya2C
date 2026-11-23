@@ -26,7 +26,7 @@ for Eric; the other two are engineering.
   failed contract call with its fee and a nonce bump (STF-8 change, Eric's
   decision);** a pool eviction of transactions that failed in a committed
   block helps but does not close it (the sender re-signs).
-- **G4 — the stack-overflow boundary belongs to each binary (re-freeze review R-6). A genesis blocker, Eric's decision.**
+- **G4 — the stack-overflow boundary belongs to each binary (re-freeze review R-6). Option (b) built 2026-11-24 (PR on `sec/vm-state-staking-mining-1124`, ADR-142 amendment 8, spec GAS-10): closed when it merges; left open until then.**
   Where deep recursion overflows the 512 KiB guest stack depends on the
   validator's binary, not only on its ISA. Measured with one recursion shape
   on one CPU (ADR-142 amendment 6): the deepest completing depth is 10,915 in

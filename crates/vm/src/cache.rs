@@ -175,7 +175,12 @@ impl ModuleCache {
         // Compiled outside the lock. Cranelift on a large module takes long
         // enough that holding the map would serialise every other contract call
         // in the process behind it.
-        let module = Module::new(engine, wasm).map_err(|error| VmError::from_compile(&error))?;
+        // What compiles is the module with the call-depth bound applied
+        // (`crate::depth`, re-freeze R-6); the key stays the deployed bytes,
+        // and the rewrite's version is in the digest.
+        let bounded = crate::depth::instrument(wasm)?;
+        let module =
+            Module::new(engine, &bounded).map_err(|error| VmError::from_compile(&error))?;
         *self
             .misses
             .lock()

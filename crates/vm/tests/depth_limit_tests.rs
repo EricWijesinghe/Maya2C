@@ -1,4 +1,4 @@
-//! The call-depth bound (re-freeze R-6, ADR-142 amendment 9).
+//! The call-depth bound (re-freeze R-6, ADR-142 amendment 8).
 //!
 //! Before it, recursion stopped where wasmtime's native stack check fired,
 //! and that point belongs to the validator's binary: a call recursing to
@@ -9,6 +9,8 @@
 //! is the cross-binary part of the claim.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+use std::fmt::Write as _;
 
 use maya_vm::config::MAX_STACK_BYTES;
 use maya_vm::depth::{DEPTH_LIMIT_SLOTS, frame_slots};
@@ -21,20 +23,29 @@ const GAS: u64 = 200_000_000;
 
 /// A recursion whose frames hold `locals` locals and `stack` operand values
 /// live across the recursive call, so a native frame has to keep them all.
+/// Each is a load: the compiler may not move a load past a call (the callee
+/// can store), so it cannot recompute the value after the call instead of
+/// keeping it, as it does with arithmetic on the param.
 /// `invoke` recurses `depth` deep; `down` is exported for the native probe.
 fn recursion(locals: usize, stack: usize, depth: u64) -> Vec<u8> {
     let mut body = String::new();
     for i in 0..locals {
-        body += &format!("local.get 0 i64.const {i} i64.add local.set {} ", i + 1);
+        write!(
+            body,
+            "i32.const 0 i64.load offset={} local.set {} ",
+            8 * i,
+            i + 1
+        )
+        .unwrap();
     }
     for i in 0..stack {
-        body += &format!("local.get 0 i64.const {i} i64.add ");
+        write!(body, "i32.const 0 i64.load offset={} ", 8 * (i + locals)).unwrap();
     }
     body += "local.get 0 i64.eqz if (result i64) i64.const 0 else \
              local.get 0 i64.const 1 i64.sub call $down end ";
     body += &"i64.add ".repeat(stack);
     for i in 0..locals {
-        body += &format!("local.get {} i64.add ", i + 1);
+        write!(body, "local.get {} i64.add ", i + 1).unwrap();
     }
     let decl = if locals == 0 {
         String::new()
@@ -144,10 +155,10 @@ fn native_depth(locals: usize, stack: usize) -> u64 {
 #[test]
 fn the_native_stack_check_is_never_reached_inside_the_bound() {
     // For each shape, the native stack one frame uses (the native boundary
-    // spread over its frames) times the frames the bound admits. That must
-    // stay under a quarter of `max_wasm_stack` on every binary CI builds, so
-    // a binary with frames up to four times this one's still traps on the
-    // bound first.
+    // spread over its frames) times the frames the bound admits, plus one
+    // for `invoke`. That must stay under a third of `max_wasm_stack` on
+    // every binary CI builds, so a binary with frames up to three times this
+    // one's still traps on the bound first.
     let mut report = Vec::new();
     for &(locals, stack) in SHAPES {
         let native = native_depth(locals, stack);
@@ -161,7 +172,7 @@ fn the_native_stack_check_is_never_reached_inside_the_bound() {
             per_frame / u64::from(slots),
             admitted(locals, stack)
         );
-        if used > MAX_STACK_BYTES as u64 / 4 {
+        if used > MAX_STACK_BYTES as u64 / 3 {
             report.push(format!("({locals}, {stack}): {used} B at the bound"));
         }
     }

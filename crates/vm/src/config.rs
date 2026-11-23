@@ -248,6 +248,11 @@ pub fn config_digest() -> [u8; 32] {
     // invalidate every cached module too.
     hasher.update(env!("CARGO_PKG_VERSION").as_bytes());
     hasher.update(WASMTIME_VERSION.as_bytes());
+    // The call-depth rewrite every module compiles through (re-freeze R-6):
+    // a module cached under another rewrite or budget is other code.
+    hasher.update(crate::depth::REWRITE_VERSION);
+    hasher.update(&crate::depth::DEPTH_LIMIT_SLOTS.to_le_bytes());
+    hasher.update(&crate::depth::FRAME_SLOTS.to_le_bytes());
     *hasher.finalize().as_bytes()
 }
 

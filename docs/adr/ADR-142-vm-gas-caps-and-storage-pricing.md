@@ -1010,3 +1010,106 @@ is still taken as the call's (recorded in the spec's Gaps).
 
 The table refusal is pre-existing, alike on every node, and not changed here:
 whether contracts may use `call_indirect` is a contract-ABI question.
+
+## Amendment 8, 2026-11-24: a call-depth bound the wasm decides (re-freeze R-6, BACKLOG G4)
+
+Brief of 2026-11-24 (security outranks everything; the area brief lists R-6
+as a fix, not an owner choice). G4 offered three options; this takes (b),
+the deterministic call-depth bound, hand-written beside the shape scan, with
+no new dependency. (a), one binary for every validator, is no longer needed
+for this split; (c), Pulley in consensus, is not taken.
+
+### The rule (GAS-10)
+
+`maya_vm::depth::instrument` rewrites every module before it compiles, in
+`ModuleCache::compile` and in `Vm::validate`, so every path that runs or
+deploys a contract compiles the rewritten module. It appends one mutable
+`i32` global, the count. Each defined function gets a prologue that adds its
+frame weight to the count and traps with `unreachable` if the count is then
+above `DEPTH_LIMIT_SLOTS` = 16,384; its body is wrapped in a block typed with
+the function's results (a branch to the function label lands there, and
+`return` is rewritten to a `br` to it), and an epilogue subtracts the weight.
+A frame weighs `FRAME_SLOTS` (8) + params + declared locals + the most
+operand-stack values the body can hold at once, computed by a linear walk
+over the operators' stack effects (an upper bound: unreachable code counts
+from its block's base). The count is a function of the wasm alone, so every
+binary traps at the same call. Prior art: parity's `wasm-instrument` stack
+limiter, which Substrate's contracts pallet applied to every module, and
+NEAR's stack-height instrumentation; both count a per-function cost against
+a fixed budget for the same reason.
+
+The rewrite's version and both constants are in `config_digest`, so a module
+cached under another rewrite is never served. The compile price
+(`cold_call_fuel`) stays a function of the deployed bytes.
+
+### Measured: the native stack is never reached
+
+`crates/vm/tests/depth_limit_tests.rs`, 2026-11-24, Intel Core Ultra 9
+275HX, Windows 11 Pro 10.0.29712, x86_64-pc-windows-msvc, dev profile,
+wasmtime 48.0.10. For each frame shape (locals and operand values held live
+across the recursive call; each is a load, which the compiler may not move
+past a call), the native boundary with no bound applied, and the stack the
+bound's deepest admitted chain uses:
+
+| Locals | Live values | Native depth | B/frame | Slots/frame | Admitted depth | Bytes at the bound |
+|---|---|---|---|---|---|---|
+| 0 | 0 | 10,902 | 48 | 11 | 1,487 | 71,472 |
+| 16 | 0 | 2,972 | 176 | 27 | 605 | 106,832 |
+| 256 | 0 | 248 | 2,105 | 267 | 60 | 130,510 |
+| 1,000 | 0 | 64 | 8,065 | 1,011 | 15 | 137,105 |
+| 0 | 16 | 2,972 | 176 | 27 | 605 | 106,832 |
+| 0 | 256 | 248 | 2,105 | 267 | 60 | 130,510 |
+| 0 | 1,000 | 64 | 8,065 | 1,011 | 15 | 137,105 |
+| 100 | 100 | 316 | 1,653 | 211 | 76 | 128,934 |
+
+At most 8 bytes a slot (an `i64` spilled; SIMD is off) and 48 bytes for the
+smallest frame, so the deepest chain the bound admits held at most 137,105
+bytes, 26% of `max_wasm_stack` (512 KiB): a binary whose frames were three
+times these would still trap on the bound first. The test fails if any shape
+passes a third of the limit, and CI runs it on x86-64 Linux (nextest) and on
+aarch64 (`vm-gas-aarch64`, which also prints each shape's figures for this
+table). A first attempt with arithmetic on the param instead of loads
+measured 48 B/frame for every shape: the compiler recomputed the values
+after the call instead of keeping them, so it measured nothing.
+
+Not measured: shapes outside these eight (many params, multi-value results,
+deep block nesting, `f32`/`i32`-only frames), the shipped `maya2c-node`
+binaries, and aarch64 until CI prints it. A shape that needed more than
+three times these bytes per slot on some binary would make the native check
+fire first there; the CI test is the guard for the platforms CI builds.
+
+### Gas moved
+
+The bookkeeping is wasm and metered: `BOOKKEEPING_FUEL` = 12 units per
+function call (eight in the prologue, four in the epilogue), and a `return`
+one unit more (`br` is metered, `return` is not). A call that traps inside
+its body paid the prologue's eight. Every golden vector moved by that and
+only that: the seven in `gas_golden_tests.rs` (+12 each, +23,700 on the one
+with 1,975 calls), the data-segment pin (+12), and in `spec/tests/vm_gas.json`
++12 on each successful call and +8 on the failing ones. Vectors:
+`golden-recursion-5000-deep-completes-on-every-build` is replaced by three
+boundary vectors at 1,486, 1,487 and 1,488 levels (the last traps), and
+`golden-stack-overflow-uses-its-limit-and-every-page` becomes
+`golden-endless-recursion-stops-on-the-depth-bound`: the endless recursion
+now traps on the bound, reports 400,964 gas whatever its limit, and no
+longer reaches GAS-2's overflow figure, which stays as a backstop.
+`measure_the_deepest_recursion_this_isa_completes` became
+`the_deepest_completing_recursion_is_the_bound_s_on_every_build` (asserts
+1,487 on every build CI runs it on).
+
+The usability cost: the smallest frame recurses 1,487 deep, a 1,000-local
+frame 15. Rust contracts rarely recurse that deep; one that does fails alike
+everywhere instead of splitting the chain.
+
+### Compile prices with the rewrite
+
+The rewrite adds code the compile price does not charge: about 30 bytes per
+function and one byte per `return`. Re-measured with it in place (same
+machine, release, `cargo test --release -p maya-vm --test
+gas_adversarial_calibration_tests -- --ignored --nocapture
+shapes_at_the_limits_compile_inside_their_price`, which now also times a
+function of 2,000 `return`s): worst 1.010 ns/fuel (`blocks []->[16] x 2000`),
+under the 1.5 bound; the exported-empty-functions shape, where the
+prologue and epilogue add the most code per unit of price, 0.916 ns/fuel;
+2,000 `return`s 0.004 ns/fuel. No price changed. Single runs on a machine
+shared with other builds; not a dedicated benchmark.

@@ -34,12 +34,15 @@ fn a_call_pays_its_base_and_every_module_byte() {
     // The upfront price (its length, its one function and the two values
     // its type carries), the one page of memory it holds, and the body's own
     // fuel as wasmtime 48 meters it: `i64.const` and the implicit return,
-    // two units.
+    // two units, plus the call-depth bound's bookkeeping (re-freeze R-6).
     assert_eq!(
         cold_call_fuel(&code).unwrap(),
         call_fuel(code.len(), false) + FUNCTION_FUEL + 2 * ARITY_FUEL
     );
-    assert_eq!(used, cold_call_fuel(&code).unwrap() + MEMORY_PAGE_FUEL + 2);
+    assert_eq!(
+        used,
+        cold_call_fuel(&code).unwrap() + MEMORY_PAGE_FUEL + 2 + maya_vm::depth::BOOKKEEPING_FUEL
+    );
     assert_eq!(
         call_fuel(code.len(), false),
         CALL_BASE_FUEL + CODE_BYTE_FUEL * code.len() as u64

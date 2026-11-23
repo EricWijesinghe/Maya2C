@@ -20,7 +20,7 @@
 //! and the most operand-stack values its body can hold at once: the values a
 //! native frame may need to spill. The budget is chosen so that the deepest
 //! chain of frames it admits stays far inside `max_wasm_stack` for every
-//! frame shape measured (`tests/depth_limit_tests.rs`, ADR-142 amendment 9).
+//! frame shape measured (`tests/depth_limit_tests.rs`, ADR-142 amendment 8).
 //!
 //! What the rewrite does to each defined function:
 //!
@@ -38,21 +38,30 @@
 //! A trap leaves the count wrong, which does not matter: a trapped call's
 //! instance is never entered again. The added operators are metered like any
 //! other, so every call pays 12 units of fuel for its own bookkeeping
-//! (ADR-142 amendment 9 records the gas vectors this moved).
+//! (ADR-142 amendment 8 records the gas vectors this moved).
 
 use crate::error::{Result, VmError};
 
 /// Slots every guest frame may hold at once, over the whole call chain.
 ///
-/// At [`FRAME_SLOTS`] a frame, the smallest function admits 4,096 frames.
-/// The most native stack any measured shape used per slot times this budget
-/// stays under a quarter of `max_wasm_stack` (ADR-142 amendment 9).
-pub const DEPTH_LIMIT_SLOTS: u32 = 32_768;
+/// Measured (`tests/depth_limit_tests.rs`), a native frame used at most
+/// 8 bytes a slot (an `i64` or `f64` spilled; SIMD is off) and 48 bytes for
+/// the smallest frame (11 slots), so the deepest chain the budget admits
+/// holds about 128 KiB, a quarter of `max_wasm_stack`: a binary whose frames
+/// are three times this one's still traps on the bound first. The smallest
+/// frame recurses 1,487 deep.
+pub const DEPTH_LIMIT_SLOTS: u32 = 16_384;
 
 /// Slots charged to every frame before its params, locals and operand
 /// stack: the return address, the saved frame pointer, callee-saved
 /// registers and the frame's fixed spill area.
 pub const FRAME_SLOTS: u32 = 8;
+
+/// Fuel the bound's own operators cost each function call: eight in the
+/// prologue (the `if` counts, `unreachable` never runs) and four in the
+/// epilogue; `block` and `end` are free. A `return` rewritten to `br` costs
+/// one unit more than it did.
+pub const BOOKKEEPING_FUEL: u64 = 12;
 
 /// Bumped whenever the rewrite changes, so a cached module compiled under an
 /// older rewrite is never served (`crate::config::config_digest`).
@@ -291,17 +300,18 @@ impl WrapperTypes {
             [] => out.push(0x40),
             [one] => out.push(*one),
             many => {
-                let at = match self.added.iter().position(|r| r == many) {
-                    Some(at) => at,
-                    None => {
+                let at = self
+                    .added
+                    .iter()
+                    .position(|r| r == many)
+                    .unwrap_or_else(|| {
                         self.added.push(many.to_vec());
                         self.added.len() - 1
-                    }
-                };
+                    });
                 // A type index is an s33; non-negative, so its LEB is the
                 // unsigned one as long as bit 6 of the last byte is clear,
                 // which `sleb` guarantees.
-                sleb(out, (self.first + at) as i64);
+                sleb(out, i64::try_from(self.first + at).unwrap_or(i64::MAX));
             }
         }
     }
@@ -529,7 +539,7 @@ fn effect(op: u8, body: &mut Reader<'_>) -> Result<(u64, u64)> {
         0x01 => (0, 0),
         0x1a => (1, 0),
         0x1b => (3, 1),
-        0x20 | 0x23 => {
+        0x20 | 0x23 | 0x3f => {
             body.u32()?;
             (0, 1)
         }
@@ -537,7 +547,7 @@ fn effect(op: u8, body: &mut Reader<'_>) -> Result<(u64, u64)> {
             body.u32()?;
             (1, 0)
         }
-        0x22 => {
+        0x22 | 0x40 => {
             body.u32()?;
             (1, 1)
         }
@@ -548,14 +558,6 @@ fn effect(op: u8, body: &mut Reader<'_>) -> Result<(u64, u64)> {
         0x36..=0x3e => {
             body.mem_arg()?;
             (2, 0)
-        }
-        0x3f => {
-            body.u32()?;
-            (0, 1)
-        }
-        0x40 => {
-            body.u32()?;
-            (1, 1)
         }
         0x41 | 0x42 => {
             body.leb()?;
@@ -571,13 +573,9 @@ fn effect(op: u8, body: &mut Reader<'_>) -> Result<(u64, u64)> {
         }
         // Unary: eqz, clz/ctz/popcnt, float unary ops, conversions, sign
         // extension.
-        0x45 | 0x50 | 0x67..=0x69 | 0x79..=0x7b | 0x8b..=0x91 | 0x99..=0x9f | 0xa7..=0xc4 => {
-            (1, 1)
-        }
+        0x45 | 0x50 | 0x67..=0x69 | 0x79..=0x7b | 0x8b..=0x91 | 0x99..=0x9f | 0xa7..=0xc4 => (1, 1),
         // Binary: comparisons and arithmetic.
-        0x46..=0x4f | 0x51..=0x66 | 0x6a..=0x78 | 0x7c..=0x8a | 0x92..=0x98 | 0xa0..=0xa6 => {
-            (2, 1)
-        }
+        0x46..=0x4f | 0x51..=0x66 | 0x6a..=0x78 | 0x7c..=0x8a | 0x92..=0x98 | 0xa0..=0xa6 => (2, 1),
         0xfc => match body.u32()? {
             0..=7 => (1, 1),
             8 | 10 | 12 | 14 => {
@@ -607,7 +605,7 @@ fn section(out: &mut Vec<u8>, id: u8, payload: &[u8]) {
 
 fn uleb(out: &mut Vec<u8>, mut value: u64) {
     loop {
-        let byte = (value & 0x7f) as u8;
+        let byte = (value & 0x7f).to_le_bytes()[0];
         value >>= 7;
         if value == 0 {
             out.push(byte);
@@ -619,7 +617,7 @@ fn uleb(out: &mut Vec<u8>, mut value: u64) {
 
 fn sleb(out: &mut Vec<u8>, mut value: i64) {
     loop {
-        let byte = (value & 0x7f) as u8;
+        let byte = (value & 0x7f).to_le_bytes()[0];
         value >>= 7;
         let done = (value == 0 && byte & 0x40 == 0) || (value == -1 && byte & 0x40 != 0);
         if done {
@@ -721,9 +719,9 @@ mod tests {
     #[test]
     fn frame_slots_count_params_locals_and_the_deepest_stack() {
         let code = wasm(
-            r#"(module
+            "(module
               (func (param i64 i64) (result i64) (local i32 i32 i32)
-                (i64.add (i64.add (local.get 0) (local.get 1)) (i64.const 1))))"#,
+                (i64.add (i64.add (local.get 0) (local.get 1)) (i64.const 1))))",
         );
         // 8 + 2 params + 3 locals + a stack of 2.
         assert_eq!(frame_slots(&code).unwrap(), vec![15]);
@@ -746,7 +744,7 @@ mod tests {
 
     #[test]
     fn truncated_bytes_are_refused_not_a_panic() {
-        let code = wasm(r#"(module (func (result i32) (i32.const 7)))"#);
+        let code = wasm("(module (func (result i32) (i32.const 7)))");
         for len in 0..code.len() {
             // Some prefixes end on a section boundary and are modules; the
             // rest must come back as errors. Neither may panic.

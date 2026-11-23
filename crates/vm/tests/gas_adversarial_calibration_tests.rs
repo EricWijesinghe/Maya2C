@@ -708,6 +708,10 @@ fn shapes_at_the_limits_compile_inside_their_price() {
             false,
         ),
         ("br_table", 1, 0, br_table(10_000), false),
+        // The call-depth bound (re-freeze R-6) rewrites each `return` to a
+        // `br` and adds a prologue and an epilogue to every function: the
+        // shapes where the rewrite adds the most code per unit of price.
+        ("returns at the per-function cap", 3, 0, [0x0f].repeat(most), false),
     ] {
         time(label, &shape(0, functions, local_count, &body, exported));
     }
