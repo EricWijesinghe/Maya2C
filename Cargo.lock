@@ -12951,6 +12951,7 @@ dependencies = [
  "hex",
  "image",
  "maya-amount",
+ "maya-signer",
  "regex",
  "reqwest",
  "serde",
