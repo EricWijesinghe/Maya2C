@@ -188,6 +188,8 @@ jobs:
           - maya-ledger-math
           - maya-governance
           - maya-fee-market
+          # The neural envelope proof moved here from fee-market (ADR-029 amendment).
+          - maya-neural-fee
           - maya-threat-intel
           - maya-iot-anchor
           - maya-htlc-lattice
