@@ -172,3 +172,25 @@ the lines this ADR changes; the rest of that review is ADR-151.
   loopback), a 60 s lifetime per connection, routing on a blocking thread, and a
   fixed `supply unavailable` body with the cause in the log. This narrows, but does
   not close, the global-cap trade-off above: sockets are still counted globally.
+
+## Amendment 2026-11-24: orphans expire, and each peer has a share (BFT-01)
+
+Closes the open item in Consequences ("Orphans still never expire").
+
+- **Expiry runs on imports, not on a clock.** Every orphan records how many chain
+  extensions the node had made when it was buffered; once more than
+  `ORPHAN_TTL_IMPORTS` (128, twice `MAX_SYNC_DEPTH`) further extensions have
+  happened, it is dropped. A halted chain expires nothing, which costs nothing:
+  no honest children arrive while it is halted. The sweep runs after an import's
+  cascade, so children taken by that cascade are never aged out first.
+- **One network peer answers for at most `MAX_ORPHANS_PER_SOURCE` (64) orphans.**
+  The source is the gossip author, or a walk's responder; a walk buffers at most
+  `MAX_SYNC_DEPTH` blocks from its responder, so an honest walk fits. Filling the
+  512-block pool now takes at least eight identities. The operator's
+  `--sync-from` RPC source (`None`) is not a network peer and has no share.
+- Tests (`import::tests`): `one_source_cannot_fill_the_pool_and_an_honest_child_still_buffers`,
+  `orphans_nothing_claims_expire_after_enough_imports` (both failed before the change).
+- Left: identities are free, so a flood from many fresh identities can still fill
+  the pool for up to 128 imports at a time; while it does, honest out-of-order
+  blocks fall back to backfill and certificate replay as before. Consensus is
+  unaffected. Node-local memory only; no invariant is touched.

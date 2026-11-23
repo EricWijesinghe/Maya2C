@@ -52,6 +52,19 @@ const MAX_ORPHANS_PER_PARENT: usize = 8;
 /// leading the node down a chain nobody else has.
 const MAX_SYNC_DEPTH: usize = 64;
 
+/// Buffered blocks one peer may answer for, so filling the pool takes many
+/// identities rather than one. A walk buffers at most [`MAX_SYNC_DEPTH`] blocks
+/// from its responder, so an honest walk fits. The operator's `--sync-from`
+/// source (`None`) is not a network peer and has no share.
+const MAX_ORPHANS_PER_SOURCE: usize = MAX_SYNC_DEPTH;
+const _: () = assert!(MAX_ORPHANS >= 8 * MAX_ORPHANS_PER_SOURCE);
+
+/// Chain extensions an orphan may wait through before it is dropped. Counted
+/// in imports, not wall-clock time, so a halted chain expires nothing and a
+/// growing one sheds orphans whose parents never came. Twice a walk's depth,
+/// so a walk's blocks are not expired while it is still fetching below them.
+const ORPHAN_TTL_IMPORTS: u64 = 2 * MAX_SYNC_DEPTH as u64;
+
 /// Buffered blocks waiting on a parent, keyed by that parent, with the peer to
 /// blame if each proves invalid: a gossiped block's author, a fetched block's
 /// responder — never a relay (see `NodeEvent::BlockReceived`).
@@ -65,6 +78,10 @@ pub(super) struct Orphans {
     bytes: u64,
     /// Order of arrival, so eviction picks one victim whatever the map order.
     next_seq: u64,
+    /// Blocks each network peer answers for ([`MAX_ORPHANS_PER_SOURCE`]).
+    per_source: HashMap<PeerId, usize>,
+    /// Chain extensions so far, the clock [`ORPHAN_TTL_IMPORTS`] runs on.
+    imports: u64,
 }
 
 /// One buffered block, with its id and wire size so lookups and removal need
@@ -75,6 +92,8 @@ struct Orphan {
     source: Option<PeerId>,
     bytes: u64,
     seq: u64,
+    /// `Orphans::imports` when it was buffered.
+    at: u64,
 }
 
 impl Orphans {
@@ -113,20 +132,61 @@ impl Orphans {
         if held {
             return true;
         }
-        if !self.share_has_room(&parent) || !self.make_room(&id, bytes) {
+        let source_full = source.is_some_and(|peer| {
+            self.per_source.get(&peer).copied().unwrap_or(0) >= MAX_ORPHANS_PER_SOURCE
+        });
+        if source_full || !self.share_has_room(&parent) || !self.make_room(&id, bytes) {
             return false;
         }
         self.blocks += 1;
         self.bytes += bytes;
         self.next_seq += 1;
+        if let Some(peer) = source {
+            *self.per_source.entry(peer).or_default() += 1;
+        }
         self.by_parent.entry(parent).or_default().push(Orphan {
             block,
             id,
             source,
             bytes,
             seq: self.next_seq,
+            at: self.imports,
         });
         true
+    }
+
+    /// Releases `gone`'s share of the totals; the caller has removed it.
+    fn forget(&mut self, gone: &Orphan) {
+        self.blocks -= 1;
+        self.bytes -= gone.bytes;
+        if let Some(peer) = gone.source
+            && let Some(count) = self.per_source.get_mut(&peer)
+        {
+            *count -= 1;
+            if *count == 0 {
+                self.per_source.remove(&peer);
+            }
+        }
+    }
+
+    /// Counts one chain extension and drops every orphan that has waited
+    /// through more than [`ORPHAN_TTL_IMPORTS`] of them. Without this, orphans
+    /// under parents that never come held their places until restart, and an
+    /// honest out-of-order child found the pool full (audit BFT-01).
+    fn note_imports(&mut self, extensions: u64) {
+        if extensions == 0 {
+            return;
+        }
+        self.imports += extensions;
+        let now = self.imports;
+        let mut gone = Vec::new();
+        for siblings in self.by_parent.values_mut() {
+            gone.extend(siblings.extract_if(.., |o| now - o.at > ORPHAN_TTL_IMPORTS));
+        }
+        self.by_parent.retain(|_, siblings| !siblings.is_empty());
+        for orphan in &gone {
+            self.forget(orphan);
+        }
     }
 
     /// Frees room for a block of `bytes` with id `id`, if it needs any.
@@ -181,22 +241,25 @@ impl Orphans {
         let Some(siblings) = self.by_parent.get_mut(parent) else {
             return;
         };
-        if let Some(index) = siblings.iter().position(|o| o.id == *child) {
-            let gone = siblings.swap_remove(index);
-            self.blocks -= 1;
-            self.bytes -= gone.bytes;
-        }
+        let gone = siblings
+            .iter()
+            .position(|o| o.id == *child)
+            .map(|index| siblings.swap_remove(index));
         if siblings.is_empty() {
             self.by_parent.remove(parent);
+        }
+        if let Some(gone) = gone {
+            self.forget(&gone);
         }
     }
 
     /// Removes and returns the blocks waiting on `parent`, releasing their
-    /// share of both pool totals.
+    /// share of the pool totals.
     fn take_children(&mut self, parent: &[u8; 32]) -> Vec<(Block, Option<PeerId>)> {
         let children = self.by_parent.remove(parent).unwrap_or_default();
-        self.blocks -= children.len();
-        self.bytes -= children.iter().map(|o| o.bytes).sum::<u64>();
+        for child in &children {
+            self.forget(child);
+        }
         children.into_iter().map(|o| (o.block, o.source)).collect()
     }
 }
@@ -232,6 +295,7 @@ pub(super) fn import_block(
     let mut report = ImportReport::default();
     let first = block.header.id();
     let mut pending = vec![(block, source)];
+    let mut extensions = 0;
 
     while let Some((block, source)) = pending.pop() {
         let id = block.header.id();
@@ -283,6 +347,7 @@ pub(super) fn import_block(
             Ok(InsertOutcome::Extended { .. }) | Ok(InsertOutcome::Reorganized { .. }) => {
                 let height = lock_chain(chain).height();
                 metrics.record_import();
+                extensions += 1;
                 println!("imported block, height now {height}");
                 // This block may be the parent something buffered was waiting on.
                 pending.extend(orphans.take_children(&id));
@@ -291,6 +356,8 @@ pub(super) fn import_block(
             Err(error) => refuse(&mut report, metrics, source, &error),
         }
     }
+    // After the loop, so a cascade's children are taken before anything ages.
+    orphans.note_imports(extensions);
     report
 }
 
@@ -785,5 +852,65 @@ mod tests {
             "pool not filled to its block limit"
         );
         assert!(!orphans.has_room(&[0xff; 32], 1), "full pool still admits");
+    }
+
+    /// An orphan under a distinct, made-up parent.
+    fn junk(index: u64) -> ([u8; 32], Block) {
+        let mut parent = [0xaa; 32];
+        parent[..8].copy_from_slice(&index.to_be_bytes());
+        (parent, orphan(parent, index, 0))
+    }
+
+    #[test]
+    fn one_source_cannot_fill_the_pool_and_an_honest_child_still_buffers() {
+        let mut orphans = Orphans::default();
+        let flooder = Some(PeerId::random());
+        // One peer sends a pool's worth of orphans under unknown parents.
+        for index in 0..MAX_ORPHANS as u64 {
+            let (parent, block) = junk(index);
+            orphans.buffer(parent, block, flooder, 1);
+        }
+        assert!(
+            orphans.blocks <= MAX_ORPHANS_PER_SOURCE,
+            "one source holds {} of {MAX_ORPHANS} places",
+            orphans.blocks
+        );
+        let honest_parent = [0x55; 32];
+        assert!(
+            orphans.buffer(
+                honest_parent,
+                orphan(honest_parent, 0, 0),
+                Some(PeerId::random()),
+                1
+            ),
+            "an honest out-of-order child was refused"
+        );
+    }
+
+    #[test]
+    fn orphans_nothing_claims_expire_after_enough_imports() {
+        let (source_dir, local_dir) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let source = chain(source_dir.path());
+        let local = chain(local_dir.path());
+        let mut orphans = Orphans::default();
+        // Many identities fill the pool with orphans whose parents never come.
+        for index in 0..MAX_ORPHANS as u64 {
+            let (_, block) = junk(index);
+            import(&local, block, Some(PeerId::random()), &mut orphans);
+        }
+        assert_eq!(orphans.blocks, MAX_ORPHANS, "the pool did not fill");
+
+        // The chain keeps growing from blocks that arrive in order.
+        for i in 0..=ORPHAN_TTL_IMPORTS {
+            let report = import(&local, next_block(&source, 2 + i), None, &mut orphans);
+            assert!(report.missing_parent.is_none(), "an in-order block was orphaned");
+        }
+        assert_eq!(orphans.blocks, 0, "stale orphans outlived the import window");
+        assert_eq!(orphans.bytes, 0, "expiry left bytes counted");
+        let (parent, block) = junk(u64::MAX);
+        assert!(
+            orphans.buffer(parent, block, Some(PeerId::random()), 1),
+            "the pool stayed full after expiry"
+        );
     }
 }
