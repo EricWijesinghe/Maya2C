@@ -17,7 +17,7 @@ the rule that AI proposes and never acts.
    `get_chain_info`, `get_balance`, `get_block_by_height`, `get_validators`,
    `get_supply` and `get_fee_info`. The allowlist is checked at the single
    point where requests leave the process (`bins/maya2c-mcp/src/node.rs`), and
-   a test pins it.
+   a test pins it. (Amended by v3 P6, PR #482: a seventh read, `get_balance_at_height`, for `compare_account`, and an eighth, `get_tip_height`, so `replay_block` fetches its blocks through this same allowlist and limiter, paced, capped at height 10,000.)
 2. **No signing tool, no submit tool.** `rpc_call` is removed. A test calls
    every listed tool and checks that the node receives nothing outside the allowlist
    methods.
@@ -38,3 +38,15 @@ the rule that AI proposes and never acts.
   Adding one would be a node change, which is frozen until genesis.
 - The rate limit and the size cap are chosen values, not measured ones. The
   size cap is marked as a shortcut in the code.
+- (v3 P6, PR #482) The debugging tools link `maya2c-cli`'s library with
+  `default-features = false`. Its `cli` feature, off here, holds the keystore
+  (`l1-wallet`), clap, rpassword, the CLI's own `jsonrpsee` client and the
+  `dev`/`vault`/`notary`/`custody-report` modules, and is what would turn the
+  node's default `hqc` back on. What the server links is the replay and
+  tracing code. One limit remains: `custom-l1-node` itself contains an
+  `HttpClient` (`rpc::bootstrap::RpcBootstrapSource`, `fork::replay`), as it
+  did before this PR. That the server sends nothing outside the allowlist
+  depends on `replay_block` handing `fork::replay_from` its own
+  `BootstrapSource` over `node.rs`. A test pins this
+  (`replay_fetches_only_through_the_allowlisted_client`); the type system does not. The
+  key-safety review should include this.
