@@ -1021,19 +1021,36 @@ for this split; (c), Pulley in consensus, is not taken.
 
 ### The rule (GAS-10)
 
-`maya_vm::depth::instrument` rewrites every module before it compiles, in
-`ModuleCache::compile` and in `Vm::validate`, so every path that runs or
-deploys a contract compiles the rewritten module. It appends one mutable
-`i32` global, the count. Each defined function gets a prologue that adds its
-frame weight to the count and traps with `unreachable` if the count is then
-above `DEPTH_LIMIT_SLOTS` = 16,384; its body is wrapped in a block typed with
-the function's results (a branch to the function label lands there, and
-`return` is rewritten to a `br` to it), and an epilogue subtracts the weight.
+`maya_vm::depth::compile` validates the deployed bytes, then
+`maya_vm::depth::instrument` rewrites the module before it compiles; both
+`ModuleCache::compile` and `Vm::validate` go through it, so every path that
+runs or deploys a contract compiles the rewritten module. Validation comes
+first because the rewrite adds a global and block types: an index one past
+the module's own would otherwise resolve to them (a `global.set` onto the
+counter, an export of it, a block type onto a wrapper type). The rewrite
+appends one mutable `i32` global, the count. Each defined function gets a
+prologue that adds its frame weight to the count and traps with
+`unreachable` if the count is then above `DEPTH_LIMIT_SLOTS` = 32,768; its
+body is wrapped in a block typed with the function's results (a branch to
+the function label lands there, and `return` is rewritten to a `br` to it),
+and an epilogue subtracts the weight.
+
 A frame weighs `FRAME_SLOTS` (8) + params + declared locals + the most
-operand-stack values the body can hold at once, computed by a linear walk
-over the operators' stack effects (an upper bound: unreachable code counts
-from its block's base). The count is a function of the wasm alone, so every
-binary traps at the same call. Prior art: parity's `wasm-instrument` stack
+operand-stack values the body can hold at once + every value its operators
+produce + `REWRITE_VALUES` (9, the bound's own operators), computed by one
+linear walk. "Every value produced" is each operator's pushes (a block, loop
+or if: its params and results, which become block parameters), plus
+`INTERNAL_VALUES` (3) for each operator Cranelift lowers to several values
+(memory and table access, `call_indirect`, integer division, float
+arithmetic and conversions), plus, for each `local.set`/`local.tee`, one per
+block open around it (the block parameters SSA construction may add at the
+joins it reaches). That is an upper bound on what the compiled frame can
+hold: Cranelift merges equal pure computations across a call into one value
+kept live over it, and the register allocator may give any value its own
+spill slot, so counting only what the wasm names (locals and operand stack)
+was not a bound. The count is a function of the wasm alone, so every binary
+traps at the same call. A function weighing more than the budget traps on
+every call, alike everywhere. Prior art: parity's `wasm-instrument` stack
 limiter, which Substrate's contracts pallet applied to every module, and
 NEAR's stack-height instrumentation; both count a per-function cost against
 a fixed budget for the same reason.
@@ -1044,39 +1061,50 @@ cached under another rewrite is never served. The compile price
 
 ### Measured: the native stack is never reached
 
-`crates/vm/tests/depth_limit_tests.rs`, 2026-11-24, Intel Core Ultra 9
-275HX, Windows 11 Pro 10.0.29712, x86_64-pc-windows-msvc, dev profile,
-wasmtime 48.0.10. For each frame shape (locals and operand values held live
-across the recursive call; each is a load, which the compiler may not move
-past a call), the native boundary with no bound applied, and the stack the
-bound's deepest admitted chain uses:
+`crates/vm/tests/depth_limit_tests.rs`, 2026-11-24 (re-measured after the
+review revision below), Intel Core Ultra 9 275HX, Windows 11 Pro
+10.0.29712, x86_64-pc-windows-msvc, dev profile, wasmtime 48.0.10. For each
+frame shape (locals and operand values held live across the recursive call,
+each a load, which the compiler may not move past a call; and merged terms,
+`param * c` computed before the call and again after it, which Cranelift
+merges into one value kept live across it), the native boundary with no
+bound applied, and the stack the bound's deepest admitted chain uses:
 
-| Locals | Live values | Native depth | B/frame | Slots/frame | Admitted depth | Bytes at the bound |
-|---|---|---|---|---|---|---|
-| 0 | 0 | 10,902 | 48 | 11 | 1,487 | 71,472 |
-| 16 | 0 | 2,972 | 176 | 27 | 605 | 106,832 |
-| 256 | 0 | 248 | 2,105 | 267 | 60 | 130,510 |
-| 1,000 | 0 | 64 | 8,065 | 1,011 | 15 | 137,105 |
-| 0 | 16 | 2,972 | 176 | 27 | 605 | 106,832 |
-| 0 | 256 | 248 | 2,105 | 267 | 60 | 130,510 |
-| 0 | 1,000 | 64 | 8,065 | 1,011 | 15 | 137,105 |
-| 100 | 100 | 316 | 1,653 | 211 | 76 | 128,934 |
+| Locals | Live values | Merged terms | Native depth | B/frame | Slots/frame | Admitted depth | Bytes at the bound |
+|---|---|---|---|---|---|---|---|
+| 0 | 0 | 0 | 10,902 | 48 | 28 | 1,168 | 56,160 |
+| 16 | 0 | 0 | 2,972 | 176 | 172 | 189 | 33,616 |
+| 256 | 0 | 0 | 248 | 2,105 | 2,332 | 13 | 31,575 |
+| 1,000 | 0 | 0 | 64 | 8,065 | 9,028 | 2 | 32,260 |
+| 0 | 16 | 0 | 2,972 | 176 | 140 | 232 | 41,184 |
+| 0 | 256 | 0 | 248 | 2,105 | 1,820 | 16 | 37,890 |
+| 0 | 1,000 | 0 | 64 | 8,065 | 7,028 | 3 | 40,325 |
+| 100 | 100 | 0 | 316 | 1,653 | 1,628 | 19 | 34,713 |
+| 0 | 0 | 16 | 2,972 | 176 | 205 | 158 | 28,160 |
+| 0 | 0 | 64 | 933 | 561 | 733 | 43 | 25,245 |
+| 0 | 0 | 256 | 248 | 2,105 | 2,845 | 10 | 25,260 |
+| 0 | 0 | 1,000 | 64 | 8,065 | 11,029 | 1 | 24,195 |
 
-At most 8 bytes a slot (an `i64` spilled; SIMD is off) and 48 bytes for the
-smallest frame, so the deepest chain the bound admits held at most 137,105
-bytes, 26% of `max_wasm_stack` (512 KiB): a binary whose frames were three
-times these would still trap on the bound first. The test fails if any shape
-passes a third of the limit, and CI runs it on x86-64 Linux (nextest) and on
+At most 1.71 bytes a slot (the smallest frame, 48 bytes for 28 slots); the
+deepest chain the bound admits held at most 56,160 bytes, 11% of
+`max_wasm_stack` (512 KiB). The budget's own worst case, every slot an
+8-byte spill, is 256 KiB, half the limit. The test fails if any shape passes
+a third of the limit, and CI runs it on x86-64 Linux (nextest) and on
 aarch64 (`vm-gas-aarch64`, which also prints each shape's figures for this
 table). A first attempt with arithmetic on the param instead of loads
 measured 48 B/frame for every shape: the compiler recomputed the values
-after the call instead of keeping them, so it measured nothing.
+after the call instead of keeping them, so it measured nothing. The merged
+shapes are the review's probe: before the revision their frames weighed 13
+slots whatever the term count, and at 64 terms the admitted depth ended in
+`call stack exhausted`, not the bound.
 
-Not measured: shapes outside these eight (many params, multi-value results,
-deep block nesting, `f32`/`i32`-only frames), the shipped `maya2c-node`
-binaries, and aarch64 until CI prints it. A shape that needed more than
-three times these bytes per slot on some binary would make the native check
-fire first there; the CI test is the guard for the platforms CI builds.
+Not measured: shapes outside these twelve (many params, multi-value
+results, deep block nesting, `f32`/`i32`-only frames), the shipped
+`maya2c-node` binaries, and Linux and aarch64 until CI prints them. A shape
+that needed more than three times these bytes per slot on some binary would
+make the native check fire first there; the CI test is the guard for the
+platforms CI builds, and the per-value count is the argument that no shape
+can need more than 8 bytes a slot plus the fixed frame.
 
 ### Gas moved
 
@@ -1088,18 +1116,34 @@ only that: the seven in `gas_golden_tests.rs` (+12 each, +23,700 on the one
 with 1,975 calls), the data-segment pin (+12), and in `spec/tests/vm_gas.json`
 +12 on each successful call and +8 on the failing ones. Vectors:
 `golden-recursion-5000-deep-completes-on-every-build` is replaced by three
-boundary vectors at 1,486, 1,487 and 1,488 levels (the last traps), and
+boundary vectors at 1,089, 1,090 and 1,091 levels (the last traps), and
 `golden-stack-overflow-uses-its-limit-and-every-page` becomes
 `golden-endless-recursion-stops-on-the-depth-bound`: the endless recursion
-now traps on the bound, reports 400,964 gas whatever its limit, and no
+now traps on the bound, reports 399,352 gas whatever its limit, and no
 longer reaches GAS-2's overflow figure, which stays as a backstop.
 `measure_the_deepest_recursion_this_isa_completes` became
 `the_deepest_completing_recursion_is_the_bound_s_on_every_build` (asserts
-1,487 on every build CI runs it on).
+1,090 on every build CI runs it on).
 
-The usability cost: the smallest frame recurses 1,487 deep, a 1,000-local
-frame 15. Rust contracts rarely recurse that deep; one that does fails alike
-everywhere instead of splitting the chain.
+The usability cost: the smallest frame measured recurses 1,168 deep, the
+vectors' frame 1,090, a 1,000-local frame 2, and a function weighing more
+than 32,768 slots (roughly, a body of several thousand memory operators)
+cannot be called at all. Rust contracts rarely recurse that deep; one that
+does fails alike everywhere instead of splitting the chain. A deploy-time
+refusal of a function over the budget would tell the deployer sooner; it is
+not built.
+
+### Revised 2026-11-24 after review
+
+The first version of this amendment (16,384 slots, frames weighed by
+locals and operand height only, the deployed bytes not validated before the
+rewrite) had two holes, both reproduced before the fix and pinned since:
+`depth_limit_tests::an_index_the_rewrite_would_satisfy_is_refused_at_deploy`
+(three modules whose out-of-range index the rewrite would satisfy, refused
+by `Vm::validate` and by execution on both tiers) and the merged-term shapes
+in `SHAPES` (red before: `depth 1363 must complete`, ended in `call stack
+exhausted`). The rewrite version is now `maya-depth-v2`, so no module
+compiled under the first one is served from a cache.
 
 ### Compile prices with the rewrite
 

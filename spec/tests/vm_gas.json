@@ -743,53 +743,53 @@
       "expect": {
         "result": "error",
         "error": "Trap",
-        "value": "400964"
+        "value": "399352"
       }
     },
     {
-      "id": "golden-recursion-1486-deep-below-the-depth-bound",
+      "id": "golden-recursion-1089-deep-below-the-depth-bound",
       "rules": [
         "GAS-10"
       ],
       "kind": "golden_gas",
       "input": {
-        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (if (result i64) (i64.eqz (local.get 0)) (then (i64.const 0)) (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1))) (i64.const 1))))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 1486))))",
+        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (if (result i64) (i64.eqz (local.get 0)) (then (i64.const 0)) (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1))) (i64.const 1))))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 1089))))",
         "gas_limit": "10000000"
       },
       "expect": {
         "result": "ok",
-        "value": "482674"
+        "value": "473940"
       }
     },
     {
-      "id": "golden-recursion-1487-deep-at-the-depth-bound",
+      "id": "golden-recursion-1090-deep-at-the-depth-bound",
       "rules": [
         "GAS-10"
       ],
       "kind": "golden_gas",
       "input": {
-        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (if (result i64) (i64.eqz (local.get 0)) (then (i64.const 0)) (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1))) (i64.const 1))))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 1487))))",
+        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (if (result i64) (i64.eqz (local.get 0)) (then (i64.const 0)) (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1))) (i64.const 1))))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 1090))))",
         "gas_limit": "10000000"
       },
       "expect": {
         "result": "ok",
-        "value": "482696"
+        "value": "473962"
       }
     },
     {
-      "id": "golden-recursion-1488-deep-past-the-depth-bound",
+      "id": "golden-recursion-1091-deep-past-the-depth-bound",
       "rules": [
         "GAS-10"
       ],
       "kind": "golden_gas",
       "input": {
-        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (if (result i64) (i64.eqz (local.get 0)) (then (i64.const 0)) (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1))) (i64.const 1))))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 1488))))",
+        "wat": "(module (memory (export \"memory\") 1) (func $down (param i64) (result i64) (if (result i64) (i64.eqz (local.get 0)) (then (i64.const 0)) (else (i64.add (call $down (i64.sub (local.get 0) (i64.const 1))) (i64.const 1))))) (func (export \"invoke\") (param i32) (result i64) (call $down (i64.const 1091))))",
         "gas_limit": "10000000"
       },
       "expect": {
         "result": "error",
         "error": "Trap",
-        "value": "473778"
+        "value": "467426"
       }
     },
     {

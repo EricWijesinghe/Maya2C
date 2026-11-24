@@ -1011,3 +1011,26 @@ if any shape passes a third on the platforms CI builds. The cost: 12 units of
 fuel per function call (every gas vector moved by exactly that) and a
 recursion depth of 1,487 for the smallest frame. Spec GAS-10 (10-vm-gas
 v0.4.0), ADR-142 amendment 8, vectors at 1,486, 1,487 and 1,488 levels.
+
+## 2026-11-24 — The call-depth bound counts what the compiler holds, and validates first (R-6 review)
+
+Two review findings on the bound above, both reproduced before the fix. One:
+the deployed bytes were rewritten before anything validated them, so a
+`global.set` one past the module's own globals became valid and wrote the
+counter, and an endless recursion ran into the native stack check again.
+The deployed bytes are now validated first (`maya_vm::depth::compile`, the
+one path deploy and execution share). Two: the frame weight counted what the
+wasm holds, not what Cranelift holds. Equal pure computations before and
+after a call are merged into one value kept live across it, which the wasm
+names nowhere; 64 such terms overflowed the native stack inside the bound.
+The weight now also counts every value an operator produces, 3 more for
+operators lowered to several values, one block parameter per open block for
+each `local.set`/`local.tee`, and 9 for the bound's own operators: an upper
+bound on the values a frame can hold, whatever is merged or spilled. With
+that, the budget doubled to 32,768 slots (worst case 8 bytes a slot, 256 KiB,
+half the native stack); measured, the deepest admitted chain held at most
+56,160 bytes (11%) over twelve shapes, four of them merged terms. The cost:
+heavier frames, so the vectors' frame recurses 1,090 deep (was 1,487) and a
+1,000-local frame 2 (was 15); a function weighing more than 32,768 slots traps
+on every call. Spec GAS-10, ADR-142 amendment 8 (revised), vectors at 1,089,
+1,090 and 1,091 levels.

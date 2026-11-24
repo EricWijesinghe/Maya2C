@@ -445,7 +445,7 @@ fn the_deepest_completing_recursion_is_the_bound_s_on_every_build() {
         "R-6 {} deepest completing depth {low}",
         std::env::consts::ARCH
     );
-    assert_eq!(low, 1_487);
+    assert_eq!(low, 1_090);
     assert!(matches!(run(high), Err(VmError::Trap(text))
             if text.contains("unreachable") && !text.contains("stack overflow")));
 }

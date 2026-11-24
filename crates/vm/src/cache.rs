@@ -50,7 +50,7 @@ use std::sync::Mutex;
 
 use wasmtime::{Engine, Module};
 
-use crate::error::{Result, VmError};
+use crate::error::Result;
 
 /// The most compiled modules one VM holds.
 ///
@@ -147,7 +147,7 @@ impl ModuleCache {
     ///
     /// # Errors
     ///
-    /// Returns [`VmError::InvalidModule`] for bytes wasmtime will not compile —
+    /// Returns [`crate::VmError::InvalidModule`] for bytes wasmtime will not compile —
     /// the same error `Module::new` would have produced, because a cache must
     /// not turn a compile failure into something else.
     ///
@@ -175,12 +175,11 @@ impl ModuleCache {
         // Compiled outside the lock. Cranelift on a large module takes long
         // enough that holding the map would serialise every other contract call
         // in the process behind it.
-        // What compiles is the module with the call-depth bound applied
-        // (`crate::depth`, re-freeze R-6); the key stays the deployed bytes,
-        // and the rewrite's version is in the digest.
-        let bounded = crate::depth::instrument(wasm)?;
-        let module =
-            Module::new(engine, &bounded).map_err(|error| VmError::from_compile(&error))?;
+        // What compiles is the deployed bytes validated, then the module with
+        // the call-depth bound applied (`crate::depth::compile`, re-freeze
+        // R-6); the key stays the deployed bytes, and the rewrite's version
+        // is in the digest.
+        let module = crate::depth::compile(engine, wasm)?;
         *self
             .misses
             .lock()

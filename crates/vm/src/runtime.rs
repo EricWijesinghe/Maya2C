@@ -437,9 +437,9 @@ impl Vm {
                 limit: usize::try_from(gas::MAX_COLD_CALL_FUEL).unwrap_or(usize::MAX),
             });
         }
-        // Compiled as it will run: with the call-depth bound (`crate::depth`).
-        let bounded = crate::depth::instrument(wasm)?;
-        let module = Module::new(&self.engine, &bounded).map_err(|e| VmError::from_compile(&e))?;
+        // Compiled as it will run: validated, then with the call-depth bound
+        // (`crate::depth::compile`).
+        let module = crate::depth::compile(&self.engine, wasm)?;
 
         // Names only. The linker checks the *types* at instantiation, and it
         // has to: a signature mismatch is a different failure with a different

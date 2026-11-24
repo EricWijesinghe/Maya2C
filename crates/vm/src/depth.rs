@@ -16,11 +16,27 @@
 //! `unreachable` before its body runs. The count is a function of the wasm
 //! alone, so every binary traps at the same call.
 //!
-//! A frame's slots are [`FRAME_SLOTS`] plus its params, its declared locals
-//! and the most operand-stack values its body can hold at once: the values a
-//! native frame may need to spill. The budget is chosen so that the deepest
-//! chain of frames it admits stays far inside `max_wasm_stack` for every
-//! frame shape measured (`tests/depth_limit_tests.rs`, ADR-142 amendment 8).
+//! A frame's slots are an upper bound on the values its native frame can
+//! hold, counted from the wasm: [`FRAME_SLOTS`], its params, its declared
+//! locals, the most operand-stack values its body can hold at once, and
+//! every value its operators produce. The last term is what makes it a bound
+//! on the compiled code rather than on the wasm: Cranelift merges equal pure
+//! computations (one before a call and one after it become a single value
+//! kept live across the call), and its register allocator may give every
+//! value its own spill slot, so a frame can hold any value the body ever
+//! computes, whether or not the wasm names it. The count adds
+//! [`INTERNAL_VALUES`] for each operator lowered to more than one value
+//! (address and bounds computations, divide checks, NaN canonicalisation),
+//! one per open block for each `local.set`/`local.tee` (the block parameters
+//! SSA construction may add at the joins it reaches), and
+//! [`REWRITE_VALUES`] for the bound's own operators. The budget is chosen so
+//! that the deepest chain of frames it admits stays far inside
+//! `max_wasm_stack` for every frame shape measured
+//! (`tests/depth_limit_tests.rs`, ADR-142 amendment 8, revised 2026-11-24).
+//!
+//! The deployed bytes are validated before the rewrite ([`compile`]): the
+//! rewrite adds a global and block types, so an index one past the module's
+//! own would otherwise become valid and point at them.
 //!
 //! What the rewrite does to each defined function:
 //!
@@ -44,18 +60,26 @@ use crate::error::{Result, VmError};
 
 /// Slots every guest frame may hold at once, over the whole call chain.
 ///
-/// Measured (`tests/depth_limit_tests.rs`), a native frame used at most
-/// 8 bytes a slot (an `i64` or `f64` spilled; SIMD is off) and 48 bytes for
-/// the smallest frame (11 slots), so the deepest chain the budget admits
-/// holds about 128 KiB, a quarter of `max_wasm_stack`: a binary whose frames
-/// are three times this one's still traps on the bound first. The smallest
-/// frame recurses 1,487 deep.
-pub const DEPTH_LIMIT_SLOTS: u32 = 16_384;
+/// A slot stands for one value, at most 8 bytes spilled (an `i64` or `f64`;
+/// SIMD is off), so the budget's worst case is 256 KiB, half of
+/// `max_wasm_stack`. Measured (`tests/depth_limit_tests.rs`), the deepest
+/// chain it admits held far less, because most counted values are never
+/// spilled; the figures are in ADR-142 amendment 8.
+pub const DEPTH_LIMIT_SLOTS: u32 = 32_768;
 
 /// Slots charged to every frame before its params, locals and operand
 /// stack: the return address, the saved frame pointer, callee-saved
 /// registers and the frame's fixed spill area.
 pub const FRAME_SLOTS: u32 = 8;
+
+/// Values an operator lowered to more than one value may add beyond its
+/// result: an address extension, an address sum and a bounds or divisor
+/// check, or NaN canonicalisation's compare, constant and select.
+pub const INTERNAL_VALUES: u64 = 3;
+
+/// Values the bound's own operators produce: three in each of the two
+/// prologue sums and three in the epilogue.
+pub const REWRITE_VALUES: u64 = 9;
 
 /// Fuel the bound's own operators cost each function call: eight in the
 /// prologue (the `if` counts, `unreachable` never runs) and four in the
@@ -65,7 +89,21 @@ pub const BOOKKEEPING_FUEL: u64 = 12;
 
 /// Bumped whenever the rewrite changes, so a cached module compiled under an
 /// older rewrite is never served (`crate::config::config_digest`).
-pub const REWRITE_VERSION: &[u8] = b"maya-depth-v1";
+pub const REWRITE_VERSION: &[u8] = b"maya-depth-v2";
+
+/// `wasm` compiled as it runs: validated as deployed, then rewritten with the
+/// bound. Every path that deploys or runs a contract compiles through here.
+///
+/// # Errors
+///
+/// As `Module::new` ([`VmError::from_compile`]), or [`instrument`]'s.
+pub(crate) fn compile(engine: &wasmtime::Engine, wasm: &[u8]) -> Result<wasmtime::Module> {
+    // Before the rewrite, not after: an index past the module's own globals
+    // or types names the counter or a wrapper type once they are added.
+    wasmtime::Module::validate(engine, wasm).map_err(|e| VmError::from_compile(&e))?;
+    let bounded = instrument(wasm)?;
+    wasmtime::Module::new(engine, &bounded).map_err(|e| VmError::from_compile(&e))
+}
 
 /// `wasm` with the depth bound applied to every defined function.
 ///
@@ -113,8 +151,8 @@ pub fn frame_slots(wasm: &[u8]) -> Result<Vec<u32>> {
         let size = reader.u32()? as usize;
         let mut body = Reader::new(reader.take(size)?);
         let locals = read_locals(&mut body)?;
-        let height = walk(&mut body, &module, ty, None)?;
-        out.push(slots(&module.types[ty as usize], locals, height));
+        let counted = walk(&mut body, &module, ty, None)?;
+        out.push(slots(&module.types[ty as usize], locals, counted));
     }
     Ok(out)
 }
@@ -358,12 +396,13 @@ fn read_locals(body: &mut Reader<'_>) -> Result<u64> {
     Ok(locals)
 }
 
-fn slots(ty: &FuncType, locals: u64, height: u64) -> u32 {
+fn slots(ty: &FuncType, locals: u64, counted: Counted) -> u32 {
     let total = u64::from(FRAME_SLOTS)
         .saturating_add(u64::from(ty.params))
         .saturating_add(locals)
-        // The prologue holds two values before the body runs.
-        .saturating_add(height.max(2));
+        .saturating_add(counted.height)
+        .saturating_add(counted.values)
+        .saturating_add(REWRITE_VALUES);
     u32::try_from(total).unwrap_or(u32::MAX)
 }
 
@@ -377,11 +416,11 @@ fn rewrite_body(
     let mut reader = Reader::new(body);
     let locals = read_locals(&mut reader)?;
     let operators_at = reader.at;
-    let height = walk(&mut reader.clone(), module, ty, None)?;
+    let counted = walk(&mut reader.clone(), module, ty, None)?;
     let func = module.func_type(ty)?;
     // Past the limit the entry traps anyway; capped so the immediate and
     // the counter stay far inside i32.
-    let weight = slots(func, locals, height).min(DEPTH_LIMIT_SLOTS + 1);
+    let weight = slots(func, locals, counted).min(DEPTH_LIMIT_SLOTS + 1);
 
     let mut out = Vec::with_capacity(body.len() + 48);
     out.extend_from_slice(&body[..operators_at]);
@@ -421,31 +460,53 @@ struct Frame {
     results: u64,
 }
 
-/// Walks one body's operators, returning the most operand-stack values it
-/// can hold at once (an upper bound: unreachable code is counted from its
-/// block's base). With `out`, also copies the operators there, `return`
-/// rewritten to a branch to the wrapper and the final `end` left out.
+/// What [`walk`] counts over one body.
+#[derive(Clone, Copy)]
+struct Counted {
+    /// The most operand-stack values it can hold at once (an upper bound:
+    /// unreachable code is counted from its block's base).
+    height: u64,
+    /// Every value its operators can produce, as the module doc counts them.
+    values: u64,
+}
+
+/// Operators Cranelift lowers to more than one value: memory and table
+/// access, `call_indirect`, integer division, and float arithmetic and
+/// conversions (NaN canonicalisation, range checks).
+fn lowers_wide(op: u8) -> bool {
+    matches!(op, 0x11 | 0x28..=0x40 | 0x6d..=0x70 | 0x7f..=0x82 | 0x8b..=0xbf | 0xfc)
+}
+
+/// Walks one body's operators and counts it ([`Counted`]). With `out`, also
+/// copies the operators there, `return` rewritten to a branch to the wrapper
+/// and the final `end` left out.
 fn walk(
     body: &mut Reader<'_>,
     module: &Module<'_>,
     ty: u32,
     mut out: Option<&mut Vec<u8>>,
-) -> Result<u64> {
+) -> Result<Counted> {
     let own = module.func_type(ty)?;
     let mut frames = vec![Frame {
         base: 0,
         params: 0,
         results: own.results.len() as u64,
     }];
-    let (mut height, mut max) = (0u64, 0u64);
+    let (mut height, mut max, mut values) = (0u64, 0u64, 0u64);
     while !body.done() {
         let start = body.at;
         let op = body.byte()?;
         let base = frames.last().map_or(0, |f| f.base);
         let pop = |height: &mut u64, n: u64| *height = height.saturating_sub(n).max(base);
+        if lowers_wide(op) {
+            values = values.saturating_add(INTERNAL_VALUES);
+        }
         match op {
             0x02..=0x04 => {
                 let (params, results) = block_arity(body, module)?;
+                // Its params and results become block parameters at the
+                // entry and the join.
+                values = values.saturating_add(params + results);
                 if op == 0x04 {
                     pop(&mut height, 1);
                 }
@@ -468,7 +529,10 @@ fn walk(
                     if !body.done() {
                         return Err(invalid("operators after the function's end"));
                     }
-                    return Ok(max);
+                    return Ok(Counted {
+                        height: max,
+                        values,
+                    });
                 }
             }
             0x00 | 0x0c | 0x0f => {
@@ -491,17 +555,25 @@ fn walk(
                 let callee = module.callee(body.u32()?)?;
                 pop(&mut height, u64::from(callee.params));
                 height += callee.results.len() as u64;
+                values = values.saturating_add(callee.results.len() as u64);
             }
             0x11 => {
                 let callee = module.func_type(body.u32()?)?;
                 body.u32()?;
                 pop(&mut height, u64::from(callee.params) + 1);
                 height += callee.results.len() as u64;
+                values = values.saturating_add(callee.results.len() as u64);
             }
             _ => {
                 let (pops, pushes) = effect(op, body)?;
                 pop(&mut height, pops);
                 height += pushes;
+                values = values.saturating_add(pushes);
+                if matches!(op, 0x21 | 0x22) {
+                    // A new version of a local: a block parameter at the
+                    // join of every block it is set inside.
+                    values = values.saturating_add(frames.len() as u64);
+                }
             }
         }
         max = max.max(height);
@@ -723,8 +795,9 @@ mod tests {
               (func (param i64 i64) (result i64) (local i32 i32 i32)
                 (i64.add (i64.add (local.get 0) (local.get 1)) (i64.const 1))))",
         );
-        // 8 + 2 params + 3 locals + a stack of 2.
-        assert_eq!(frame_slots(&code).unwrap(), vec![15]);
+        // 8 + 2 params + 3 locals + a stack of 2 + 5 values produced (two
+        // gets, two adds, a const) + 9 for the bound's own operators.
+        assert_eq!(frame_slots(&code).unwrap(), vec![29]);
     }
 
     #[test]
@@ -740,6 +813,39 @@ mod tests {
             let engine = crate::config::deterministic_engine().unwrap();
             wasmtime::Module::validate(&engine, &rewritten).unwrap();
         }
+    }
+
+    #[test]
+    fn values_merged_across_a_call_are_counted() {
+        // Each `param * c` term is computed again after the call; Cranelift
+        // keeps the first live instead, so the frame must count it.
+        let term = "(i64.mul (local.get 0) (i64.const 1000003))";
+        let code = |terms: usize| {
+            let before = format!("(i64.store (i32.const 0) {term})").repeat(terms);
+            let after = format!("(drop {term})").repeat(terms);
+            wasm(&format!(
+                "(module (memory 1) (func $f (param i64) {before} (call $f (local.get 0)) {after}))"
+            ))
+        };
+        let (small, large) = (
+            frame_slots(&code(1)).unwrap()[0],
+            frame_slots(&code(64)).unwrap()[0],
+        );
+        // Per term: four values and three for the store's address before
+        // the call, three values after it.
+        assert_eq!(large - small, 63 * 10, "{small} {large}");
+    }
+
+    #[test]
+    fn a_module_naming_what_the_rewrite_adds_does_not_compile() {
+        let engine = crate::config::deterministic_engine().unwrap();
+        let code = wasm("(module (func $f (global.set 0 (i32.const 0)) (call $f)))");
+        // The rewrite alone would make it valid; `compile` validates first.
+        wasmtime::Module::validate(&engine, &instrument(&code).unwrap()).unwrap();
+        assert!(matches!(
+            compile(&engine, &code),
+            Err(VmError::InvalidModule(_))
+        ));
     }
 
     #[test]
