@@ -82,7 +82,7 @@ curl https://gateway.example.com/v1/supply
 ```
 
 Both figures are decimal strings of base units: amounts are 256-bit
-([ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md)),
+([ADR-046](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md)),
 wider than a JSON number can carry exactly. The values above show the shape,
 not real chain figures.
 
