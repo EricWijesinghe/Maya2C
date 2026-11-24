@@ -52,7 +52,13 @@ Every validator id on the DAG-BFT wire (sender, addressee, author, voter) is
 four bytes, and the digest hashes the author as four bytes. The in-memory
 index stays `u16` in this build, and an id above 65,535 is refused at decode,
 so a committee wider than that later is a binary change that alters no
-encoding and no digest. The gossip frame version is 2.
+encoding and no digest. Broadcast (addressee) and no-sender (an observer's
+frame) travel as `0xFFFFFFFF`, which is never a validator id at any width: a
+vertex author or voter of all ones is refused, and `0x0000FFFF` is the
+ordinary id 65,535. A 16-bit sentinel written as `0x0000FFFF` would have
+turned into validator 65,535's address the day the index widened, so the
+sentinel is fixed in the bytes, not in the in-memory type. The gossip frame
+version is 2.
 
 Not changed here: the block attestation frame (ADR-038) still carries a
 two-byte validator index. Attestations are not stored on chain yet; the

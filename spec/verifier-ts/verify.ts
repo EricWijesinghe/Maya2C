@@ -36,7 +36,8 @@ const text = (s: string) => new TextEncoder().encode(s);
 interface Account { balance: bigint; nonce: bigint }
 type State = Map<string, Account>; // key: address hex
 
-const leaf = (addr: string, a: Account) => blake3(concat(Uint8Array.of(0), fromHex(addr), le256(a.balance), le64(a.nonce)));
+// Trailing byte: the auth kind (ADR-155 P7); only kind 0 exists, so every vector account carries 0.
+const leaf = (addr: string, a: Account) => blake3(concat(Uint8Array.of(0), fromHex(addr), le256(a.balance), le64(a.nonce), Uint8Array.of(0)));
 const node = (l: Uint8Array, r: Uint8Array) => blake3(concat(Uint8Array.of(1), l, r));
 
 function root(state: State): string {

@@ -723,6 +723,12 @@ fn bft_format_cases() -> Vec<Value> {
     // The author follows the version byte, epoch and round.
     let mut wide_author = record.clone();
     wide_author[17..21].copy_from_slice(&0x0001_0000u32.to_le_bytes());
+    // All ones is the wire's broadcast / no-sender value, never a validator.
+    let mut all_ones_author = record.clone();
+    all_ones_author[17..21].copy_from_slice(&u32::MAX.to_le_bytes());
+    // 0x0000FFFF is the ordinary id 65,535, not the broadcast value.
+    let votes_65535 = vec![(0xFFFFu32, vec![4u8; 5])];
+    let record_65535 = bft::certificate_record(&full, &votes_65535);
     let bad = |id: &str, bytes: &[u8]| {
         json!({"id": id, "rules": ["CON-19"], "fn": "certificate_record", "bytes": hex(bytes),
             "expect": {"result": "error", "error": "Decode"}})
@@ -736,6 +742,14 @@ fn bft_format_cases() -> Vec<Value> {
             "bytes": hex(&record), "expect": {"result": "ok"}}),
         bad("certificate-record-unknown-version", &unknown_version),
         bad("certificate-record-id-wider-than-u16", &wide_author),
+        bad(
+            "certificate-record-author-all-ones-is-not-an-id",
+            &all_ones_author,
+        ),
+        json!({"id": "certificate-record-voter-0x0000ffff-is-ordinary", "rules": ["CON-19"],
+            "fn": "certificate_record", "vertex": vertex_json(&full),
+            "votes": votes_65535.iter().map(|(v, s)| json!({"voter": v.to_string(), "signature": hex(s)})).collect::<Vec<_>>(),
+            "bytes": hex(&record_65535), "expect": {"result": "ok"}}),
     ]
 }
 

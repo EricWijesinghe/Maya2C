@@ -194,3 +194,51 @@ fn a_frame_of_the_old_wire_version_is_refused() {
     old[0] = 1;
     assert!(Envelope::decode(&old).is_err());
 }
+
+/// Frame bytes: version 1, epoch 8, then `from` and `to` four bytes each.
+const FROM_AT: usize = 9;
+const TO_AT: usize = 13;
+
+#[test]
+fn broadcast_and_no_sender_are_all_ones_on_the_wire() {
+    // A 16-bit sentinel written as 0x0000FFFF would become validator 65,535
+    // the day the committee index widens; all ones is never a validator id.
+    let frame = Envelope {
+        epoch: 1,
+        from: BROADCAST,
+        to: BROADCAST,
+        message: Message::Fetch([5; 32]),
+    };
+    let bytes = frame.encode();
+    assert_eq!(bytes[FROM_AT..FROM_AT + 4], [0xff; 4], "no-sender");
+    assert_eq!(bytes[TO_AT..TO_AT + 4], [0xff; 4], "broadcast");
+    assert_eq!(Envelope::decode(&bytes).unwrap(), frame);
+}
+
+#[test]
+fn wire_id_0x0000ffff_is_an_ordinary_validator_id() {
+    let frame = Envelope {
+        epoch: 1,
+        from: 7,
+        to: 9,
+        message: Message::Vote {
+            digest: [1; 32],
+            round: 2,
+            voter: 0xFFFF,
+            signature: vec![3; 4],
+        },
+    };
+    let mut bytes = frame.encode();
+    let Message::Vote { voter, .. } = Envelope::decode(&bytes).unwrap().message else {
+        panic!("vote");
+    };
+    assert_eq!(voter, 0xFFFF);
+    // The voter id follows the tag, digest and round; all ones there is refused.
+    let voter_at = TO_AT + 4 + 1 + 32 + 8;
+    assert_eq!(bytes[voter_at..voter_at + 4], 0xFFFFu32.to_le_bytes());
+    bytes[voter_at..voter_at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert!(
+        Envelope::decode(&bytes).is_err(),
+        "all ones is never a voter"
+    );
+}

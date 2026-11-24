@@ -14,7 +14,7 @@
 //! cert      = cert_version:u8 vertex k:u64 (voter:id sig)*k
 //! header    = header_version:u8 epoch:u64 round:u64 author:id
 //!             timestamp_ms:u64 parents_root:32 batch_root:32 sig
-//! id        = u32 little-endian
+//! id        = u32 little-endian; 0xFFFFFFFF = broadcast / no sender (from, to only)
 //! sig       = len:u64 bytes
 //! ```
 //!
@@ -24,7 +24,9 @@
 //!
 //! Format room (ADR-155). Every validator id is four bytes on the wire, so a
 //! committee wider than today's `u16` index never needs a new encoding; this
-//! build refuses an id above `u16::MAX` cleanly at decode (NEW-7). A
+//! build refuses an id above `u16::MAX` cleanly at decode (NEW-7). Broadcast
+//! and no-sender travel as `0xFFFFFFFF`, which is never an id, so the
+//! widening moves no sentinel either. A
 //! certificate record names its own version in its first byte, because it is
 //! stored and served on its own, outside any frame (C2). A signed vertex
 //! header is the equivocation-evidence form (NEW-1): a fixed size, however
@@ -56,8 +58,14 @@ pub const SIGNED_HEADER_FIXED_BYTES: usize = 1 + 8 + 8 + 4 + 8 + 32 + 32 + 8;
 /// carries per proposal, at any block size.
 pub const MAX_SIGNED_HEADER_BYTES: usize = SIGNED_HEADER_FIXED_BYTES + MAX_SIGNATURE_BYTES;
 
-/// `to` for a broadcast.
-pub const BROADCAST: u16 = u16::MAX;
+/// `to` for a broadcast, and `from` for an observer, in memory. On the wire
+/// both are [`WIRE_BROADCAST`], so the in-memory value can follow the index
+/// width while the bytes never change.
+pub const BROADCAST: ValidatorId = ValidatorId::MAX;
+
+/// Broadcast / no-sender on the wire: all ones, never a validator id at any
+/// committee width. `0x0000FFFF` is the ordinary id 65,535 (NEW-7).
+pub const WIRE_BROADCAST: u32 = u32::MAX;
 
 /// Most bytes one signature may claim. An ML-DSA-87 validator signature is 4,627; the bound only
 /// has to stop a length prefix from asking for gigabytes.
@@ -82,7 +90,7 @@ pub struct Envelope {
     /// answer a `Fetch`.
     pub from: ValidatorId,
     /// Addressee, or [`BROADCAST`].
-    pub to: u16,
+    pub to: ValidatorId,
     /// The engine message.
     pub message: Message,
 }
@@ -94,8 +102,8 @@ impl Envelope {
         let mut out = Vec::with_capacity(256);
         out.push(WIRE_VERSION);
         out.extend_from_slice(&self.epoch.to_le_bytes());
-        put_id(&mut out, self.from);
-        put_id(&mut out, self.to);
+        put_addr(&mut out, self.from);
+        put_addr(&mut out, self.to);
         match &self.message {
             Message::Propose { vertex, signature } => {
                 out.push(TAG_PROPOSE);
@@ -141,8 +149,8 @@ impl Envelope {
             )));
         }
         let epoch = r.read_u64()?;
-        let from = read_id(&mut r)?;
-        let to = read_id(&mut r)?;
+        let from = read_addr(&mut r)?;
+        let to = read_addr(&mut r)?;
         let message = match r.read_u8()? {
             TAG_PROPOSE => Message::Propose {
                 vertex: read_vertex(&mut r)?,
@@ -223,10 +231,38 @@ fn put_id(out: &mut Vec<u8>, id: ValidatorId) {
     out.extend_from_slice(&u32::from(id).to_le_bytes());
 }
 
-/// A four-byte validator id, refused when it is wider than this build's
-/// committee index can hold.
+/// A frame's sender or addressee: [`BROADCAST`] travels as [`WIRE_BROADCAST`].
+fn put_addr(out: &mut Vec<u8>, id: ValidatorId) {
+    if id == BROADCAST {
+        out.extend_from_slice(&WIRE_BROADCAST.to_le_bytes());
+    } else {
+        put_id(out, id);
+    }
+}
+
+/// A frame's sender or addressee: [`WIRE_BROADCAST`] is [`BROADCAST`], any
+/// other value an ordinary id.
+fn read_addr(r: &mut ByteReader<'_>) -> Result<ValidatorId> {
+    let id = u32::from_le_bytes(r.read_array()?);
+    if id == WIRE_BROADCAST {
+        return Ok(BROADCAST);
+    }
+    narrow_id(id)
+}
+
+/// A four-byte validator id, refused when it is all ones (never an id) or
+/// wider than this build's committee index can hold.
 fn read_id(r: &mut ByteReader<'_>) -> Result<ValidatorId> {
     let id = u32::from_le_bytes(r.read_array()?);
+    if id == WIRE_BROADCAST {
+        return Err(NodeError::Decode(
+            "validator id 0xFFFFFFFF is reserved".into(),
+        ));
+    }
+    narrow_id(id)
+}
+
+fn narrow_id(id: u32) -> Result<ValidatorId> {
     ValidatorId::try_from(id)
         .map_err(|_| NodeError::Decode(format!("validator id {id} wider than this build's index")))
 }
