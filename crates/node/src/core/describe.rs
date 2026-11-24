@@ -492,8 +492,16 @@ pub fn describe_kind(kind: &TxKind) -> Description {
             ),
         },
         TxKind::Vault(action) => describe_vault(action),
+        TxKind::MiningShare(m) if m.nonces.is_empty() => Description::new(
+            format!("Claim your mining reward for epoch {}.", m.epoch),
+            Routine,
+        ),
         TxKind::MiningShare(m) => Description::new(
-            format!("Submit a mining share for epoch {}.", m.epoch),
+            format!(
+                "Submit {} mining share(s) for epoch {}.",
+                m.nonces.len(),
+                m.epoch
+            ),
             Routine,
         ),
     }

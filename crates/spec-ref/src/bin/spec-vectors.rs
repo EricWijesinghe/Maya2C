@@ -900,6 +900,7 @@ fn mining_vectors() -> Value {
     validate_cases(&mut cases);
     share_header_and_target_cases(&mut cases);
     work_kind_cases(&mut cases);
+    epoch_anchor_cases(&mut cases);
     json!({"format": 1, "u64": "decimal strings", "spec": "spec/09-mining.md", "generator": "maya-spec-ref spec-vectors", "cases": cases})
 }
 
@@ -919,51 +920,51 @@ fn mine_case(id: &str, rule: &str, extra: Value) -> Value {
 }
 
 fn share_reward_cases(cases: &mut Vec<Value>) {
-    let zero = Balance::from(0);
+    let top = pow2(192).checked_sub(Balance::from(1)).unwrap_or_default();
+    // (id, budget, mine, total)
     let rows = [
-        ("share-first-of-epoch", 1_000_000u64, 7_000u64, 10u64, zero),
-        ("share-rounds-down", 7, 7_000, 3, zero),
         (
-            "share-last-remainder",
-            1_000_000,
-            7_000,
-            10,
-            Balance::from(699_000),
-        ),
-        (
-            "share-budget-spent",
-            1_000_000,
-            7_000,
-            10,
+            "payout-sole-miner-takes-all",
             Balance::from(700_000),
+            1u64,
+            1u64,
         ),
-        ("share-zero-bps", 1_000_000, 0, 10, zero),
-        ("share-bps-clamped", 1_000_000, 20_000, 10, zero),
-        ("share-zero-reward", 0, 7_000, 10, zero),
+        (
+            "payout-one-of-three-rounds-down",
+            Balance::from(700_000),
+            1,
+            3,
+        ),
+        ("payout-four-of-104", Balance::from(700_000), 4, 104),
+        ("payout-one-of-104", Balance::from(700_000), 1, 104),
+        ("payout-no-work", Balance::from(700_000), 0, 5),
+        ("payout-empty-epoch", Balance::from(700_000), 0, 0),
+        ("payout-zero-budget", Balance::from(0), 3, 5),
+        ("payout-ceiling-budget-max-counts", top, u64::MAX, u64::MAX),
+        ("payout-ceiling-budget-one-of-max", top, 1, u64::MAX),
     ];
-    for (id, reward, bps, shares, paid) in rows {
-        let expect = mining::share_reward(Balance::from(reward), bps, shares, paid);
-        cases.push(mine_case(id, "MINE-4", json!({"fn": "share_reward", "reward": reward.to_string(), "miner_bps": bps.to_string(), "target_shares": shares.to_string(), "paid": paid.to_string(), "expect": expect.to_string()})));
+    for (id, budget, mine, total) in rows {
+        let expect = mining::share_payout(budget, mine, total);
+        cases.push(mine_case(id, "MINE-4", json!({"fn": "share_payout", "budget": budget.to_string(), "mine": mine.to_string(), "total": total.to_string(), "expect": expect.to_string()})));
     }
 }
 
 fn mine_retarget_cases(cases: &mut Vec<Value>) {
     let t = pow2(200);
     let limit = pow2(240);
-    // (id, target, shares, spent_after, epoch_blocks)
+    // (id, target, shares)
     let rows = [
-        ("retarget-on-target", t, 8u64, 0u64, 3_600u64),
-        ("retarget-hardens-x2", t, 16, 0, 3_600),
-        ("retarget-hardens-clamped-x4", t, 1_000, 0, 3_600),
-        ("retarget-eases-clamped-x4", t, 0, 0, 3_600),
-        ("retarget-spent-early", t, 8, 1_000, 3_600),
-        ("retarget-demand-huge-clamped", t, u64::MAX, 1, 1),
-        ("retarget-capped-at-limit", limit, 0, 0, 3_600),
-        ("retarget-never-zero", Balance::from(1), 1_000, 0, 3_600),
+        ("retarget-on-target", t, 8u64),
+        ("retarget-hardens-x2", t, 16),
+        ("retarget-hardens-clamped-x4", t, 1_000),
+        ("retarget-eases-clamped-x4", t, 0),
+        ("retarget-demand-huge-clamped", t, u64::MAX),
+        ("retarget-capped-at-limit", limit, 0),
+        ("retarget-never-zero", Balance::from(1), 1_000),
     ];
-    for (id, target, shares, spent, blocks) in rows {
-        let expect = mining::retarget(target, limit, 8, shares, spent, blocks);
-        cases.push(mine_case(id, "MINE-5", json!({"fn": "retarget", "target": target.to_string(), "target_limit": limit.to_string(), "target_shares": "8", "shares": shares.to_string(), "spent_after": spent.to_string(), "epoch_blocks": blocks.to_string(), "expect": expect.to_string()})));
+    for (id, target, shares) in rows {
+        let expect = mining::retarget(target, limit, 8, shares);
+        cases.push(mine_case(id, "MINE-5", json!({"fn": "retarget", "target": target.to_string(), "target_limit": limit.to_string(), "target_shares": "8", "shares": shares.to_string(), "expect": expect.to_string()})));
     }
 }
 
@@ -976,7 +977,6 @@ fn validate_cases(cases: &mut Vec<Value>) {
         epoch_blocks: 3_600,
         max_shares_per_block: 16,
         miner_bps: 7_000,
-        spent_after: 0,
         target: pow2(200),
         target_limit: pow2(240),
     };
@@ -1003,7 +1003,6 @@ fn validate_cases(cases: &mut Vec<Value>) {
             "refuse-tail-above-initial",
             tweak(&|s| s.tail = Balance::from(1_000_001)),
         ),
-        ("refuse-spent-past-epoch", tweak(&|s| s.spent_after = 3_601)),
         (
             "refuse-share-pays-nothing",
             tweak(&|s| s.initial = Balance::from(9)),
@@ -1043,7 +1042,7 @@ fn validate_cases(cases: &mut Vec<Value>) {
             Some(r) => vec![r],
             None => vec!["MINE-3", "MINE-6", "MINE-7", "MINE-8"],
         };
-        cases.push(json!({"id": id, "rules": rules, "fn": "validate", "initial": s.initial.to_string(), "tail": s.tail.to_string(), "halving_epochs": s.halving_epochs.to_string(), "target_shares": s.target_shares.to_string(), "epoch_blocks": s.epoch_blocks.to_string(), "max_shares_per_block": s.max_shares_per_block.to_string(), "miner_share_bps": s.miner_bps.to_string(), "spent_after": s.spent_after.to_string(), "target": s.target.to_string(), "target_limit": s.target_limit.to_string(), "expect": expect}));
+        cases.push(json!({"id": id, "rules": rules, "fn": "validate", "initial": s.initial.to_string(), "tail": s.tail.to_string(), "halving_epochs": s.halving_epochs.to_string(), "target_shares": s.target_shares.to_string(), "epoch_blocks": s.epoch_blocks.to_string(), "max_shares_per_block": s.max_shares_per_block.to_string(), "miner_share_bps": s.miner_bps.to_string(), "target": s.target.to_string(), "target_limit": s.target_limit.to_string(), "expect": expect}));
     }
 }
 
@@ -1085,41 +1084,96 @@ fn share_header_and_target_cases(cases: &mut Vec<Value>) {
     }
 }
 
-/// MINE-11: a share's and a claim's payload under kind 0, 1 and 255.
+/// MINE-11: a share batch's and a work claim's payload under kind 0, 1 and
+/// 255, and the batch's count and order rules.
 fn work_kind_cases(cases: &mut Vec<Value>) {
-    let mut share = vec![0u8];
-    share.extend_from_slice(&7u64.to_le_bytes());
-    share.extend_from_slice(&9u64.to_le_bytes());
+    let share = |nonces: &[u64], count: u32| {
+        let mut p = vec![0u8];
+        p.extend_from_slice(&7u64.to_le_bytes());
+        p.extend_from_slice(&count.to_le_bytes());
+        for n in nonces {
+            p.extend_from_slice(&n.to_le_bytes());
+        }
+        p
+    };
+    let push = |cases: &mut Vec<Value>,
+                id: String,
+                payload_type: &str,
+                payload: &[u8],
+                expect: Result<(), &str>| {
+        let expect = match expect {
+            Ok(()) => json!({"result": "ok"}),
+            Err(rule) => json!({"result": "error", "error": rule}),
+        };
+        cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(payload), "expect": expect}));
+    };
     let mut claim = vec![0u8];
     claim.extend_from_slice(&[0x33; 32]);
-    for (payload_type, base, len) in [
-        ("mining_share", share, mining::SHARE_PAYLOAD_LEN),
-        ("work_claim", claim, mining::CLAIM_PAYLOAD_LEN),
+    for (payload_type, base) in [
+        ("mining_share", share(&[9], 1)),
+        ("work_claim", claim.clone()),
     ] {
         for kind in [0u8, 1, 255] {
             let mut payload = base.clone();
             payload[0] = kind;
-            let expect = match mining::work_payload(&payload, len) {
-                Ok(()) => json!({"result": "ok"}),
-                Err(rule) => json!({"result": "error", "error": rule}),
+            let expect = if payload_type == "mining_share" {
+                mining::share_payload(&payload)
+            } else {
+                mining::work_payload(&payload, mining::CLAIM_PAYLOAD_LEN)
             };
             let id = if kind == 0 {
                 format!("{payload_type}-kind-0")
             } else {
                 format!("refuse-{payload_type}-kind-{kind}")
             };
-            cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(&payload), "expect": expect}));
+            push(cases, id, payload_type, &payload, expect);
         }
-        // The exact-length half of MINE-11, with kind 0 so only the length is
-        // wrong: one byte short (a pre-kind 16-byte share or 32-byte claim
-        // whose first byte happens to be 0 decodes this way) and one trailing.
-        let mut long = base.clone();
-        long.push(0);
-        for payload in [&base[..len - 1], &long[..]] {
-            assert!(mining::work_payload(payload, len).is_err());
-            let id = format!("refuse-{payload_type}-len-{}", payload.len());
-            cases.push(json!({"id": id, "rules": ["MINE-11"], "fn": "work_payload", "payload_type": payload_type, "payload": hex(payload), "expect": {"result": "error", "error": "MINE-11"}}));
-        }
+    }
+    // A claim's exact length: one byte short and one trailing.
+    let mut long = claim.clone();
+    long.push(0);
+    for payload in [&claim[..mining::CLAIM_PAYLOAD_LEN - 1], &long[..]] {
+        let expect = mining::work_payload(payload, mining::CLAIM_PAYLOAD_LEN);
+        assert!(expect.is_err());
+        push(
+            cases,
+            format!("refuse-work_claim-len-{}", payload.len()),
+            "work_claim",
+            payload,
+            expect,
+        );
+    }
+    // A share batch (MINE-03): many nonces under one signature, one encoding.
+    let mut trailing = share(&[9], 1);
+    trailing.push(0);
+    let rows: [(&str, Vec<u8>); 8] = [
+        ("mining_share-batch-of-three", share(&[1, 5, 900], 3)),
+        ("mining_share-claim-no-nonces", share(&[], 0)),
+        ("refuse-mining_share-repeated-nonce", share(&[5, 5], 2)),
+        ("refuse-mining_share-descending", share(&[5, 1], 2)),
+        ("refuse-mining_share-count-past-bytes", share(&[5], 2)),
+        ("refuse-mining_share-count-short", share(&[1, 5], 1)),
+        ("refuse-mining_share-trailing-byte", trailing),
+        ("refuse-mining_share-no-count", share(&[], 0)[..9].to_vec()),
+    ];
+    for (id, payload) in rows {
+        let expect = mining::share_payload(&payload);
+        assert_eq!(expect.is_ok(), !id.starts_with("refuse"), "{id}");
+        push(cases, id.to_string(), "mining_share", &payload, expect);
+    }
+}
+
+/// MINE-12: the next epoch's anchor is the boundary header's `prev_hash`.
+fn epoch_anchor_cases(cases: &mut Vec<Value>) {
+    for (id, fill) in [
+        ("anchor-is-prev-hash", 0x5au8),
+        ("anchor-ignores-state-root", 0xa5),
+    ] {
+        let mut header = vec![fill; 145];
+        header[..32].copy_from_slice(&[0x11; 32]);
+        header[144] = 0; // CON-1's version byte, the only version defined
+        let anchor = mining::epoch_anchor(&header).unwrap_or_default();
+        cases.push(json!({"id": id, "rules": ["MINE-12"], "fn": "epoch_anchor", "header": hex(&header), "expect": hex(&anchor)}));
     }
 }
 

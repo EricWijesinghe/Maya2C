@@ -1003,16 +1003,12 @@ fn with_kind_byte(kind: TxKind, marker: &[u8], byte: u8) -> Vec<u8> {
 #[test]
 fn a_share_and_a_claim_encode_kind_zero_first() {
     let mut share = Vec::new();
-    MiningShare {
-        kind: WorkKind::DagPow,
-        epoch: 7,
-        nonce: 9,
-    }
-    .encode_into(&mut share);
+    MiningShare::single(7, 9).encode_into(&mut share);
     let mut want = vec![0u8];
     want.extend_from_slice(&7u64.to_le_bytes());
+    want.extend_from_slice(&1u32.to_le_bytes());
     want.extend_from_slice(&9u64.to_le_bytes());
-    assert_eq!(share, want, "kind 0, then epoch, then nonce");
+    assert_eq!(share, want, "kind 0, then epoch, nonce count, nonces");
 
     let mut claim = Vec::new();
     WorkClaim {
@@ -1024,13 +1020,49 @@ fn a_share_and_a_claim_encode_kind_zero_first() {
     assert_eq!(&claim[1..], &[0x5A; 32]);
 }
 
+/// MINE-03: many shares under one signature. The batch has one encoding:
+/// nonces strictly ascending, a count no larger than the bytes behind it.
+#[test]
+fn a_share_batch_round_trips_and_refuses_repeats_disorder_and_short_counts() {
+    use custom_l1_node::core::codec::ByteReader;
+    let batch = MiningShare {
+        kind: WorkKind::DagPow,
+        epoch: 3,
+        nonces: vec![1, 5, 900],
+    };
+    let mut bytes = Vec::new();
+    batch.encode_into(&mut bytes);
+    assert_eq!(bytes.len(), 1 + 8 + 4 + 3 * 8, "8 bytes per extra share");
+    let mut reader = ByteReader::new(&bytes);
+    assert_eq!(MiningShare::decode(&mut reader).unwrap(), batch);
+    reader.finish().unwrap();
+
+    let decode = |nonces: &[u64], count: u32| {
+        let mut b = vec![0u8];
+        b.extend_from_slice(&3u64.to_le_bytes());
+        b.extend_from_slice(&count.to_le_bytes());
+        for n in nonces {
+            b.extend_from_slice(&n.to_le_bytes());
+        }
+        MiningShare::decode(&mut ByteReader::new(&b))
+    };
+    assert!(decode(&[5, 5], 2).is_err(), "a repeated nonce");
+    assert!(decode(&[5, 1], 2).is_err(), "out of order");
+    assert!(decode(&[5], 2).is_err(), "a count past the bytes");
+    assert!(
+        decode(&[5], u32::MAX).is_err(),
+        "a huge count allocates nothing"
+    );
+    let claim = decode(&[], 0).unwrap();
+    assert!(claim.nonces.is_empty(), "no nonces: a claim");
+}
+
 #[test]
 fn every_work_kind_byte_but_zero_is_refused_at_decode() {
-    let share = TxKind::MiningShare(MiningShare {
-        kind: WorkKind::DagPow,
-        epoch: 0x0102_0304_0506_0708,
-        nonce: 0x1112_1314_1516_1718,
-    });
+    let share = TxKind::MiningShare(MiningShare::single(
+        0x0102_0304_0506_0708,
+        0x1112_1314_1516_1718,
+    ));
     let mut share_marker = vec![0u8];
     share_marker.extend_from_slice(&0x0102_0304_0506_0708u64.to_le_bytes());
     let claim = TxKind::ClaimWork(WorkClaim {
@@ -1065,11 +1097,7 @@ fn an_undefined_work_kind_is_refused_at_mempool_admission() {
     let state =
         std::sync::Arc::new(custom_l1_node::state::StateDB::open(dir.path()).expect("state"));
     let pool = custom_l1_node::network::mempool::Mempool::new(state);
-    let share = TxKind::MiningShare(MiningShare {
-        kind: WorkKind::DagPow,
-        epoch: 0x2122_2324_2526_2728,
-        nonce: 1,
-    });
+    let share = TxKind::MiningShare(MiningShare::single(0x2122_2324_2526_2728, 1));
     let mut marker = vec![0u8];
     marker.extend_from_slice(&0x2122_2324_2526_2728u64.to_le_bytes());
     let err = pool
@@ -1090,14 +1118,7 @@ fn a_peer_block_carrying_an_undefined_work_kind_does_not_decode() {
     use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 
     let epoch = 0x3132_3334_3536_3738u64;
-    let share = Transaction::with_kind(
-        TxKind::MiningShare(MiningShare {
-            kind: WorkKind::DagPow,
-            epoch,
-            nonce: 1,
-        }),
-        0,
-    );
+    let share = Transaction::with_kind(TxKind::MiningShare(MiningShare::single(epoch, 1)), 0);
     let block = Block::new(
         BlockHeader {
             version: 0,

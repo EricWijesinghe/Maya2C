@@ -1,8 +1,11 @@
 //! Executing mining shares and closing mining epochs (ADR-044).
 //!
-//! A share is checked in this order: mining enabled, right epoch, block cap,
-//! not already spent, then the proof of work. The cheap refusals come first
-//! so the 2 ms DAG check only runs for a share that could pay.
+//! A batch of shares is checked in this order: mining enabled, right epoch, a
+//! budget to share, block cap, no nonce already credited, then each proof of
+//! work. The cheap refusals come first so the 2 ms DAG check only runs for
+//! work that could earn. Accepted work is credited, not paid: the epoch's
+//! budget is split pro rata when it closes and pulled by each miner later
+//! (MINE-01). A batch with no nonces is that pull, a claim.
 
 use maya_ledger_math::Amount;
 use maya_stateless_core::amount::{to_amount, to_u256};
@@ -20,7 +23,8 @@ use crate::state::context::BlockContext;
 use crate::state::db::{Overlay, StateDB};
 use crate::state::fees::FEE_COLLECTOR;
 use crate::state::mining::{
-    DagProfile, MINING_KEY, MINING_RESERVE, MiningRecord, seen_epoch_prefix, seen_key, share_header,
+    DagProfile, EpochPot, MINING_KEY, MINING_RESERVE, MinerCredit, MiningRecord, credit_key,
+    pot_key, seen_epoch_prefix, seen_key, share_header, share_payout,
 };
 
 /// Marks a spent share. The key carries the meaning; the value is a byte.
@@ -35,13 +39,12 @@ fn dag_epoch(record: &MiningRecord) -> Result<u64> {
     Ok(start / record.dag.params().epoch_length.max(1))
 }
 
-/// What a share that passed every state rule needs for its proof of work and
-/// its payment.
+/// What a batch that passed every state rule needs for its proofs of work
+/// and its credit: the record, the header hashed, and each nonce's spent key.
 struct Payable {
     record: MiningRecord,
-    reward: Amount,
     header: [u8; 32],
-    key: Vec<u8>,
+    keys: Vec<Vec<u8>>,
 }
 
 fn refuse(reason: &str) -> NodeError {
@@ -111,9 +114,39 @@ impl StateDB {
         registry.cache_for_epoch(dag_epoch(record)?)
     }
 
+    /// `miner`'s credit as of `overlay`, if it has one.
+    fn miner_credit(&self, overlay: &Overlay, miner: &Address) -> Result<Option<MinerCredit>> {
+        self.record(overlay, &credit_key(miner))?
+            .map(|bytes| MinerCredit::decode(&bytes))
+            .transpose()
+    }
+
+    /// `miner`'s committed credit: the shares it has not been paid for yet,
+    /// for RPC, wallets and tests.
+    ///
+    /// # Errors
+    ///
+    /// Storage failure or a damaged record.
+    pub fn committed_credit(&self, miner: &Address) -> Result<Option<MinerCredit>> {
+        self.miner_credit(&Overlay::default(), miner)
+    }
+
+    /// The committed pot of closed `epoch`, until its last credit is
+    /// collected.
+    ///
+    /// # Errors
+    ///
+    /// Storage failure or a damaged record.
+    pub fn committed_pot(&self, epoch: u64) -> Result<Option<EpochPot>> {
+        self.raw_get(&pot_key(epoch))?
+            .map(|bytes| EpochPot::decode(&bytes))
+            .transpose()
+    }
+
     /// Every share rule that reads state, in execution order, short of the
-    /// proof of work: mining enabled, right epoch, budget left, block cap, not
-    /// already paid. What the proof of work and the payment then need.
+    /// proof of work: mining enabled, right epoch, a budget to share, block
+    /// cap, no nonce already credited. For a claim (no nonces): a credit for
+    /// that closed epoch. What the proofs of work and the credit then need.
     fn share_payable(
         &self,
         overlay: &Overlay,
@@ -126,6 +159,19 @@ impl StateDB {
         let Some(record) = self.mining_record(overlay)? else {
             return Err(refuse("this chain does not mine"));
         };
+        if share.nonces.is_empty() {
+            let claimable = self
+                .miner_credit(overlay, miner)?
+                .is_some_and(|c| c.epoch == share.epoch && c.epoch < record.epoch);
+            if !claimable {
+                return Err(refuse("no credit of a closed epoch to claim"));
+            }
+            return Ok(Payable {
+                record,
+                header: [0; 32],
+                keys: Vec::new(),
+            });
+        }
         // Epoch 0's anchor is fixed before launch, so its work could be done
         // in advance and land first. Mining opens at the first boundary, whose
         // anchor is a block nobody could predict (security review, ADR-044).
@@ -135,13 +181,13 @@ impl StateDB {
         if share.epoch != record.epoch {
             return Err(refuse("wrong epoch"));
         }
-        // A share that pays nothing would still take a block slot fee-free
-        // and spend the miner's nonce (found on the local mining devnet).
-        let reward = record.share_reward();
-        if reward.is_zero() {
-            return Err(refuse("this epoch's miner budget is spent"));
+        // A share that can earn nothing would still take a block slot
+        // fee-free and spend the miner's nonce (found on the local devnet).
+        if record.miner_budget(record.epoch).is_zero() {
+            return Err(refuse("this epoch pays miners nothing"));
         }
-        if overlay.mining_shares >= record.max_shares_per_block {
+        let count = u64::try_from(share.nonces.len()).unwrap_or(u64::MAX);
+        if overlay.mining_shares.saturating_add(count) > record.max_shares_per_block {
             return Err(refuse("block share cap reached"));
         }
         let header = share_header(
@@ -150,24 +196,29 @@ impl StateDB {
             &record.anchor,
             miner,
         );
-        let key = seen_key(record.epoch, &header, share.nonce);
-        if self.record(overlay, &key)?.is_some() {
-            return Err(refuse("already paid"));
+        // Nonces are strictly ascending (decode), so none repeats in a batch.
+        let mut keys = Vec::with_capacity(share.nonces.len());
+        for &nonce in &share.nonces {
+            let key = seen_key(record.epoch, &header, nonce);
+            if self.record(overlay, &key)?.is_some() {
+                return Err(refuse("already credited"));
+            }
+            keys.push(key);
         }
         Ok(Payable {
             record,
-            reward,
             header,
-            key,
+            keys,
         })
     }
 
-    /// Pays one share from the reserve, or refuses it.
+    /// Credits a batch of shares to the sender, or, with no nonces, pays its
+    /// credit of a closed epoch. Either way the transaction fails whole.
     ///
     /// # Errors
     ///
-    /// Mining off, a wrong epoch, a full block, a spent share, or work that
-    /// misses the target. Each fails the transaction.
+    /// Mining off, a wrong epoch, a full block, a nonce already credited,
+    /// work that misses the target, or a claim with nothing to claim.
     pub(crate) fn apply_mining_share(
         &self,
         overlay: &mut Overlay,
@@ -176,36 +227,88 @@ impl StateDB {
     ) -> Result<()> {
         let Payable {
             mut record,
-            reward,
             header,
-            key,
+            keys,
         } = self.share_payable(overlay, miner, share)?;
+        if share.nonces.is_empty() {
+            return self.collect_credit(overlay, miner).map(drop);
+        }
         let cache = self.share_cache(&record)?;
-        self.share_proofs
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let proof = hashimoto_light(&cache, &header, share.nonce);
-        if !meets_target(&proof.result, &record.target) {
-            return Err(refuse("work does not meet the share target"));
+        for &nonce in &share.nonces {
+            self.share_proofs
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let proof = hashimoto_light(&cache, &header, nonce);
+            if !meets_target(&proof.result, &record.target) {
+                return Err(refuse("work does not meet the share target"));
+            }
         }
 
-        let paid = self.pay_from_reserve(overlay, miner, reward)?;
-        if paid.is_zero() {
-            return Err(refuse("the mining reserve is empty"));
+        let count = u64::try_from(keys.len()).unwrap_or(u64::MAX);
+        let shares = match self.miner_credit(overlay, miner)? {
+            Some(credit) if credit.epoch == record.epoch => credit.shares.saturating_add(count),
+            older => {
+                // One credit per miner: an earlier epoch's is paid out first.
+                if older.is_some() {
+                    self.collect_credit(overlay, miner)?;
+                }
+                record.miners = record.miners.saturating_add(1);
+                count
+            }
+        };
+        overlay.records.insert(
+            credit_key(miner),
+            Some(
+                MinerCredit {
+                    epoch: record.epoch,
+                    shares,
+                }
+                .encode(),
+            ),
+        );
+        record.shares = record.shares.saturating_add(count);
+        overlay.mining_shares = overlay.mining_shares.saturating_add(count);
+        for key in keys {
+            overlay.records.insert(key, Some(SEEN.to_vec()));
         }
-        record.shares = record.shares.saturating_add(1);
-        record.paid = record.paid.saturating_add(paid);
-        overlay.mining_shares += 1;
-        overlay.records.insert(key, Some(SEEN.to_vec()));
         overlay
             .records
             .insert(MINING_KEY.to_vec(), Some(record.encode()));
         Ok(())
     }
 
+    /// Pays `miner`'s credit from its epoch's pot, `⌊budget × mine / total⌋`
+    /// (MINE-4), and deletes the credit; the pot goes with its last credit.
+    /// Callers only reach it for a credit of a closed epoch. Returns what was
+    /// paid, which the reserve may cut short once it is empty.
+    fn collect_credit(&self, overlay: &mut Overlay, miner: &Address) -> Result<Amount> {
+        let Some(credit) = self.miner_credit(overlay, miner)? else {
+            return Ok(Amount::ZERO);
+        };
+        let key = pot_key(credit.epoch);
+        let mut pot = self
+            .record(overlay, &key)?
+            .map(|bytes| EpochPot::decode(&bytes))
+            .transpose()?
+            .ok_or_else(|| NodeError::Mining("a credit without its epoch's pot".into()))?;
+        let paid = self.pay_from_reserve(
+            overlay,
+            miner,
+            share_payout(pot.budget, credit.shares, pot.shares),
+        )?;
+        pot.miners = pot.miners.saturating_sub(1);
+        overlay
+            .records
+            .insert(key, (pot.miners > 0).then(|| pot.encode()));
+        overlay.records.insert(credit_key(miner), None);
+        Ok(paid)
+    }
+
     /// End of block. On an epoch boundary: the committee's part goes to the
-    /// fee collector, where staking pays it out with the tips, then the target
-    /// retargets and the next epoch is anchored to this block. Runs before
-    /// `settle_staking`, which empties the collector.
+    /// fee collector, where staking pays it out with the tips; the miners'
+    /// budget is set aside as the epoch's pot, one record whatever the number
+    /// of miners; then the target retargets and the next epoch is anchored to
+    /// this block's parent. Runs before `settle_staking`, which empties the
+    /// collector.
     ///
     /// # Errors
     ///
@@ -216,25 +319,9 @@ impl StateDB {
         header: &BlockHeader,
         context: BlockContext,
     ) -> Result<()> {
-        let Some(mut record) = self.mining_record(overlay)? else {
+        let Some(record) = self.mining_record(overlay)? else {
             return Ok(());
         };
-        if record.epoch > 0
-            && record.spent_after == 0
-            && !record.paid.is_zero()
-            && record.share_reward().is_zero()
-        {
-            // Shares past the budget are refused from here on, so record how
-            // early it ran out: the retarget's measure of excess demand.
-            let opened = record.epoch.saturating_mul(record.epoch_blocks);
-            record.spent_after = context
-                .height
-                .saturating_sub(opened)
-                .clamp(1, record.epoch_blocks);
-            overlay
-                .records
-                .insert(MINING_KEY.to_vec(), Some(record.encode()));
-        }
         if context.height == 0 || !context.height.is_multiple_of(record.epoch_blocks) {
             return Ok(());
         }
@@ -243,17 +330,31 @@ impl StateDB {
             &FEE_COLLECTOR,
             record.validator_reward(record.epoch),
         )?;
+        // No shares, no pot: the budget stays in the reserve, unpaid.
+        if record.shares > 0 {
+            let pot = EpochPot {
+                budget: record.miner_budget(record.epoch),
+                shares: record.shares,
+                miners: record.miners,
+            };
+            overlay
+                .records
+                .insert(pot_key(record.epoch), Some(pot.encode()));
+        }
         self.prune_seen(overlay, record.epoch)?;
         let next = MiningRecord {
             epoch: record
                 .epoch
                 .checked_add(1)
                 .ok_or_else(|| NodeError::Mining("epoch counter overflow".into()))?,
-            anchor: header.id(),
+            // The parent's id, never this header's: this header's id covers
+            // the state root the new record is part of, so a node that derived
+            // the block (root zeroed) and one that replays it (real root)
+            // would anchor differently and fork (#642).
+            anchor: header.prev_hash,
             target: record.retarget(),
             shares: 0,
-            paid: Amount::ZERO,
-            spent_after: 0,
+            miners: 0,
             ..record
         };
         overlay
@@ -262,7 +363,7 @@ impl StateDB {
         Ok(())
     }
 
-    /// Admission check for the mempool: would `share` pay if it landed in the
+    /// Admission check for the mempool: would `share` land if it were in the
     /// next block? The same rules as execution, against committed state and a
     /// throwaway overlay, so the mempool cannot drift from consensus.
     ///
@@ -289,7 +390,6 @@ impl StateDB {
         self.share_payable(&Overlay::default(), miner, share)
             .map(|_| ())
     }
-
     /// Deletes a closed epoch's spent-share set, committed and staged. Its
     /// shares are refused by the epoch check from now on, so the set guards
     /// nothing and would otherwise grow with the chain.

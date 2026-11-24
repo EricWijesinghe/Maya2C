@@ -35,6 +35,10 @@ What the chain offers, which the profitability estimate must use:
   `min(budget / target_shares, budget − paid)` (`crates/node/src/state/mining.rs:257-265`).
   The budget is `bps_of(epoch_reward, miner_share_bps)` (`mining.rs:249-251`),
   and `epoch_reward` halves on a schedule (`mining.rs:208-212`).
+  *Superseded 2026-11-24 (ADR-044 amendment): a share is credited, and the
+  epoch's budget is paid pro rata, `⌊budget × m / n⌋`, after it closes;
+  `share_reward` is now the estimate `budget / target_shares`, and one share
+  transaction carries a batch of nonces.*
 - A share is a signed transaction whose payload is only `epoch` and `nonce`
   (`crates/node/src/core/mining_payload.rs:13-18`). The payee is the sender.
   Submission is `share.rs:448-470`.

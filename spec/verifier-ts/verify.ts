@@ -246,7 +246,7 @@ for (const k of keyDoc.keys) {
   keys.set(k.name, k.address);
 }
 // ------------------------------------------------------------------ mining
-// MINE-1..10 from spec/09-mining.md, in BigInt: no width to overflow, so the
+// MINE-1..12 from spec/09-mining.md, in BigInt: no width to overflow, so the
 // 2^192 ceiling is checked on the exact sum and every product stays exact.
 const BPS = 10000n;
 const RETARGET_FACTOR = 4n;
@@ -264,13 +264,29 @@ function bpsOf(value: bigint, bps: bigint): bigint {
   return (value * (bps < BPS ? bps : BPS)) / BPS;
 }
 
-/** MINE-4: `min(⌊budget / shares⌋, budget − paid)`, zero when shares is zero. */
-function shareReward(reward: bigint, bps: bigint, shares: bigint, paid: bigint): bigint {
-  if (shares === 0n) return 0n;
-  const budget = bpsOf(reward, bps);
-  const left = budget > paid ? budget - paid : 0n;
-  const perShare = budget / shares;
-  return perShare < left ? perShare : left;
+/** MINE-4: `⌊budget × mine / total⌋`, zero when total is zero. */
+function sharePayout(budget: bigint, mine: bigint, total: bigint): bigint {
+  return total === 0n ? 0n : (budget * mine) / total;
+}
+
+/** MINE-7's share at target: `⌊budget / target_shares⌋`. */
+function shareAtTarget(reward: bigint, bps: bigint, ts: bigint): bigint {
+  return ts === 0n ? 0n : bpsOf(reward, bps) / ts;
+}
+
+/** MINE-11: a share batch: kind 0, epoch, count (u32 LE), exactly count strictly ascending u64 nonces. */
+function sharePayloadOk(p: Uint8Array): boolean {
+  if (p.length < 13 || p[0] !== 0) return false;
+  const count = BigInt(p[9] | (p[10] << 8) | (p[11] << 16)) + (BigInt(p[12]) << 24n);
+  if (BigInt(p.length - 13) !== count * 8n) return false;
+  let last = -1n;
+  for (let i = 13; i < p.length; i += 8) {
+    let n = 0n;
+    for (let j = 7; j >= 0; j--) n = (n << 8n) | BigInt(p[i + j]);
+    if (n <= last) return false;
+    last = n;
+  }
+  return true;
 }
 
 /** MINE-3: the lifetime emission, or null at or past 2^192. */
@@ -287,9 +303,7 @@ function lifetime(initial: bigint, tail: bigint, h: bigint, blocks: bigint): big
 }
 
 /** MINE-5: the next share target, clamped to `limit` and never zero. */
-function retarget(target: bigint, limit: bigint, shares: bigint, spent: bigint, blocks: bigint, ts: bigint): bigint {
-  const scaled = spent === 0n ? shares : (shares * blocks) / spent;
-  const demand = scaled > U64_MAX ? U64_MAX : scaled;
+function retarget(target: bigint, limit: bigint, demand: bigint, ts: bigint): bigint {
   const low = ts / RETARGET_FACTOR > 1n ? ts / RETARGET_FACTOR : 1n;
   const high = ts * RETARGET_FACTOR;
   const observed = demand < low ? low : demand > high ? high : demand;
@@ -300,14 +314,14 @@ function retarget(target: bigint, limit: bigint, shares: bigint, spent: bigint, 
 
 /** MINE-6 to MINE-8 (and MINE-3): the first rule a schedule breaks, or null. */
 function refusedBy(c: any): string | null {
-  const [initial, tail, h, ts, blocks, mspb, bps, spent, target, limit] = [
+  const [initial, tail, h, ts, blocks, mspb, bps, target, limit] = [
     "initial", "tail", "halving_epochs", "target_shares", "epoch_blocks", "max_shares_per_block",
-    "miner_share_bps", "spent_after", "target", "target_limit",
+    "miner_share_bps", "target", "target_limit",
   ].map((k) => bigOf(c[k]));
-  if (h === 0n || ts === 0n || blocks === 0n || mspb === 0n || bps > BPS || tail > initial || spent > blocks) return "MINE-6";
+  if (h === 0n || ts === 0n || blocks === 0n || mspb === 0n || bps > BPS || tail > initial) return "MINE-6";
   if (bps > 0n) {
-    const first = shareReward(initial, bps, ts, 0n);
-    const tailShare = shareReward(tail, bps, ts, 0n);
+    const first = shareAtTarget(initial, bps, ts);
+    const tailShare = shareAtTarget(tail, bps, ts);
     if (first === 0n || (tail !== 0n && tailShare === 0n)) return "MINE-7";
   }
   if (lifetime(initial, tail, h, blocks) === null) return "MINE-3";
@@ -329,11 +343,14 @@ function mining(): number {
       const total = lifetime(bigOf(c.initial), bigOf(c.tail), bigOf(c.halving_epochs), bigOf(c.epoch_blocks));
       const want = c.expect.result === "ok" ? bigOf(c.expect.total) : null;
       check(total === want, `${c.id}: got ${total}`);
-    } else if (c.fn === "share_reward") {
-      const got = shareReward(bigOf(c.reward), bigOf(c.miner_bps), bigOf(c.target_shares), bigOf(c.paid));
+    } else if (c.fn === "share_payout") {
+      const got = sharePayout(bigOf(c.budget), bigOf(c.mine), bigOf(c.total));
       check(got === bigOf(c.expect), `${c.id}: got ${got}`);
+    } else if (c.fn === "epoch_anchor") {
+      // MINE-12: the boundary header's prev_hash, its first 32 bytes (CON-1).
+      check(c.header.slice(0, 64) === c.expect, `${c.id}: anchor`);
     } else if (c.fn === "retarget") {
-      const got = retarget(bigOf(c.target), bigOf(c.target_limit), bigOf(c.shares), bigOf(c.spent_after), bigOf(c.epoch_blocks), bigOf(c.target_shares));
+      const got = retarget(bigOf(c.target), bigOf(c.target_limit), bigOf(c.shares), bigOf(c.target_shares));
       check(got === bigOf(c.expect), `${c.id}: got ${got}`);
     } else if (c.fn === "validate") {
       const got = refusedBy(c);
@@ -346,10 +363,10 @@ function mining(): number {
       const met = bigOf("0x" + c.digest) <= bigOf("0x" + c.target);
       check(met === (c.expect.result === "ok"), `${c.id}: meets target`);
     } else if (c.fn === "work_payload") {
-      // MINE-11: kind 0 only, exact length (kind ‖ epoch ‖ nonce, or kind ‖ beneficiary).
+      // MINE-11: kind 0 only; a share batch by its count and order, a claim by its exact length.
       const p = fromHex(c.payload);
-      const len = c.payload_type === "mining_share" ? 1 + 8 + 8 : 1 + 32;
-      check((p.length === len && p[0] === 0) === (c.expect.result === "ok"), `${c.id}: work payload`);
+      const ok = c.payload_type === "mining_share" ? sharePayloadOk(p) : p.length === 1 + 32 && p[0] === 0;
+      check(ok === (c.expect.result === "ok"), `${c.id}: work payload`);
     } else check(false, `${c.id}: unknown fn ${c.fn}`);
   }
   return doc.cases.length;

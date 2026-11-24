@@ -14,7 +14,7 @@ so and lists the rule as a gap instead of specifying behaviour no code has.
 | 6 | [06-staking.md](06-staking.md) | consensus | 0.1.0 | external: `crates/node/src/state/staking_store_tests.rs` |
 | 7 | [07-networking.md](07-networking.md) | networking | 0.1.0 | none (not consensus) |
 | 8 | [08-crypto.md](08-crypto.md) | cryptography | 0.1.0 | FIPS KATs in `crates/crypto-pq/tests/` |
-| 9 | [09-mining.md](09-mining.md) | economics | 0.1.1 | `tests/mining.json` |
+| 9 | [09-mining.md](09-mining.md) | economics | 0.2.0 | `tests/mining.json` |
 | 10 | [10-vm-gas.md](10-vm-gas.md) | protocol | 0.3.0 | `tests/vm_gas.json` |
 
 "Owner" is a role, not a person: nobody is assigned yet. A change to any

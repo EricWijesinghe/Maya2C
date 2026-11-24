@@ -297,11 +297,7 @@ fn share_tx(inputs: u64, outputs: u64) -> Transaction {
         .collect();
     let mut tx = Transaction::new(inputs, outputs, 0);
     tx.kind = custom_l1_node::core::payload::TxKind::MiningShare(
-        custom_l1_node::core::mining_payload::MiningShare {
-            kind: custom_l1_node::core::mining_payload::WorkKind::DagPow,
-            epoch: 1,
-            nonce: 0,
-        },
+        custom_l1_node::core::mining_payload::MiningShare::single(1, 0),
     );
     tx
 }
@@ -520,13 +516,20 @@ fn mining_vectors() {
                     .then(|| to_amount(amount(&case["expect"]["total"])));
                 assert_eq!(r.lifetime_emission(), expect, "{id}");
             }
-            "share_reward" => {
-                let mut r = bare_record();
-                r.initial_epoch_reward = to_amount(amount(&case["reward"]));
-                r.miner_share_bps = num(&case["miner_bps"]);
-                r.target_shares = num(&case["target_shares"]);
-                r.paid = to_amount(amount(&case["paid"]));
-                assert_eq!(r.share_reward(), to_amount(amount(&case["expect"])), "{id}");
+            "share_payout" => {
+                let paid = custom_l1_node::state::mining::share_payout(
+                    to_amount(amount(&case["budget"])),
+                    num(&case["mine"]),
+                    num(&case["total"]),
+                );
+                assert_eq!(paid, to_amount(amount(&case["expect"])), "{id}");
+            }
+            "epoch_anchor" => {
+                let header = custom_l1_node::core::BlockHeader::from_bytes(&unhex(
+                    case["header"].as_str().unwrap(),
+                ))
+                .unwrap();
+                assert_eq!(hex::encode(header.prev_hash), case["expect"], "{id}");
             }
             "retarget" => {
                 let mut r = bare_record();
@@ -534,8 +537,6 @@ fn mining_vectors() {
                 r.target_limit = be32(&case["target_limit"]);
                 r.target_shares = num(&case["target_shares"]);
                 r.shares = num(&case["shares"]);
-                r.spent_after = num(&case["spent_after"]);
-                r.epoch_blocks = num(&case["epoch_blocks"]);
                 assert_eq!(r.retarget(), be32(&case["expect"]), "{id}");
             }
             "validate" => {
@@ -547,7 +548,6 @@ fn mining_vectors() {
                     target_shares: num(&case["target_shares"]),
                     max_shares_per_block: num(&case["max_shares_per_block"]),
                     epoch_blocks: num(&case["epoch_blocks"]),
-                    spent_after: num(&case["spent_after"]),
                     target: be32(&case["target"]),
                     target_limit: be32(&case["target_limit"]),
                     ..bare_record()
@@ -618,8 +618,7 @@ fn bare_record() -> MiningRecord {
         anchor: [0; 32],
         target: [0; 32],
         shares: 0,
-        paid: to_amount(primitive_types::U256::zero()),
-        spent_after: 0,
+        miners: 0,
         target_limit: [0xff; 32],
     }
 }

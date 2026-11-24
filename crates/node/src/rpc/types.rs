@@ -48,8 +48,10 @@ pub struct MiningWork {
     pub dag: String,
     /// The DAG epoch whose cache and dataset the header hashes against.
     pub dag_epoch: u64,
-    /// Base units the next accepted share earns, as a decimal string
-    /// (ADR-046: 256-bit).
+    /// Base units a share earns if the epoch closes at its target, as a
+    /// decimal string (ADR-046: 256-bit). An estimate: the epoch's budget is
+    /// split by work when it closes, `⌊budget × m / n⌋` (ADR-044 amendment
+    /// 2026-11-24). Zero means this epoch pays miners nothing.
     #[serde(with = "crate::state::amount_serde")]
     pub share_reward: U256,
     /// Shares accepted so far this epoch, and the number the target aims for.
