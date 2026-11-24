@@ -5,7 +5,7 @@ four DAG-BFT validators, the API gateway (with HTTPS if you have a domain)
 and a Maya Chat relay. Each runs as a sandboxed systemd service.
 
 ```sh
-git clone https://github.com/EricWijesinghe/Maya2C && cd Maya2C
+git clone https://github.com/maya2c/Maya2C && cd Maya2C
 sudo DOMAIN=testnet.example.org EMAIL=you@example.org infra/testnet-vm/install.sh
 ```
 
