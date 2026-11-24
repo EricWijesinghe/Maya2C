@@ -3,8 +3,8 @@
 **Status:** Accepted, 2026-11-21 (Eric 2026-11-17 pre-approval of Claude's
 re-freeze recommendations; Eric asked on 2026-11-21 to resume all work).
 **Date:** 2026-11-21
-**Related:** [ADR-015](ADR-015-dag-bft.md), [ADR-027](ADR-027-dag-bft-in-the-node.md),
-[ADR-038](ADR-038-validator-rejoin.md), [ADR-052](ADR-052-follower-advance-by-certificates.md),
+**Related:** [ADR-015](ADR-015-consensus-design.md), [ADR-027](ADR-027-dag-bft-in-the-node.md),
+[ADR-038](ADR-038-attested-checkpoints.md), [ADR-052](ADR-052-follower-advance-by-certificates.md),
 [ADR-060](ADR-060-trusted-block-bootstrap.md) (amended),
 [spec/05-consensus.md](../../spec/05-consensus.md).
 
