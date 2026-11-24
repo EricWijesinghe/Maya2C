@@ -3159,7 +3159,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs", "crates/node/tests/suite_envelope_live_tests.rs"]
-note = "Wire v7, live from genesis (ADR-013): consensus verifies under crypto::suites::verification_policy() (genesis schedule, mainnet rules, no state read); the mempool reads DefaultSignatureSuite. Two guarantees (ADR-082 amendment 2026-11-24, CRY-5/CRY-6): no schedule can retire the last lattice or the last hash-based suite, and the default is a category-3-or-above allow-list. 1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
+note = "Wire v7, live from genesis (ADR-013): consensus verifies under crypto::suites::verification_policy() (genesis schedule, mainnet rules, no state read); the mempool reads DefaultSignatureSuite. Two guarantees (ADR-082 amendment 2026-11-24, CRY-5/CRY-6): no ordinary schedule can retire the last lattice or the last hash-based suite (an emergency may retire a broken family, never both), and the default is a category-3-or-above allow-list. 1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
 
 [[subsystem]]
 id = "kem-suites-dualkem-xwing"

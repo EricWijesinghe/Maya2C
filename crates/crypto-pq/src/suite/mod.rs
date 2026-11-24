@@ -104,8 +104,9 @@ impl SuiteId {
 }
 
 /// The hardness assumption a suite rests on. The sunset floor keeps one
-/// suite of each post-quantum family live (ADR-082 amendment, G13): a break of
-/// one assumption then never leaves the chain without a signature to move to.
+/// suite of each post-quantum family live (ADR-082 amendment, G13); only an
+/// emergency sunset retires a whole family, and never both: a break of one
+/// assumption can be answered at once and still leaves a signature to move to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SuiteFamily {
     /// Pre-quantum (`0x0_`).

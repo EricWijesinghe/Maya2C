@@ -361,3 +361,29 @@ fn an_unused_schedule_has_the_genesis_suite_policy_and_no_sunsets() {
         (0, 0)
     );
 }
+
+#[test]
+fn after_a_lattice_break_an_emergency_retires_both_ml_dsa_suites_and_a_schedule_cannot() {
+    // G13 through admission: governance has moved the default to SLH-DSA, and
+    // only an emergency entry may take the last lattice suite with it.
+    let schedule = fixture().db.effective_schedule().expect("schedule");
+    let retire_ml_dsa = |emergency| ScheduleRequest {
+        activation: FIRST_LEGAL_ACTIVATION,
+        version: None,
+        features: FeatureSet::default(),
+        sunsets: [SuiteId::MlDsa65, SuiteId::MlDsa87]
+            .map(|suite| SunsetSpec {
+                suite: suite.to_byte(),
+                sunset_height: FIRST_LEGAL_ACTIVATION + MIN_MIGRATION_WINDOW,
+                emergency,
+            })
+            .to_vec(),
+    };
+    let admit = |request: &ScheduleRequest, default| {
+        schedule.admit(request, 1, MIN_UPGRADE_LEAD_BLOCKS, default)
+    };
+    assert!(admit(&retire_ml_dsa(true), SuiteId::SlhDsaShake256f).is_ok());
+    assert!(admit(&retire_ml_dsa(false), SuiteId::SlhDsaShake256f).is_err());
+    // While ML-DSA-87 is still the default, nobody can retire it.
+    assert!(admit(&retire_ml_dsa(true), SuiteId::MlDsa87).is_err());
+}

@@ -215,9 +215,10 @@ phase that did it.
     never a fallback, because a suite some nodes know and others do not is a
     fork. Adding a suite is a code change plus ACVP vectors, never a governance
     act — governance only chooses among compiled suites, as the default only
-    among those of category 3 or above (CRY-6), and no schedule retires the
-    last lattice or the last hash-based suite (CRY-5; `agility/tests.rs`
-    `a_sunset_that_would_leave_no_*`, 2026-11-24). Pinned by
+    among those of category 3 or above (CRY-6), and no ordinary schedule
+    retires the last lattice or the last hash-based suite; only an emergency
+    retires a broken family, never both (CRY-5; `agility/tests.rs`
+    `a_sunset_that_would_leave_no_*`, `an_emergency_*`, 2026-11-24). Pinned by
     `crates/crypto-pq/src/suite/tests.rs`
     (`every_byte_either_names_a_suite_or_is_refused`) and
     `crates/crypto-pq/tests/acvp_tests.rs` — ADR-007.

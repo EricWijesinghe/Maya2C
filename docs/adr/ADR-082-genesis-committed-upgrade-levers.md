@@ -72,6 +72,19 @@ the suite policy, the mempool, and the RPC.
   from a break of either. The guarantee: a public break of one hardness
   assumption always leaves a live signature family to migrate to, without a
   hard fork.
+  *Revised the same day (review of #691):* the floor must not stand in the way
+  of the event it exists for. Once a family is publicly broken, governance
+  moves the default to the other family and an **emergency** sunset retires
+  the broken one entirely, ML-DSA-87 included; ordinary sunsets alone still
+  never retire a whole family, and nothing ever retires both. The test is on
+  the set of entries (a family may go only if one of its entries is an
+  emergency), not on their order, because admission sees entries in vote order
+  and a replaying node in key order. `crypto::suites::verification_policy`
+  no longer pins ML-DSA-87 as its placeholder default when the schedule
+  retires it; the genesis default stays unsunsettable at genesis
+  (`GenesisConfig::suite_sunsets`) and the governance default in `admit`.
+  The guarantee: a break of either family is answered at emergency speed with
+  no new binary, and a captured governance still cannot retire both.
 - **The default is an allow-list** (amendment 2026-11-24, G23). The governance
   crate range-checks `DefaultSignatureSuite` to `0x10..=0x30` (it has no
   dependencies, invariant 12); the node accepts only a registered, permitted

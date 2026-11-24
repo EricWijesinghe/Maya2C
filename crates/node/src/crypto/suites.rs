@@ -128,7 +128,27 @@ pub fn check_parameter(
 ///
 /// [`NodeError::SignatureSuite`] if the schedule does not apply to the policy.
 pub fn verification_policy(sunsets: &SuiteSunsets) -> Result<SuitePolicy> {
-    let mut policy = SuitePolicy::genesis(Network::Mainnet);
+    let genesis = SuitePolicy::genesis(Network::Mainnet);
+    // `may_sign` never reads the default, so here it is a placeholder. It must
+    // not be a suite the schedule retires, or no schedule could ever retire
+    // ML-DSA-87 after a lattice break (G13). The live default is governance's,
+    // checked against the schedule in `admit` and in [`policy`].
+    let retired = |s: SuiteId| sunsets.entries().any(|e| e.suite == s);
+    let mut policy = if retired(genesis.default_suite()) {
+        let placeholder = SuiteId::ALL
+            .into_iter()
+            .find(|s| genesis.may_be_default(*s) && !retired(*s))
+            .ok_or_else(|| {
+                NodeError::SignatureSuite(
+                    "the schedule retires every suite that may be the default".to_string(),
+                )
+            })?;
+        genesis
+            .with_default(placeholder)
+            .map_err(|e| NodeError::SignatureSuite(e.to_string()))?
+    } else {
+        genesis
+    };
     for sunset in sunsets.entries() {
         if !policy.permitted(sunset.suite) {
             return Err(NodeError::SignatureSuite(format!(
@@ -280,8 +300,11 @@ mod tests {
     }
 
     #[test]
-    fn a_schedule_cannot_sunset_the_default_or_sunset_before_announcement() {
-        assert!(SuiteSunsets::new(&[sunset(SuiteId::MlDsa87)]).is_err());
+    fn a_schedule_cannot_sunset_before_announcement() {
+        // The governance default is refused by `admit`, the genesis default by
+        // `GenesisConfig::suite_sunsets`; the schedule itself only needs ML-DSA-65
+        // to outlive a sunset of ML-DSA-87.
+        assert!(SuiteSunsets::new(&[sunset(SuiteId::MlDsa87)]).is_ok());
         let backwards = SuiteSunset {
             sunset_height: ANNOUNCED - 1,
             ..sunset(SuiteId::MlDsa65)
@@ -298,6 +321,25 @@ mod tests {
             sunset(SuiteId::SlhDsaShake256f),
         ];
         assert!(SuiteSunsets::new(&both).is_err());
+    }
+
+    #[test]
+    fn a_lattice_break_retires_ml_dsa_by_emergency_and_never_by_schedule() {
+        // G13 after a break: the consensus path, not just the policy type,
+        // lets an emergency retire both ML-DSA suites, ML-DSA-87 included.
+        let emergency = |s| SuiteSunset {
+            emergency: true,
+            ..sunset(s)
+        };
+        let broken = SuiteSunsets::new(&[emergency(SuiteId::MlDsa65), emergency(SuiteId::MlDsa87)])
+            .expect("an emergency may retire the broken family");
+        let policy = verification_policy(&broken).unwrap();
+        let after = ANNOUNCED + WINDOW;
+        assert!(check_admissible(&policy, SuiteId::MlDsa87, after).is_err());
+        assert!(check_admissible(&policy, SuiteId::SlhDsaShake256f, after).is_ok());
+
+        let ordinary = [sunset(SuiteId::MlDsa65), sunset(SuiteId::MlDsa87)];
+        assert!(SuiteSunsets::new(&ordinary).is_err());
     }
 
     #[test]

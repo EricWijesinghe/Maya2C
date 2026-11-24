@@ -651,6 +651,16 @@ impl GenesisConfig {
                 })
             })
             .collect::<Result<Vec<_>>>()?;
+        // Every chain starts with the compiled default; a genesis that retired
+        // it would empty every block after the sunset (`admit` applies the same
+        // rule to the governance default later).
+        let default =
+            crate::crypto::suites::default_suite(&crate::governance::ParameterTable::new())?;
+        if entries.iter().any(|e| e.suite == default) {
+            return Err(NodeError::SignatureSuite(format!(
+                "genesis deprecates {default:?}, the genesis default suite"
+            )));
+        }
         SuiteSunsets::new(&entries)
     }
 

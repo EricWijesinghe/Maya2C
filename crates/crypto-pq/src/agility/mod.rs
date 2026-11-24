@@ -97,7 +97,8 @@ pub enum PolicyError {
     #[error("{0:?} is deprecated")]
     DefaultDeprecated(SuiteId),
     /// Retiring the suite would leave no undeprecated permitted suite of its
-    /// family (G13): one lattice and one hash-based suite always stay live.
+    /// family (G13). Only a family with an emergency sunset among its entries
+    /// may go, and only while the other family keeps a live suite.
     #[error("{suite:?} is the last live {family:?} suite")]
     LastOfFamily { suite: SuiteId, family: SuiteFamily },
 }
@@ -219,7 +220,9 @@ impl SuitePolicy {
     /// # Errors
     ///
     /// Deprecating the default, a window below the minimum, a suite that is
-    /// already deprecated, or the last live lattice or hash-based suite.
+    /// already deprecated, or the last live lattice or hash-based suite
+    /// (allowed only when the family has an emergency sunset and the other
+    /// family stays live).
     pub fn with_deprecation(
         &self,
         suite: SuiteId,
@@ -259,10 +262,25 @@ impl SuitePolicy {
         };
         // Counted against the schedule as it stands after every sunset, not at
         // `height`: a floor that held only until the next window closed would
-        // not be a floor.
+        // not be a floor. Ordinary sunsets alone never retire a whole family;
+        // one that has an emergency sunset among its entries may go, because
+        // that family is the one broken, but never both: the other family
+        // must outlive the schedule too. Both tests read the set of entries,
+        // not their order, so a node replaying the schedule in key order
+        // reaches the verdict admission did.
         let family = suite.family();
-        if matches!(family, SuiteFamily::Lattice | SuiteFamily::HashBased)
+        let other = match family {
+            SuiteFamily::Lattice => Some(SuiteFamily::HashBased),
+            SuiteFamily::HashBased => Some(SuiteFamily::Lattice),
+            _ => None,
+        };
+        let emergency_in_family = next
+            .deprecations
+            .iter()
+            .any(|(s, d)| s.family() == family && d.emergency);
+        if let Some(other) = other
             && !next.family_survives(family)
+            && !(emergency_in_family && next.family_survives(other))
         {
             return Err(PolicyError::LastOfFamily { suite, family });
         }
