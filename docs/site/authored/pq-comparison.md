@@ -7,7 +7,7 @@ Maya2C is a testnet project. Mainnet has not launched. This page compares
 signature and transport design with other chains, using only what a dated
 search of primary and secondary sources supports. The full record, with the
 search boundary and the weight of each source, is the
-[prior-art file on GitHub](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/prior-art/pq-l1-comparison-2026-11.md).
+[prior-art file on GitHub](https://github.com/maya2c/Maya2C/blob/master/docs/prior-art/pq-l1-comparison-2026-11.md).
 
 ## At a glance
 
@@ -63,7 +63,7 @@ search dated 2026-11-01, not that no chain does it.
    proof-of-work chains with no finality layer stated. Verona's PQ validator
    keys are phase 2, undated.
 5. **Mining that does not order blocks.** Miners are paid shares from a genesis
-   reserve while validators order blocks ([ADR-044](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-044-mining-rewards-lane.md)).
+   reserve while validators order blocks ([ADR-044](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-044-mining-rewards-lane.md)).
    Quantus and Mochimo mine to produce blocks. Status: design, enabled by
    genesis configuration, **not yet on the testnet**.
 
@@ -109,7 +109,7 @@ timing (not measured).
 Weight: P = primary (project documents, BIP/EIP text, official blog);
 S = secondary or press release; A = aggregator or index.
 
-1. Maya2C repository: [features.toml](https://github.com/EricWijesinghe/Maya2C/blob/master/features.toml), [transport](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/pq-transport.md), [architecture decision records](https://github.com/EricWijesinghe/Maya2C/tree/master/docs/adr). Checked 2026-11-01.
+1. Maya2C repository: [features.toml](https://github.com/maya2c/Maya2C/blob/master/features.toml), [transport](https://github.com/maya2c/Maya2C/blob/master/docs/pq-transport.md), [architecture decision records](https://github.com/maya2c/Maya2C/tree/master/docs/adr). Checked 2026-11-01.
 2. [QRI, Quantum Resistant Ledger](https://qrindex.org/projects/quantum-resistant-ledger/), 2026-08-20 (A).
 3. [QRL blog, "Celebrating 8 years"](https://www.theqrl.org/blog/celebrating-8-years.md), 2026-06-26 (P).
 4. [Algorand post-quantum roadmap](https://algorand.co/blog/algorand-post-quantum-cryptography-roadmap), 2026-06-18 (P).
@@ -132,7 +132,7 @@ S = secondary or press release; A = aggregator or index.
 21. [KuCoin flash, Quantus mainnet](https://www.kucoin.com/news/flash/quantus-launches-mainnet-with-post-quantum-cryptography-from-block-one), 2026-09-10 (S).
 22. [Quantum Insider, Naoris mainnet](https://thequantuminsider.com/2026/04/01/naoris-protocol-launches-mainnet-introducing-post-quantum-layer-1-blockchain/), 2026-04-01 (S).
 23. [Quantum Computing Report, QoreChain](https://quantumcomputingreport.com/qorechain-implements-complete-nist-post-quantum-cryptography-stack-on-public-mainnet/), 2026-07-03 (S, company claims).
-24. [Post-quantum signatures from genesis (repository prior-art file)](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/prior-art/pq-from-genesis.md), searched 2026-09-26.
+24. [Post-quantum signatures from genesis (repository prior-art file)](https://github.com/maya2c/Maya2C/blob/master/docs/prior-art/pq-from-genesis.md), searched 2026-09-26.
 
 Full record, with the search boundary and every unconfirmed claim:
-[docs/prior-art/pq-l1-comparison-2026-11.md](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/prior-art/pq-l1-comparison-2026-11.md).
+[docs/prior-art/pq-l1-comparison-2026-11.md](https://github.com/maya2c/Maya2C/blob/master/docs/prior-art/pq-l1-comparison-2026-11.md).
