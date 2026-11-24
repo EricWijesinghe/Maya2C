@@ -328,9 +328,11 @@ that does not grow.
   join at most `entry_limit` per epoch (STK-23), and a seat counts only once it is in the
   committee, so a party that adds seats to its stake must keep them online through each
   boundary while it builds up to two thirds. Measured on the example above with eleven
-  minimum-bond seats on eleven fresh payout addresses: without STK-23 an attacker-only quorum
-  one boundary later; with it, after the number of epochs
-  `cheap_seats_added_to_capped_stake_reach_no_quorum_in_one_epoch` prints (see Evidence).
+  minimum-bond seats on eleven fresh payout addresses: without STK-23 all eleven are seated at
+  the next boundary, 15 of 21 seats and 811 of the 675 weight needed, an attacker-only quorum
+  (the review's computation, not rerun here); with it, after 6 epochs, at 19 seats, every attacker seat online
+  throughout (`cheap_seats_added_to_capped_stake_reach_no_quorum_in_one_epoch`, measured
+  2026-11-25). At the 3,600-block testnet epoch and one block a second that is six hours.
   This is a delay with a visible, on-chain build-up, not a prohibition.
 - **Seats bought without stake finalize nothing alone.** Unchanged from part 1: cheap seats are
   heads without weight.
@@ -462,7 +464,10 @@ Tests:
 - CON-20 vectors in `spec/tests/consensus.json` (22 cases after the review fixes), replayed by
   `crates/node/tests/consensus_conformance.rs` and `spec/verifier-ts/verify.ts`.
 
-Review fixes (2026-11-25), red first against the pre-fix sources:
+Review fixes (2026-11-25), red first against the pre-fix sources (`cargo test -p maya-dag-bft
+--lib vertex`: `FAILED. 15 passed; 2 failed`; `cargo test -p maya-staking --test
+committee_entry`: `FAILED. 2 passed; 4 failed`, the unlimited election seating 40 of 47 in
+one epoch), then green with the fix:
 - `crates/dag-bft/src/vertex.rs`: `a_zero_weight_seat_is_seated_but_never_counted`,
   `a_committee_with_no_weight_is_refused`; `crates/dag-bft/tests/property_tests.rs`:
   `zero_weight_seats_change_neither_threshold`;
