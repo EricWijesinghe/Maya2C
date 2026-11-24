@@ -229,6 +229,11 @@ pub enum LightClientError {
     ExecutionBranch,
     /// The signature slot is in another sync-committee period.
     Period,
+    /// Slots out of order: the signature must come after the attested
+    /// header, and the attested header must not precede the finalized one.
+    SlotOrder,
+    /// The proof finalizes nothing newer than what was already accepted.
+    Stale,
 }
 
 /// Everything one finality proof carries.
@@ -290,6 +295,11 @@ pub fn verify_finality(
     fork_version: [u8; 4],
     genesis_validators_root: Root,
 ) -> Result<Root, LightClientError> {
+    // Altair `validate_light_client_update`: the signature is included after
+    // the header it signs, which is no older than the header it finalizes.
+    if proof.signature_slot <= proof.attested.slot || proof.attested.slot < proof.finalized.slot {
+        return Err(LightClientError::SlotOrder);
+    }
     if proof.signature_slot / SLOTS_PER_PERIOD != bootstrap_slot / SLOTS_PER_PERIOD {
         return Err(LightClientError::Period);
     }
@@ -340,6 +350,47 @@ pub fn verify_finality(
         return Err(LightClientError::ExecutionBranch);
     }
     Ok(proof.execution.block_hash)
+}
+
+/// The newest finalized slot a light client has accepted, so a valid but
+/// older proof cannot be replayed to move it backwards or sideways.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FinalizedSlot(Option<u64>);
+
+impl FinalizedSlot {
+    /// The newest accepted finalized slot, if any.
+    #[must_use]
+    pub fn get(self) -> Option<u64> {
+        self.0
+    }
+
+    /// [`verify_finality`], then refuses a proof that finalizes a slot no
+    /// newer than the last accepted one; on success records its slot.
+    ///
+    /// # Errors
+    ///
+    /// Any [`LightClientError`]; [`LightClientError::Stale`] for a replay.
+    pub fn accept(
+        &mut self,
+        committee: &SyncCommittee,
+        bootstrap_slot: u64,
+        proof: &FinalityProof,
+        fork_version: [u8; 4],
+        genesis_validators_root: Root,
+    ) -> Result<Root, LightClientError> {
+        if self.0.is_some_and(|newest| proof.finalized.slot <= newest) {
+            return Err(LightClientError::Stale);
+        }
+        let hash = verify_finality(
+            committee,
+            bootstrap_slot,
+            proof,
+            fork_version,
+            genesis_validators_root,
+        )?;
+        self.0 = Some(proof.finalized.slot);
+        Ok(hash)
+    }
 }
 
 #[cfg(test)]

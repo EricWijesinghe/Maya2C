@@ -50,13 +50,26 @@ fn client_error(error: &GatewayError) -> async_graphql::Error {
 /// schema's own shape rather than copied from a tutorial.
 pub const MAX_DEPTH: usize = 6;
 
-/// Maximum complexity, in resolver-nodes, of a query.
+/// Complexity charged for a root field that makes one node call.
 ///
-/// Each field costs one by default. 200 admits a generous batch of account
-/// lookups in one request while bounding the number of upstream calls a single
-/// HTTP request can provoke — which is the quantity that actually matters,
-/// because each one is a round trip to the node.
-pub const MAX_COMPLEXITY: usize = 200;
+/// A plain field costs one. Without this weight, aliases let one request
+/// (one rate-limit token) repeat a node call once per unit of complexity.
+/// It is larger than the per-call spread (zero to three selected fields), so
+/// [`MAX_COMPLEXITY`] maps to one exact number of node calls.
+pub const UPSTREAM_CALL_COST: usize = 20;
+
+/// Node calls one GraphQL request may make. It holds per HTTP request
+/// because the route refuses batches (`crate::app`).
+pub const MAX_UPSTREAM_CALLS: usize = 5;
+
+/// Maximum complexity of a query.
+///
+/// Five of the costliest calls (an `account` selecting all three fields) fit;
+/// six of the cheapest (a bare `block`) do not. The number of upstream calls
+/// a single HTTP request can provoke is the quantity that matters, because
+/// the limiter charges per request and each call is a round trip to the node.
+pub const MAX_COMPLEXITY: usize = MAX_UPSTREAM_CALLS * (UPSTREAM_CALL_COST + 3);
+const _: () = assert!((MAX_UPSTREAM_CALLS + 1) * UPSTREAM_CALL_COST > MAX_COMPLEXITY);
 
 /// Largest request body the GraphQL route will read, in bytes.
 ///
@@ -92,6 +105,7 @@ pub struct Query;
 #[Object]
 impl Query {
     /// Balance and nonce for one account.
+    #[graphql(complexity = "UPSTREAM_CALL_COST + child_complexity")]
     async fn account(&self, ctx: &Context<'_>, address: String) -> async_graphql::Result<Account> {
         let node = ctx.data::<Arc<dyn NodeClient>>()?;
         let balance = node
@@ -106,6 +120,7 @@ impl Query {
     }
 
     /// Circulating and total supply.
+    #[graphql(complexity = "UPSTREAM_CALL_COST + child_complexity")]
     async fn supply(&self, ctx: &Context<'_>) -> async_graphql::Result<Supply> {
         let node = ctx.data::<Arc<dyn NodeClient>>()?;
         let supply = node
@@ -124,6 +139,7 @@ impl Query {
     /// is consensus and changes with the chain; a hand-maintained GraphQL
     /// mirror of it would drift silently, and a drifted mirror is worse than a
     /// passthrough because it looks authoritative.
+    #[graphql(complexity = "UPSTREAM_CALL_COST + child_complexity")]
     async fn block(
         &self,
         ctx: &Context<'_>,
@@ -167,7 +183,7 @@ mod tests {
         // Pinned so a later "let's raise this" is a deliberate edit with a
         // failing test attached, not a quiet change to a DoS ceiling.
         assert_eq!(MAX_DEPTH, 6);
-        assert_eq!(MAX_COMPLEXITY, 200);
+        assert_eq!(MAX_COMPLEXITY, 115);
     }
 
     #[test]

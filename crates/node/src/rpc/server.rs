@@ -37,10 +37,13 @@ const REJECTED: i32 = -32_000;
 /// JSON-RPC error code for an item that does not exist.
 const NOT_FOUND: i32 = -32_001;
 
-/// How far back `get_balance_at_height` walks: the retention depth. Beyond it
-/// the per-block changes are pruned anyway, so a deeper bound would only let
-/// one call walk further before failing.
-const MAX_BALANCE_REWIND: u64 = crate::state_pruner::PRUNE_DEPTH;
+/// How far back `get_balance_at_height` walks, two reads per height.
+///
+/// Its own constant rather than the prune depth (which `--prune-depth` can
+/// raise) or the DAG epoch: this bounds what one public, unauthenticated call
+/// costs, so no retention or epoch change may widen it (ADR-082 amendment
+/// 2026-11-15).
+const MAX_BALANCE_REWIND: u64 = 30_000;
 
 /// The block at `height` as the RPC reports it: from the canonical index, or
 /// fetched back from the archive when pruned here. Shared by
@@ -1240,5 +1243,13 @@ mod tests {
         assert!(check_peer_exposure(local, true).is_ok());
         assert!(check_peer_exposure(local_v6, true).is_ok());
         assert!(check_peer_exposure(public, false).is_ok());
+    }
+
+    #[test]
+    fn the_balance_rewind_bound_is_its_own_and_stays_small() {
+        // A public method walks up to this many heights, two reads each; a
+        // rescale of the prune depth or the DAG epoch must not widen it.
+        assert_eq!(MAX_BALANCE_REWIND, 30_000);
+        assert_ne!(MAX_BALANCE_REWIND, crate::crypto::dag::EPOCH_LENGTH);
     }
 }

@@ -18,7 +18,6 @@ use crate::consensus::bft::{Envelope, unseal};
 use crate::core::block::BlockHeader;
 use crate::core::codec::MAX_RECORD_BYTES;
 use crate::core::staking_payload::StakingAction;
-use crate::crypto::validator_keys::PUBLIC_KEY_LEN;
 use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 use crate::state::account::Address;
@@ -105,11 +104,7 @@ impl StateDB {
                 let bytes = self.raw_get(&key_record(id))?.ok_or_else(|| {
                     NodeError::Storage(format!("no key for validator {}", hex::encode(id)))
                 })?;
-                let array: [u8; PUBLIC_KEY_LEN] = bytes
-                    .as_slice()
-                    .try_into()
-                    .map_err(|_| NodeError::Decode("validator key length".to_string()))?;
-                VerifyingKey::from_bytes(&array)
+                VerifyingKey::from_bytes(&crate::state::staking::decode_key_value(&bytes)?)
             })
             .collect()
     }
@@ -189,7 +184,10 @@ impl StateDB {
                 let verifying = VerifyingKey::from_bytes(key)?;
                 verifying.verify(&StakingAction::possession_message(sender), possession)?;
                 let id = validator_id(key.as_slice());
-                registered = Some((key_record(&id), key.to_vec()));
+                registered = Some((
+                    key_record(&id),
+                    crate::state::staking::encode_key_value(key),
+                ));
                 s.register(*sender, id, to_amount(*bond), *commission_bps)
                     .map_err(stake_err)?
             }

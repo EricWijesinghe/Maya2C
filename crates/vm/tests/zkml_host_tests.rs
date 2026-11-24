@@ -204,19 +204,20 @@ fn verification_is_charged_its_full_price() {
     // Measured as a difference against the same module without the call,
     // because the rest of the module is not free: wasmtime charges ~4,096 fuel
     // to initialise data segments, which has nothing to do with this function.
+    // Each side less its own upfront call price (ADR-142), which differs with
+    // module length and has nothing to do with this function either.
     let price = verification_fuel(VK_LEN as usize, PROOF_LEN as usize, PUBLIC_COUNT as usize);
-    let (outcome, _) = run(
-        &standard(),
-        GENEROUS,
-        FakeVerifier::answering(ZkmlVerdict::Valid),
-    );
+    let (with, without) = (standard(), contract_without_call());
+    let (outcome, _) = run(&with, GENEROUS, FakeVerifier::answering(ZkmlVerdict::Valid));
     let (_, with_call) = outcome.expect("call succeeds");
+    let with_call = with_call - maya_vm::gas::cold_call_fuel(&with).unwrap();
     let (outcome, _) = run(
-        &contract_without_call(),
+        &without,
         GENEROUS,
         FakeVerifier::answering(ZkmlVerdict::Valid),
     );
     let (_, without_call) = outcome.expect("baseline succeeds");
+    let without_call = without_call - maya_vm::gas::cold_call_fuel(&without).unwrap();
 
     let charged = with_call - without_call;
     // The price, plus the handful of instructions that push seven arguments.
