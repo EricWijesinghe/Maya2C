@@ -142,7 +142,7 @@ fn path(p: &Path) -> String {
 /// Keys, addresses and council halves; returns the `validators.txt` path.
 fn keys(work: &Path, opts: &Opts) -> Result<PathBuf> {
     let pass = work.join("passphrase");
-    std::fs::write(&pass, PASSPHRASE).map_err(|e| format!("passphrase: {e}"))?;
+    devnet::write_private(&pass, PASSPHRASE)?;
     let bond = opts.bond_coins * maya_amount::ONE_COIN;
     let mut lines = vec!["# label key operator bond".to_owned()];
     for i in 0..VALIDATORS {

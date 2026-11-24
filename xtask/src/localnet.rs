@@ -103,7 +103,7 @@ fn start_signer(work: &Path, procs: &mut Procs) -> Result<Remote> {
     let dir = work.join("signer");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let pass = dir.join("passphrase");
-    std::fs::write(&pass, SIGNER_PASSPHRASE).map_err(|e| format!("passphrase: {e}"))?;
+    devnet::write_private(&pass, SIGNER_PASSPHRASE)?;
     let init = |name: &str| {
         devnet::output(
             Command::new(devnet::bin("maya2c-signer"))

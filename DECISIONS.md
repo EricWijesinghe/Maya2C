@@ -910,6 +910,16 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
 
+## 2026-11-18 — Signer passphrase files, keystores and VRF encodings hardened (Claude, Eric 2026-11-17 pre-approval)
+
+Eric 2026-11-17 pre-approval put PR #596 into re-freeze bundle 3.
+
+- **Passphrase files are refused when group or others can read them (Unix), as a hard error, not a warning.** Every reader uses `sealed::read_passphrase_file`, now including the `maya2c-signer` CLI. Windows ACLs are not inspected yet. ADR-049 amendment.
+- **Remote-signer keystores:** 12-byte passphrase floor on create (the existing sealed-key floor), no overwrite, 0600 on Unix; 64 KiB and KDF bounds on open. ADR-049 amendment.
+- **VRF keys and gamma are accepted only in canonical encoding** (spec CRY-5, ADR-024 amendment). It changes which bytes verify, not which values honest code produces.
+- **The oracle registry refuses an unusable VRF key when it is installed** (genesis or a signed rotation), not only when a proof under it is verified (CRY-5, ADR-024 amendment, Eric 2026-11-17 pre-approval). It changes which rotations are valid; no value-bearing chain has an oracle registry, so no stored state is affected.
+- **The release smoke test writes its passphrase file under `umask 077`**, and the runbooks say passphrase files on Unix must be 0600 on a filesystem that keeps permissions.
+- **Not decided here:** replay protection and downgrade policy in the crypto-agility migration engine (an `Account` layout change), and an operator-confirmed floor on slashing-database import. Both stay open.
 ## 2026-11-21 — Wasmtime 48.0.10 rides the mainnet genesis; gas pinned to golden vectors (Claude, under Eric 2026-11-17 pre-approval)
 
 - **Why now:** RUSTSEC-2026-0566..0573 (fixed in 48.0.9) turned `cargo deny` red on master. 48.0.10 is the newest 48.x; its one further fix is in `wasmtime-wasi`, which the VM does not link. The pin is consensus-critical, and genesis is a fresh chain, so the bump costs no extra fork.
@@ -923,6 +933,13 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — Windows key and passphrase files are owner-only (Claude, audit NEW-01, under Eric's 2026-11-24 security-max directive)
+
+- **Decision:** new validator and signer key files get a DACL for their creating account alone, set before the secret is written; a passphrase file whose DACL grants another account is refused, as the Unix 0600 rule already refuses one (ADR-049 amendment 2026-11-24).
+- **Why:** mainnet validators run on Windows, where a new file inherits its folder's ACL; on this PC a file under `D:\Temp` inherited read for Users and Authenticated Users.
+- **Operator impact:** a Windows node or signer started with a passphrase file that other accounts can read now refuses to start, and the error names the `icacls` command that fixes it. Existing key files are not changed.
+- **No new dependency in a core crate:** it uses `whoami`, `icacls` and PowerShell from `%SystemRoot%`, as `l1-wallet` already does.
 
 ## 2026-11-24 — An unnamed shielded pool is off; the fee spec states the node's burn-all split (Eric 2026-11-24, P4 and FEE-1)
 

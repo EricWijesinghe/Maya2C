@@ -33,5 +33,10 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "ti
 # the other reports stamp UTC. See src/stamp.rs.
 time = { workspace = true, features = ["local-offset"] }
 
+# Tests only (not built for the gate): setup's key ACL is checked against the
+# node's own passphrase rule, `maya_signer::owner_only` (audit NEW-01).
+[dev-dependencies]
+maya-signer = { path = "../crates/signer" }
+
 [lints]
 workspace = true

@@ -53,8 +53,13 @@ Setup does this, in order:
 3. Writes `node-config.toml` from the node's own template. An existing file
    is kept; pass `--force` to replace it.
 4. Secures the key files that exist in the directory (`validator.key`,
-   `validator.key.sealed`, `validator.passphrase`). Only your account and
-   SYSTEM keep access. Inheritance is removed afterwards.
+   `validator.key.sealed`, `validator.passphrase`). The boot task runs the
+   node as SYSTEM, so only SYSTEM keeps access: inheritance is removed and
+   your own grant is removed last. The node refuses a passphrase file that
+   grants any account but its own, SYSTEM and Administrators. You stay the
+   files' owner, so you can still list and change their permissions. To run
+   the node by hand as yourself instead, grant your account back with
+   `icacls <file> /grant:r "%USERNAME%":F`.
 5. Prints a `schtasks` command. Read it, then run it yourself in an elevated
    PowerShell if you want the node to start at boot.
 

@@ -43,6 +43,36 @@ Start scripts in this repository that launch a Windows validator run the same
 check first (`infra/hybrid-testnet/start-pc-validators.ps1`). It is a
 preflight: the node is the authority.
 
+## Passphrase file access (Windows)
+
+A sealed validator key's passphrase file must grant nothing to any account
+but the one the node runs as, SYSTEM and Administrators
+(`maya_signer::owner_only::check`, ADR-049 amendment 2026-11-24). Otherwise
+the node refuses to start and prints the `icacls` fix. The account matters: a
+node started by a boot task as SYSTEM refuses a grant to the operator's own
+account.
+
+Before rolling a binary with this check onto a live Windows validator, for
+every passphrase file the start scripts read
+(`infra/hybrid-testnet/start-pc-validators.ps1` and `start-testnet.ps1`,
+`scripts/dr-drill.ps1`), from the account that will run the node:
+
+```powershell
+icacls <passphrase file>
+```
+
+Expect only that account, `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators`.
+Entries inherited from the drive root (`BUILTIN\Users`,
+`NT AUTHORITY\Authenticated Users`) are the usual cause of a refusal. Fix:
+
+```powershell
+icacls <passphrase file> /inheritance:r /grant:r "<account>:F"
+icacls <passphrase file> /remove:g "<each other account listed>"
+```
+
+Run `icacls` again and upgrade only once every file is clean, one validator
+at a time, so a refused start halts one node, not the committee.
+
 ## Bootnodes
 
 How a node finds peers, in order:

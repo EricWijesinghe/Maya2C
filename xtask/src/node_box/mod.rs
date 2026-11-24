@@ -12,7 +12,7 @@
 //!
 //! Per-OS steps: docs/ecosystem/node-in-a-box-windows.md and -linux.md.
 
-mod acl;
+pub(crate) mod acl;
 mod checks;
 mod config;
 mod service;
@@ -106,6 +106,16 @@ fn user() -> String {
         .unwrap_or_else(|_| "operator".to_owned())
 }
 
+/// The account the printed service runs the node as, so the one key files are
+/// granted to: SYSTEM for the Windows boot task (`service::windows_task_command`),
+/// the operator for the systemd unit (`User=`).
+fn service_account(os: Os, user: &str) -> String {
+    match os {
+        Os::Windows => "SYSTEM".to_owned(),
+        Os::Unix => user.to_owned(),
+    }
+}
+
 fn key_files(dir: &Path) -> Vec<PathBuf> {
     KEY_FILES
         .iter()
@@ -164,15 +174,20 @@ fn node_template() -> Result<String> {
 }
 
 fn secure_keys(dir: &Path, os: Os, user: &str) -> Result<Vec<Check>> {
+    let account = service_account(os, user);
     let mut out = Vec::new();
     for key in key_files(dir) {
         let shown = key.display().to_string();
-        for step in acl::key_acl_steps(os, &shown, user) {
+        for step in acl::key_acl_steps(os, &shown, &account, user) {
             acl::run_step(&step)?;
         }
-        let left = acl::current_violations(os, &key, user)?;
+        let left = acl::current_violations(os, &key, &account)?;
         out.push(if left.is_empty() {
-            check("keys", Level::Pass, format!("{shown}: only you and SYSTEM"))
+            check(
+                "keys",
+                Level::Pass,
+                format!("{shown}: only {account}, the account the service runs as"),
+            )
         } else {
             check(
                 "keys",
@@ -265,13 +280,17 @@ fn key_checks(dir: &Path) -> Vec<Check> {
             "no validator key here (observer only)",
         )];
     }
-    let (os, user) = (Os::current(), user());
+    let os = Os::current();
+    let account = service_account(os, &user());
     keys.iter()
-        .map(|key| match acl::current_violations(os, key, &user) {
+        .map(|key| match acl::current_violations(os, key, &account) {
             Ok(v) if v.is_empty() => check(
                 "keys",
                 Level::Pass,
-                format!("{}: only you and SYSTEM", key.display()),
+                format!(
+                    "{}: only {account}, the account the service runs as",
+                    key.display()
+                ),
             ),
             Ok(v) => check(
                 "keys",

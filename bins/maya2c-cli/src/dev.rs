@@ -132,6 +132,20 @@ impl Drop for Children {
     }
 }
 
+/// Writes a passphrase file owner-only (Unix mode 0600, a Windows DACL for this
+/// account alone): the node refuses one any other local account can read.
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    std::fs::write(path, text)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(windows)]
+    maya_signer::owner_only::restrict(path)?;
+    Ok(())
+}
+
 fn prepare(o: &Options) -> anyhow::Result<(Vec<(HybridSigningKey, String)>, PathBuf)> {
     if o.dir.exists() {
         std::fs::remove_dir_all(&o.dir).with_context(|| format!("clearing {}", o.dir.display()))?;
@@ -142,7 +156,7 @@ fn prepare(o: &Options) -> anyhow::Result<(Vec<(HybridSigningKey, String)>, Path
     // plaintext key, and the same sealed throwaway works on every build. The
     // directory is wiped on each run and the chain is local, so the passphrase
     // protects nothing and is written beside the key.
-    std::fs::write(node_dir.join("validator.pass"), DEV_VALIDATOR_PASSPHRASE)?;
+    write_private(&node_dir.join("validator.pass"), DEV_VALIDATOR_PASSPHRASE)?;
     let validator = Command::new(o.bin_dir.join(format!("maya2c-node{EXE}")))
         .arg("--generate-validator-key")
         .arg(node_dir.join("validator.key"))
