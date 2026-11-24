@@ -151,7 +151,10 @@ tower = { workspace = true, features = ["util"] }
 # the tree via jsonrpsee, so the exporter adds no new transport dependency.
 prometheus-client.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }
-hyper-util = { workspace = true, features = ["tokio"] }
+# `service` for `TowerToHyperService`: the RPC serves each connection with its
+# own hyper builder (timeouts jsonrpsee does not set). Already enabled through
+# jsonrpsee-server.
+hyper-util = { workspace = true, features = ["tokio", "service"] }
 http-body-util.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time", "signal", "net", "io-util"] }
 futures.workspace = true

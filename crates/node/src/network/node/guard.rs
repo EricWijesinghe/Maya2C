@@ -7,6 +7,7 @@
 //! project's size limit; it is a child module so it can reach the driver's
 //! private state.
 
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use libp2p::PeerId;
@@ -30,6 +31,43 @@ use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 /// and the frame channel holds hundreds of frames, so without this bound a
 /// flood of maximum-size junk could pin gigabytes before the engine looks.
 pub(crate) const MAX_BFT_FRAME_BYTES: usize = 5 * 1024 * 1024;
+
+/// Gossiped block messages remembered, so the same one is relayed once.
+const RECENT_BLOCKS: usize = 4096;
+
+/// Digests of the block messages this node already accepted from gossip.
+///
+/// Gossipsub's message id is the author and sequence number, never the data
+/// (`network::evidence_tap`), so a block re-published under a fresh sequence
+/// number is a new message to it, and every node relayed every copy. Keyed on
+/// the whole message, not the block id: the id does not commit to multisig
+/// approvals (`Transaction::txid` leaves them out on purpose), so a copy with
+/// other approvals shares the honest block's id, and keying on the id would
+/// let whichever copy arrived first shut the other out network-wide. Bounded
+/// by count; evicted oldest first.
+#[derive(Default)]
+pub(super) struct RecentBlocks {
+    order: VecDeque<[u8; 32]>,
+    ids: HashSet<[u8; 32]>,
+}
+
+impl RecentBlocks {
+    fn contains(&self, id: &[u8; 32]) -> bool {
+        self.ids.contains(id)
+    }
+
+    fn insert(&mut self, id: [u8; 32]) {
+        if !self.ids.insert(id) {
+            return;
+        }
+        self.order.push_back(id);
+        if self.order.len() > RECENT_BLOCKS
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.ids.remove(&oldest);
+        }
+    }
+}
 
 /// The gossip verdict on a DAG-BFT topic message, before any signature.
 fn classify_bft_frame(data: &[u8]) -> Verdict {
@@ -81,7 +119,7 @@ impl NodeDriver {
         let verdict = if message.topic == txs_topic().hash() {
             self.gossiped_transaction(data)
         } else if message.topic == blocks_topic().hash() {
-            self.gossiped_block(source, author, data, now)
+            self.gossiped_block_once(source, author, data, now)
         } else if message.topic == bft_topic().hash() {
             self.gossiped_bft(data)
         } else {
@@ -119,6 +157,28 @@ impl NodeDriver {
             // Already pooled: normal in a gossip mesh, not worth an event.
             Ok(false) => {}
             Err(e) => self.emit(NodeEvent::TransactionRejected(e.to_string())),
+        }
+        verdict
+    }
+
+    /// [`NodeDriver::gossiped_block`] for the gossip topic, relaying each exact
+    /// block message once. Remembered only once accepted, and by its bytes:
+    /// neither a junk body nor other multisig approvals under an honest header
+    /// can shut the honest block out.
+    fn gossiped_block_once(
+        &mut self,
+        source: PeerId,
+        author: Option<PeerId>,
+        data: &[u8],
+        now: Instant,
+    ) -> Verdict {
+        let digest = *blake3::hash(data).as_bytes();
+        if self.recent_blocks.contains(&digest) {
+            return Verdict::Ignore;
+        }
+        let verdict = self.gossiped_block(source, author, data, now);
+        if verdict == Verdict::Accept {
+            self.recent_blocks.insert(digest);
         }
         verdict
     }
@@ -330,5 +390,23 @@ mod tests {
             classify_bft_frame(&vec![WIRE_VERSION; MAX_BFT_FRAME_BYTES + 1]),
             Verdict::Ignore
         );
+    }
+
+    #[test]
+    fn a_block_id_is_remembered_until_the_bound_evicts_it() {
+        let mut recent = RecentBlocks::default();
+        recent.insert([1; 32]);
+        recent.insert([1; 32]);
+        assert!(recent.contains(&[1; 32]));
+        assert_eq!(recent.order.len(), 1);
+        for n in 0..RECENT_BLOCKS as u64 {
+            let mut id = [0; 32];
+            id[..8].copy_from_slice(&n.to_le_bytes());
+            id[31] = 2;
+            recent.insert(id);
+        }
+        assert!(!recent.contains(&[1; 32]), "the oldest id is evicted first");
+        assert_eq!(recent.order.len(), RECENT_BLOCKS);
+        assert_eq!(recent.ids.len(), RECENT_BLOCKS);
     }
 }

@@ -29,7 +29,9 @@ pub const MAX_SEEN_PEERS: usize = 100_000;
 pub struct PeerInfo {
     /// libp2p peer id.
     pub peer_id: String,
-    /// `inbound` or `outbound`.
+    /// `inbound` or `outbound`; empty where the node serves only its
+    /// public view, which leaves direction out.
+    #[serde(default)]
     pub direction: String,
     /// `tcp`, `websocket`, ...
     pub transport: String,
@@ -41,7 +43,9 @@ pub struct PeerInfo {
     pub score: Option<f64>,
     /// Mean block propagation delay from it, ms.
     pub block_latency_ms: Option<u64>,
-    /// Ignored for misbehaviour right now.
+    /// Ignored for misbehaviour right now; `false` where the node serves
+    /// only its public view.
+    #[serde(default)]
     pub quarantined: bool,
 }
 
@@ -452,6 +456,21 @@ impl Live {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+
+    #[test]
+    fn a_public_get_peers_answer_without_health_fields_still_parses() {
+        let peer: PeerInfo = serde_json::from_value(serde_json::json!({
+            "peer_id": "12D3KooW",
+            "transport": "tcp",
+            "connected_secs": 5,
+            "connections": 1,
+            "block_latency_ms": null,
+        }))
+        .unwrap();
+        assert_eq!(peer.direction, "");
+        assert_eq!(peer.score, None);
+        assert!(!peer.quarantined);
+    }
 
     fn peer(id: &str, secs: u64, transport: &str) -> PeerInfo {
         PeerInfo {

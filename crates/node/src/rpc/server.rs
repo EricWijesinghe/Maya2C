@@ -1,10 +1,16 @@
 //! JSON-RPC server.
 //!
-//! Handlers are registered as synchronous methods. Every one of them is a short
-//! `RocksDB` read or an in-memory index lookup — microseconds — so dispatching
-//! them to a blocking pool would cost more in scheduling than it saves. The one
-//! genuine exception is `submit_block`, which verifies proof of work: a 32 MiB
-//! Argon2id pass that would stall the reactor, so it runs on a blocking thread.
+//! Handlers are registered as synchronous methods. Most are a short `RocksDB`
+//! read or an in-memory index lookup — microseconds — so dispatching them to a
+//! blocking pool would cost more in scheduling than it saves. The exceptions
+//! run on blocking threads: `submit_block`, which verifies proof of work (a
+//! 32 MiB Argon2id pass that would stall the reactor), and the reads that walk
+//! many records or load whole blocks (`get_supply`, `get_balance_at_height`,
+//! `get_certificates`, `get_block_by_height`, `get_blocks_by_height_range`,
+//! `get_balance_changes` and the bootstrap reads), which would otherwise hold
+//! a runtime worker each. Those take a slot of
+//! [`crate::rpc::admission::BLOCKING_SLOTS`] first, so they cannot fill the
+//! blocking pool the node's own relay and catch-up work runs on.
 //!
 //! The chain sits behind a `Mutex` because fork choice mutates it and the reorg
 //! path must be serialized — two concurrent reorgs would interleave undo
@@ -17,6 +23,8 @@ use std::sync::{Arc, Mutex};
 
 use jsonrpsee::server::{RpcModule, Server, ServerHandle};
 use jsonrpsee::types::ErrorObjectOwned;
+
+use crate::rpc::admission::{Connections, RegisterBounded};
 
 use crate::consensus::{Chain, InsertOutcome};
 use crate::core::{Block, Transaction};
@@ -42,43 +50,92 @@ const NOT_FOUND: i32 = -32_001;
 /// one call walk further before failing.
 const MAX_BALANCE_REWIND: u64 = crate::state_pruner::PRUNE_DEPTH;
 
-/// The block at `height` as the RPC reports it: from the canonical index, or
-/// fetched back from the archive when pruned here. Shared by
-/// `get_block_by_height` and `get_blocks_by_height_range`.
-fn block_info_at(ctx: &RpcContext, height: u64) -> Result<BlockInfo, ErrorObjectOwned> {
-    let chain = ctx.chain();
-    let state = chain.state();
+/// What one archive fetch costs against [`RpcContext::reads`]: half a burst,
+/// so one client gets two back to back and then about three a second at most.
+/// Not measured: a fetch is one archive read, priced far above an index read.
+pub const COLD_FETCH_READS: u64 = READ_BURST as u64 / 2;
+
+/// The refusal a client gets while another archive fetch is running.
+pub const COLD_FETCH_BUSY: &str = "an archive fetch is already running; retry later";
+
+/// The block at `height` as the RPC reports it, and whether it came from the
+/// archive: from the canonical index, or, if `cold_allowed`, fetched back
+/// from the archive when pruned here. Shared by `get_block_by_height` and
+/// `get_blocks_by_height_range`.
+///
+/// The chain lock is held only to copy the state handle. Block apply and
+/// commit take the same lock, and a block load (or an archive fetch over the
+/// network) under it stalled both for every caller. A body is immutable by
+/// id, so reading it unlocked cannot see it torn.
+fn block_info_at(
+    ctx: &RpcContext,
+    client: IpAddr,
+    height: u64,
+    cold_allowed: bool,
+) -> Result<(BlockInfo, bool), ErrorObjectOwned> {
+    let state = Arc::clone(ctx.chain().state());
 
     // The canonical index, not a walk from the tip: one read instead of
     // one per block of history.
     let id = state
         .canonical_id(height)
-        .map_err(|e| rejected(e.to_string()))?
+        .map_err(internal)?
         .ok_or_else(|| not_found(format!("no block at height {height}")))?;
-    let block = match state.load_block(&id).map_err(|e| rejected(e.to_string()))? {
-        Some(block) => block,
-        // Pruned here: fetched back from the archive and verified
-        // against the header this node kept, or refused.
-        None => ctx
-            .cold
-            .as_ref()
-            .ok_or_else(|| not_found(format!("height {height} is pruned on this node")))?
-            .fetch(state, height)
-            .map_err(|e| {
-                // The detail names stores and CIDs: the operator's log,
-                // not a public caller's business.
-                eprintln!("rpc: cold fetch of height {height} failed: {e}");
-                not_found(format!(
-                    "height {height} is pruned and no archived copy verified"
-                ))
-            })?,
+    if let Some(block) = state.load_block(&id).map_err(internal)? {
+        return Ok((BlockInfo::new(height, &block), false));
+    }
+    // Pruned here: fetched back from the archive and verified against the
+    // header this node kept, or refused.
+    let pruned = || not_found(format!("height {height} is pruned on this node"));
+    let cold = ctx
+        .cold
+        .as_ref()
+        .filter(|_| cold_allowed)
+        .ok_or_else(pruned)?;
+    // One fetch at a time, in turns (`admission::ColdTurns`).
+    let Some(_turn) = ctx.cold_turns.claim(client) else {
+        return Err(rejected(COLD_FETCH_BUSY));
     };
+    if !ctx.reads.charge(client, COLD_FETCH_READS) {
+        return Err(rejected(READ_BUDGET_EXHAUSTED));
+    }
+    let block = cold.fetch(&state, height).map_err(|e| {
+        // The detail names stores and CIDs: the operator's log, not a public
+        // caller's business.
+        eprintln!("rpc: cold fetch of height {height} failed: {e}");
+        not_found(format!(
+            "height {height} is pruned and no archived copy verified"
+        ))
+    })?;
+    Ok((BlockInfo::new(height, &block), true))
+}
 
-    Ok(BlockInfo::new(height, &block))
+/// The client a method call is charged to.
+fn client_of(extensions: &hyper::http::Extensions) -> IpAddr {
+    extensions
+        .get::<ClientAddr>()
+        .map_or(UNKNOWN_CLIENT, |c| c.0)
 }
 
 /// Most blocks `get_blocks_by_height_range` returns in one answer.
 const MAX_RANGE_BLOCKS: u64 = 32;
+
+/// Most hex-encoded block bytes one `get_blocks_by_height_range` answer
+/// carries before it stops short. A quarter of the response cap: each block
+/// is sent hex-encoded and again as decoded transactions. One block is always
+/// served, so a maximal block still has a way out.
+pub const MAX_RANGE_RAW_HEX: usize = RPC_RESPONSE_LIMIT as usize / 4;
+
+/// Whether a block of `next` hex bytes still fits an answer already holding
+/// `held` bytes.
+fn range_has_room(held: usize, next: usize) -> bool {
+    held == 0 || held.saturating_add(next) <= MAX_RANGE_RAW_HEX
+}
+
+/// Most indicators one `threat_indicators` answer carries. One per author is
+/// a few hundred bytes of JSON, so a page stays far below the response cap
+/// however many authors the chain records.
+pub const MAX_INDICATOR_PAGE: usize = 256;
 
 fn invalid_params(message: impl Into<String>) -> ErrorObjectOwned {
     ErrorObjectOwned::owned(INVALID_PARAMS, message.into(), None::<()>)
@@ -99,8 +156,12 @@ const INTERNAL: i32 = -32_603;
 /// fixed message and a code that is not `REJECTED`. Reusing `REJECTED` told
 /// clients (and the gateway, which maps it to a non-retryable 400) that a
 /// corrupt or unreadable record was their mistake.
+///
+/// Generic so a channel or task failure (a stopped network task, a panicked
+/// submission) goes the same way as a storage one; `bootstrap` and `peers`
+/// share it.
 #[allow(clippy::needless_pass_by_value)] // used as `.map_err(internal)`
-fn internal(error: crate::error::NodeError) -> ErrorObjectOwned {
+pub(crate) fn internal(error: impl std::fmt::Display) -> ErrorObjectOwned {
     eprintln!("rpc: internal error: {error}");
     ErrorObjectOwned::owned(INTERNAL, "internal node error", None::<()>)
 }
@@ -118,6 +179,7 @@ fn internal(error: crate::error::NodeError) -> ErrorObjectOwned {
 /// chain does not reorg committed blocks at all.
 fn balance_at_height(
     ctx: &RpcContext,
+    client: IpAddr,
     address: &[u8; 32],
     height: u64,
 ) -> Result<(U256, [u8; 32]), ErrorObjectOwned> {
@@ -142,6 +204,11 @@ fn balance_at_height(
         return Err(invalid_params(format!(
             "more than {MAX_BALANCE_REWIND} blocks back from the tip"
         )));
+    }
+    // Two reads per height walked, and three more. Charged before the walk, so
+    // a client past its budget costs no read.
+    if !ctx.reads.charge(client, 2 * (tip - height) + 3) {
+        return Err(rejected(READ_BUDGET_EXHAUSTED));
     }
     let canonical = |h: u64| {
         state
@@ -244,6 +311,17 @@ pub struct RpcContext {
     pub cert_bytes: Arc<crate::rpc::limit::RateLimiter>,
     /// The clients with a certificate page in flight: one at a time each.
     pub cert_gate: Arc<CertGate>,
+    /// Storage reads each client may cause through the methods that walk many
+    /// records, weighed per call: the request limiter counts calls, and one
+    /// `get_balance_at_height` call may cost tens of thousands of reads.
+    pub reads: Arc<crate::rpc::limit::RateLimiter>,
+    /// `get_supply`, computed once per tip and shared by every caller.
+    pub supply: Arc<crate::rpc::market::SupplyCache>,
+    /// Blocking handlers running at once, bounded by
+    /// [`crate::rpc::admission::BLOCKING_SLOTS`].
+    pub blocking: Arc<tokio::sync::Semaphore>,
+    /// The one archive fetch at a time, shared in turns.
+    pub cold_turns: Arc<crate::rpc::admission::ColdTurns>,
 }
 
 /// Bytes of certificate pages one client may take per second, sustained.
@@ -253,6 +331,34 @@ pub struct RpcContext {
 pub const CERT_BYTES_PER_SECOND: u32 = 32 * 1024 * 1024;
 /// Bytes of certificate pages one client may take in a burst.
 pub const CERT_BYTE_BURST: u32 = 128 * 1024 * 1024;
+
+/// Storage reads one client may cause per second, sustained, through the
+/// methods weighed by [`RpcContext::reads`]. Not measured against a disk yet:
+/// set so a wallet's history lookups never meet it and a loop of deepest-walk
+/// calls is held to about one and a half a second.
+pub const READS_PER_SECOND: u32 = 100_000;
+/// Storage reads one client may cause in a burst. At least the deepest single
+/// walk, or that call could never be paid.
+pub const READ_BURST: u32 = 131_072;
+const _: () = assert!(
+    READ_BURST as u64 >= 2 * MAX_BALANCE_REWIND + 3,
+    "the deepest balance walk must fit one burst"
+);
+
+/// The refusal a client gets when its read budget is spent.
+pub const READ_BUDGET_EXHAUSTED: &str = "read budget used up for this client; retry later";
+
+/// Largest request body accepted: one maximal transaction, hex-encoded, plus
+/// room for the JSON-RPC envelope. jsonrpsee's default is 10 MiB, which the
+/// node never needs, and every byte of it is memory an upload can hold.
+#[allow(clippy::cast_possible_truncation)] // 8 MiB and change: fits u32
+pub const MAX_REQUEST_BODY: u32 = 2 * crate::core::MAX_TX_BYTES as u32 + 64 * 1024;
+
+/// How long a client has to deliver a request body. A body is read whole
+/// before dispatch, so a client trickling one byte at a time would otherwise
+/// hold its memory and a connection slot for as long as it liked. At the
+/// deadline a maximal body needs about 280 KB/s.
+pub const BODY_READ_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The address a request without a known peer is charged to.
 const UNKNOWN_CLIENT: IpAddr = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
@@ -342,9 +448,30 @@ pub const PAGE_BUSY: &str = "one certificate page at a time per client";
 /// in [`serve_metered`]; jsonrpsee's own accept loop is not used there.
 pub const MAX_RPC_CONNECTIONS: u32 = 1024;
 
+/// How long a connection may wait for, or take to send, the head of its next
+/// request, the first one included. Hyper enforces it only with a timer set.
+/// Without it a socket that sent one request and then went idle held its slot
+/// for good, and 1024 such sockets locked every client out.
+pub const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long one connection is served, however busy. A client that keeps one
+/// open longer reconnects, which costs it a handshake and frees the slot for
+/// a moment; one that never reads its answers is cut off.
+pub const CONNECTION_LIFETIME: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How long a connection past its lifetime (or at shutdown) may take to finish
+/// the request it is on before it is dropped. Room for a maximal response to a
+/// slow reader.
+const CONNECTION_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// How long a connection shed for a newcomer (`admission::Connections`) may
+/// take to finish the request it is on. Short: the table is full.
+const SHED_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
 fn server_config() -> jsonrpsee::server::ServerConfig {
     jsonrpsee::server::ServerConfig::builder()
         .max_connections(MAX_RPC_CONNECTIONS)
+        .max_request_body_size(MAX_REQUEST_BODY)
         .max_response_body_size(RPC_RESPONSE_LIMIT)
         .set_batch_request_config(jsonrpsee::server::BatchRequestConfig::Disabled)
         .http_only()
@@ -374,6 +501,25 @@ impl RpcContext {
                 CERT_BYTE_BURST,
             )),
             cert_gate: Arc::new(CertGate::default()),
+            reads: Arc::new(crate::rpc::limit::RateLimiter::new(
+                READS_PER_SECOND,
+                READ_BURST,
+            )),
+            supply: Arc::default(),
+            blocking: Arc::new(tokio::sync::Semaphore::new(
+                crate::rpc::admission::BLOCKING_SLOTS,
+            )),
+            cold_turns: Arc::default(),
+        }
+    }
+
+    /// The same context, charging walked reads to `budget` (tests set it tiny
+    /// to see the refusal).
+    #[must_use]
+    pub fn with_read_budget(self, budget: Arc<crate::rpc::limit::RateLimiter>) -> Self {
+        Self {
+            reads: budget,
+            ..self
         }
     }
 
@@ -510,7 +656,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .chain()
                 .state()
                 .get_account(&address)
-                .map_err(|e| rejected(e.to_string()))?;
+                .map_err(internal)?;
 
             Ok::<_, ErrorObjectOwned>(AccountInfo::new(&address, &account, text_network(ctx)))
         })
@@ -564,7 +710,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_blocking_method("get_certificates", |params, ctx, extensions| {
+        .register_bounded("get_certificates", |params, ctx, extensions| {
             // `[epoch, offset, max]`: one bounded page of that epoch's
             // certificate log (ADR-052). The rate limiter gates every method;
             // the page bounds are the server's, whatever the caller asks.
@@ -637,11 +783,14 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_balance_at_height", |params, ctx, _| {
+        .register_bounded("get_balance_at_height", |params, ctx, extensions| {
             let (address_hex, height): (String, u64) =
                 params.parse().map_err(|e| invalid_params(e.to_string()))?;
-            let address = decode_address_param(ctx, &address_hex, "address")?;
-            let (balance, id) = balance_at_height(ctx, &address, height)?;
+            let address = decode_address_param(&ctx, &address_hex, "address")?;
+            let client = extensions
+                .get::<ClientAddr>()
+                .map_or(UNKNOWN_CLIENT, |c| c.0);
+            let (balance, id) = balance_at_height(&ctx, client, &address, height)?;
             Ok::<_, ErrorObjectOwned>(serde_json::json!({
                 "address": hex::encode(address),
                 "balance": balance.to_string(),
@@ -700,10 +849,11 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_balance_changes", |params, ctx, _| {
+        .register_bounded("get_balance_changes", |params, ctx, _| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            let chain = ctx.chain();
-            let state = chain.state();
+            // Lock held only to copy the handle: a block's changes are a
+            // whole block's worth of reads and encoding.
+            let state = Arc::clone(ctx.chain().state());
             let id = state
                 .canonical_id(height)
                 .map_err(internal)?
@@ -733,11 +883,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
 
     module
         .register_method("get_fee_info", |_params, ctx, _| {
-            let fees = ctx
-                .chain()
-                .state()
-                .committed_fees()
-                .map_err(|e| rejected(e.to_string()))?;
+            let fees = ctx.chain().state().committed_fees().map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(crate::rpc::types::FeeInfo {
                 active: fees.is_some(),
                 base_fee: fees.map_or_else(|| "0".to_string(), |f| f.base_fee.to_string()),
@@ -777,9 +923,9 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_block_by_height", |params, ctx, _| {
+        .register_bounded("get_block_by_height", |params, ctx, extensions| {
             let height: u64 = params.one().map_err(|e| invalid_params(e.to_string()))?;
-            block_info_at(ctx, height)
+            block_info_at(&ctx, client_of(&extensions), height, true).map(|(info, _)| info)
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -788,7 +934,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     // Stops at the first height this node lacks, so a short answer means "that
     // is all I have", which the caller treats as an error, never a gap.
     module
-        .register_method("get_blocks_by_height_range", |params, ctx, _| {
+        .register_bounded("get_blocks_by_height_range", |params, ctx, extensions| {
             let (from, count): (u64, u64) =
                 params.parse().map_err(|e| invalid_params(e.to_string()))?;
             if count == 0 || count > MAX_RANGE_BLOCKS {
@@ -796,10 +942,22 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                     "count must be 1..={MAX_RANGE_BLOCKS}"
                 )));
             }
+            let client = client_of(&extensions);
             let mut out = Vec::new();
+            let mut held = 0usize;
+            // At most one archive fetch per answer: after it, a pruned height
+            // ends the answer short, as a missing one does.
+            let mut cold_allowed = true;
             for height in from..from.saturating_add(count) {
-                match block_info_at(ctx, height) {
-                    Ok(info) => out.push(info),
+                match block_info_at(&ctx, client, height, cold_allowed) {
+                    Ok((info, cold)) => {
+                        if !range_has_room(held, info.raw.len()) {
+                            break;
+                        }
+                        held += info.raw.len();
+                        cold_allowed &= !cold;
+                        out.push(info);
+                    }
                     Err(_) if !out.is_empty() => break,
                     Err(e) => return Err(e),
                 }
@@ -811,10 +969,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
     module
         .register_method("get_validators", |_params, ctx, _| {
             let chain = ctx.chain();
-            let record = chain
-                .state()
-                .committed_staking()
-                .map_err(|e| rejected(e.to_string()))?;
+            let record = chain.state().committed_staking().map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(record.as_ref().map(super::validators::validators_info))
         })
         .map_err(|e| rejected(e.to_string()))?;
@@ -838,9 +993,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_secs());
 
-            let header = chain
-                .candidate_header(timestamp)
-                .map_err(|e| rejected(e.to_string()))?;
+            let header = chain.candidate_header(timestamp).map_err(internal)?;
 
             Ok::<_, ErrorObjectOwned>(MiningCandidate {
                 height: chain.height() + 1,
@@ -852,8 +1005,11 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("get_supply", |_params, ctx, _| {
-            crate::rpc::market::supply(&ctx.chain).map_err(|e| rejected(e.to_string()))
+        .register_bounded("get_supply", |_params, ctx, _| {
+            ctx.supply
+                .get(&ctx.chain)
+                .map_err(internal)?
+                .ok_or_else(|| rejected(crate::rpc::market::SUPPLY_BUSY))
         })
         .map_err(|e| rejected(e.to_string()))?;
 
@@ -907,7 +1063,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 Ok::<_, crate::error::NodeError>((outcome, chain.tip(), chain.height()))
             })
             .await
-            .map_err(|e| rejected(format!("submission task failed: {e}")))?;
+            .map_err(internal)?;
 
             let (outcome, tip, height) = result.map_err(|e| rejected(e.to_string()))?;
 
@@ -934,7 +1090,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
                 .chain()
                 .state()
                 .stored_htlc_lock(&lock_id)
-                .map_err(|e| rejected(e.to_string()))?;
+                .map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(
                 record.map(|record| crate::rpc::types::HtlcLockInfo::new(&lock_id, &record)),
             )
@@ -961,14 +1117,29 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
         .map_err(|e| rejected(e.to_string()))?;
 
     module
-        .register_method("threat_indicators", |_params, ctx, _| {
-            // Every indicator, lifted ones included, judged at the tip.
-            let chain = ctx.chain();
-            let height = chain.height();
-            let indicators = chain
-                .state()
-                .stored_threat_indicators()
-                .map_err(|e| rejected(e.to_string()))?;
+        .register_bounded("threat_indicators", |params, ctx, _| {
+            // Indicators, lifted ones included, judged at the tip, in author
+            // order: optional `[after, limit]` pages through them (authors
+            // strictly after the hex author `after`, at most `limit`, capped at
+            // `MAX_INDICATOR_PAGE`). A caller has the whole set when a page is
+            // shorter than the limit it asked for. The page is read by seeking
+            // to it, outside the chain lock (only the height is read under it),
+            // so a page costs `limit` reads, not one per stored indicator.
+            let mut seq = params.sequence();
+            let after: Option<String> = seq.optional_next()?;
+            let limit: Option<usize> = seq.optional_next()?;
+            let after = after
+                .map(|a| hex::decode(a.trim_start_matches("0x")))
+                .transpose()
+                .map_err(|e| invalid_params(format!("after is not valid hex: {e}")))?;
+            let limit = limit.unwrap_or(MAX_INDICATOR_PAGE).min(MAX_INDICATOR_PAGE);
+            let (height, state) = {
+                let chain = ctx.chain();
+                (chain.height(), Arc::clone(chain.state()))
+            };
+            let indicators = state
+                .threat_indicators_page(after.as_deref(), limit)
+                .map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(
                 indicators
                     .iter()
@@ -983,10 +1154,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let Some(node) = ctx.peers.clone() else {
                 return Err(rejected("this node does not serve peer addresses"));
             };
-            let addresses = node
-                .peer_addresses()
-                .await
-                .map_err(|e| rejected(e.to_string()))?;
+            let addresses = node.peer_addresses().await.map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(
                 addresses
                     .into_iter()
@@ -1009,10 +1177,7 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
             let device = decode_array::<32>(&id_hex, "device")?;
             let chain = ctx.chain();
             let height = chain.height();
-            let record = chain
-                .state()
-                .stored_iot_device(&device)
-                .map_err(|e| rejected(e.to_string()))?;
+            let record = chain.state().stored_iot_device(&device).map_err(internal)?;
             Ok::<_, ErrorObjectOwned>(
                 record.map(|record| IotDeviceInfo::new(&device, &record, height)),
             )
@@ -1082,7 +1247,7 @@ pub async fn serve_metered(
 ) -> crate::error::Result<RpcServer> {
     check_peer_exposure(address, context.peers.is_some())?;
     let trusted: Arc<[std::net::IpAddr]> = trusted_proxies.into();
-    let connections = Arc::new(tokio::sync::Semaphore::new(MAX_RPC_CONNECTIONS as usize));
+    let connections = Arc::new(Connections::new(MAX_RPC_CONNECTIONS as usize));
     let module =
         build_module(context).map_err(|e| crate::error::NodeError::Network(e.to_string()))?;
     let known: std::sync::Arc<std::collections::BTreeSet<String>> =
@@ -1120,15 +1285,15 @@ pub async fn serve_metered(
                 },
                 () = stop.clone().shutdown() => break,
             };
-            // Over the cap, the socket is dropped unanswered: a 429 would still
-            // cost a task and a parse for every excess connection.
-            let Ok(permit) = Arc::clone(&connections).try_acquire_owned() else {
+            // Over a peer's or network's share, the socket is dropped
+            // unanswered: a 429 would still cost a task and a parse for every
+            // excess connection. A full table sheds an old connection instead.
+            let peer = remote.ip().to_canonical();
+            let exempt = crate::rpc::client_ip::is_trusted(peer, &trusted);
+            let Some(slot) = Connections::claim(&connections, peer, exempt) else {
                 drop(socket);
                 continue;
             };
-            // Shared, because the per-connection service is cloned; the last
-            // clone drops with the connection and releases the slot.
-            let permit = Arc::new(permit);
             let (builder, methods, stop2, limiter, trusted) = (
                 builder.clone(),
                 methods.clone(),
@@ -1138,9 +1303,6 @@ pub async fn serve_metered(
             );
             let service =
                 tower::service_fn(move |mut request: hyper::Request<hyper::body::Incoming>| {
-                    // The service owns the permit and is dropped with the
-                    // connection, so the cap counts live sockets.
-                    let _held = &permit;
                     let headers = request.headers();
                     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
                     let client = crate::rpc::client_ip::client_ip(
@@ -1158,13 +1320,21 @@ pub async fn serve_metered(
                         if !allowed {
                             return Ok(jsonrpsee::server::http::response::too_many_requests());
                         }
+                        let request = match read_body(request).await {
+                            Ok(request) => request,
+                            Err(refusal) => return Ok(*refusal),
+                        };
                         tower::Service::call(&mut inner, request).await
                     }
                 });
-            tokio::spawn(jsonrpsee::server::serve_with_graceful_shutdown(
+            // Passed straight to `spawn`, not awaited inside an `async` block:
+            // held across an await there, the connection's type cannot be
+            // proved `Send` (a higher-ranked lifetime on its error bound).
+            tokio::spawn(serve_connection(
                 socket,
                 service,
                 stop.clone().shutdown(),
+                slot,
             ));
         }
     });
@@ -1173,6 +1343,74 @@ pub async fn serve_metered(
         address: local_address,
         handle,
     })
+}
+
+/// Serves one connection with [`HEADER_READ_TIMEOUT`] and
+/// [`CONNECTION_LIFETIME`]; at the lifetime or when `stopped` resolves, the
+/// request in flight gets [`CONNECTION_GRACE`] to finish, and when `slot` is
+/// shed for a newcomer, [`SHED_GRACE`].
+///
+/// jsonrpsee's own `serve_with_graceful_shutdown` builds hyper without a timer,
+/// so hyper's header timeout is off, and after the first request it waits on a
+/// connection forever. `slot` (the connection table's claim) is held until
+/// the connection ends, so the table counts live sockets.
+async fn serve_connection<S, B>(
+    socket: tokio::net::TcpStream,
+    service: S,
+    stopped: impl std::future::Future<Output = ()>,
+    slot: crate::rpc::admission::ConnectionSlot,
+) where
+    S: tower::Service<hyper::Request<hyper::body::Incoming>, Response = hyper::Response<B>>
+        + Clone
+        + Send
+        + 'static,
+    S::Future: Send,
+    S::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+    B: hyper::body::Body<Data = hyper::body::Bytes> + Send + 'static,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    let connection = hyper::server::conn::http1::Builder::new()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(HEADER_READ_TIMEOUT)
+        .serve_connection(
+            hyper_util::rt::TokioIo::new(socket),
+            hyper_util::service::TowerToHyperService::new(service),
+        );
+    tokio::pin!(connection);
+    let grace = tokio::select! {
+        // Done, a slow head refused, or the client hung up.
+        _ = &mut connection => return,
+        () = stopped => CONNECTION_GRACE,
+        () = tokio::time::sleep(CONNECTION_LIFETIME) => CONNECTION_GRACE,
+        () = slot.shed() => SHED_GRACE,
+    };
+    connection.as_mut().graceful_shutdown();
+    let _ = tokio::time::timeout(grace, connection).await;
+}
+
+/// Reads `request`'s whole body within [`BODY_READ_DEADLINE`] and
+/// [`MAX_REQUEST_BODY`], refusing it otherwise, so a slow or oversized upload
+/// is cut off here rather than holding memory and a connection slot.
+async fn read_body(
+    request: hyper::Request<hyper::body::Incoming>,
+) -> Result<
+    hyper::Request<http_body_util::Full<hyper::body::Bytes>>,
+    Box<jsonrpsee::server::HttpResponse>,
+> {
+    use http_body_util::BodyExt;
+    let (parts, body) = request.into_parts();
+    let limited = http_body_util::Limited::new(body, MAX_REQUEST_BODY as usize);
+    match tokio::time::timeout(BODY_READ_DEADLINE, limited.collect()).await {
+        Ok(Ok(collected)) => Ok(hyper::Request::from_parts(
+            parts,
+            http_body_util::Full::new(collected.to_bytes()),
+        )),
+        Ok(Err(error)) if error.is::<http_body_util::LengthLimitError>() => Err(Box::new(
+            jsonrpsee::server::http::response::too_large(MAX_REQUEST_BODY),
+        )),
+        // A body that broke off or did not arrive in time is not a request.
+        Ok(Err(_)) | Err(_) => Err(Box::new(jsonrpsee::server::http::response::malformed())),
+    }
 }
 
 /// Refuses to serve `threat_peer_addresses` anywhere but this host.
@@ -1198,15 +1436,13 @@ fn mining_work(
 ) -> Result<crate::rpc::types::MiningWork, ErrorObjectOwned> {
     let chain = ctx.chain();
     let state = chain.state();
-    let record = state
-        .committed_mining()
-        .map_err(|e| rejected(e.to_string()))?;
+    let record = state.committed_mining().map_err(internal)?;
     let Some(record) = record.filter(|r| r.epoch > 0) else {
         return Ok(crate::rpc::types::MiningWork::default());
     };
     let (header, dag_epoch) = state
         .committed_share_work(&record, miner)
-        .map_err(|e| rejected(e.to_string()))?;
+        .map_err(internal)?;
     let dag = match record.dag {
         crate::state::mining::DagProfile::Mainnet => "mainnet",
         crate::state::mining::DagProfile::Testing => "testing",
@@ -1240,5 +1476,13 @@ mod tests {
         assert!(check_peer_exposure(local, true).is_ok());
         assert!(check_peer_exposure(local_v6, true).is_ok());
         assert!(check_peer_exposure(public, false).is_ok());
+    }
+
+    #[test]
+    fn a_range_answer_stops_at_its_byte_budget_but_always_serves_one_block() {
+        assert!(range_has_room(0, MAX_RANGE_RAW_HEX * 2), "the first block");
+        assert!(range_has_room(1, MAX_RANGE_RAW_HEX - 1));
+        assert!(!range_has_room(1, MAX_RANGE_RAW_HEX));
+        assert!(!range_has_room(usize::MAX, 1), "no overflow");
     }
 }
