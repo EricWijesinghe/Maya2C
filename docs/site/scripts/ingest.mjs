@@ -31,7 +31,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const DOCS = join(here, "..", "..");
 const OUT = join(here, "..", "src", "content", "docs");
 const REPO = join(DOCS, "..");
-const REPO_URL = "https://github.com/EricWijesinghe/Maya2C/blob/master";
+const REPO_URL = "https://github.com/maya2c/Maya2C/blob/master";
 // Images the docs embed are copied here and served from this site. A GitHub
 // raw URL would be blocked by the CSP img-src ('self' and data: only).
 const PUBLIC_REPO = join(here, "..", "public", "repo-assets");
