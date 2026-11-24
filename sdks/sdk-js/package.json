@@ -31,7 +31,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/EricWijesinghe/Maya2C.git",
+    "url": "git+https://github.com/maya2c/Maya2C.git",
     "directory": "sdks/sdk-js"
   },
   "engines": {

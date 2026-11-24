@@ -34,7 +34,7 @@ write_files:
       if [ ! -d "$src/.git" ]; then
           install -d -m 0755 "$src"
           git -C "$src" init -q
-          git -C "$src" remote add origin https://github.com/EricWijesinghe/Maya2C.git
+          git -C "$src" remote add origin https://github.com/maya2c/Maya2C.git
       fi
       git -C "$src" fetch -q --depth 1 origin "$commit"
       git -C "$src" checkout -q --detach FETCH_HEAD
