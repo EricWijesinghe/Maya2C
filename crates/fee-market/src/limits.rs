@@ -59,6 +59,35 @@ pub const MAX_TARGET_BLOCK_BYTES: u64 = MAX_BLOCK_BYTES / 2;
 /// `reports/bench/2026-10-25-tps-series.md` (about 4.3 MiB) with room to spare.
 pub const MAX_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
 
+/// The most bytes governance can ever set a block to (`block.max_bytes`,
+/// ADR-155 §3, B1). [`MAX_BLOCK_BYTES`] is only where the value starts.
+///
+/// The ceiling is what every transport of the same build carries whole: one
+/// 8 MiB gossip frame with a mebibyte left for its framing, and a 24 MiB sync
+/// response three times over (the node asserts both at compile time). Raising
+/// it is a release with larger or chunked frames, a scheduled upgrade, never a
+/// change of format.
+pub const BLOCK_BYTES_CEILING: u64 = 7 * 1024 * 1024;
+
+/// Fewest wire bytes one transaction entry can take inside a block: its 8-byte
+/// length prefix and a one-byte version. A decoder bound, far below any valid
+/// transaction (a hybrid-signed transfer is about 11.5 KB).
+pub const MIN_TX_ENTRY_BYTES: u64 = 8 + 1;
+
+/// The most transactions governance can ever allow in one block
+/// (`block.max_transactions`, NEW-4): as many as the byte ceiling could hold
+/// at [`MIN_TX_ENTRY_BYTES`] each, so the count can never be the bound that a
+/// smaller transaction format (witness separation, aggregation) runs into
+/// first. The decoder refuses a count above it before allocating.
+pub const BLOCK_TXS_CEILING: u64 = BLOCK_BYTES_CEILING / MIN_TX_ENTRY_BYTES;
+
+/// The block transaction count a chain starts with: the 65,536 the decoder
+/// allowed before the count was governed, so nothing moves at genesis.
+pub const DEFAULT_BLOCK_TXS: u64 = 65_536;
+
+const _: () = assert!(MAX_BLOCK_BYTES <= BLOCK_BYTES_CEILING);
+const _: () = assert!(DEFAULT_BLOCK_TXS <= BLOCK_TXS_CEILING);
+
 /// The most of each base fee that may go to the treasury, in basis points.
 ///
 /// The rest is burned. A treasury share of 100% would turn the burn — the only

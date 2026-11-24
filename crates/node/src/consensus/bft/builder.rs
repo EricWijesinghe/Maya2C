@@ -53,13 +53,31 @@ pub const fn unseal(nonce: u64) -> (u64, u64) {
 /// Raw bytes of batch payloads one block may decode (CON-13): 3/2 of the block
 /// cap. With f < n/3 junk authors, honest authors' first-turn credit still
 /// covers one full cap (ADR-072, "Fair share").
-pub const DECODE_BUDGET: u64 = MAX_BLOCK_BYTES * 3 / 2;
+pub const DECODE_BUDGET: u64 = decode_budget(MAX_BLOCK_BYTES);
+
+/// CON-13's budget for a block cap of `max_bytes`: 3/2 of it. The builder
+/// derives it from the governed `block.max_bytes` in force (ADR-155), so the
+/// budget follows a vote; [`DECODE_BUDGET`] is its value at the starting cap.
+#[must_use]
+pub const fn decode_budget(max_bytes: u64) -> u64 {
+    max_bytes.saturating_mul(3) / 2
+}
 
 /// Decodes the sub-DAG's transactions within [`DECODE_BUDGET`], shared fairly
 /// among authors (CON-13), and returns them in commit order with the bytes
 /// charged. A payload identical to an admitted one is not decoded again.
 /// Payloads not admitted are not in the block; they stay with their proposers.
 pub fn decode_fair(sub_dag: &SubDag, committee_size: usize) -> (Vec<Transaction>, u64) {
+    decode_fair_within(sub_dag, committee_size, DECODE_BUDGET)
+}
+
+/// [`decode_fair`] within an explicit `budget`: [`decode_budget`] of the
+/// block cap in force.
+pub fn decode_fair_within(
+    sub_dag: &SubDag,
+    committee_size: usize,
+    budget: u64,
+) -> (Vec<Transaction>, u64) {
     let entries: Vec<(u16, &[u8])> = sub_dag
         .certificates
         .iter()
@@ -70,7 +88,7 @@ pub fn decode_fair(sub_dag: &SubDag, committee_size: usize) -> (Vec<Transaction>
                 .map(move |p| (c.vertex.author, p.as_slice()))
         })
         .collect();
-    decode_fair_payloads(&entries, committee_size, DECODE_BUDGET)
+    decode_fair_payloads(&entries, committee_size, budget)
 }
 
 /// [`decode_fair`] over `(author, payload)` pairs in commit order, with the
@@ -149,8 +167,9 @@ pub fn build_block(chain: &Chain, sub_dag: &SubDag, committee_size: usize) -> Re
     let context = chain.context_at(chain.height() + 1)?;
     let target = chain.next_target(&chain.tip())?;
     let nonce = seal(anchor.epoch, anchor.round);
+    let (max_bytes, _) = chain.state().block_caps()?;
     settle_block(
-        decode_fair(sub_dag, committee_size).0,
+        decode_fair_within(sub_dag, committee_size, decode_budget(max_bytes)).0,
         |txs| chain.state().select_applicable(txs, context, target),
         |txs| chain.candidate_block_sealed(timestamp, txs, nonce),
         || chain.candidate_block_sealed(timestamp, Vec::new(), nonce),

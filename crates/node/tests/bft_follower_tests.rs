@@ -1088,6 +1088,7 @@ fn followers_past_f_get_no_checkpoint_until_a_certificate_replay_rescues_them() 
             weights.as_deref(),
             &m.bft_dir,
             PAGE,
+            certsync::epoch_byte_bound(&m.chain).unwrap(),
             tag,
         )
         .unwrap();

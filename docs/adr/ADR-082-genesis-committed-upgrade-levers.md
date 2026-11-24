@@ -190,7 +190,7 @@ day at the rate the chain actually runs (docs/block-time.md).
 to any `ParameterKey` was written into `g:params` at execution, so a per-block
 ceiling could move one block after a timelock nobody outside governance was
 watching. Now `ParameterKey::is_validity_rule` (an exhaustive match with no
-wildcard: tags 2-8, 17 and 18, the DEX fill and order ceilings, the oracle and
+wildcard: tags 2-8, 17, 18, 21 and 22 (block bytes and transaction count, ADR-155), the DEX fill and order ceilings, the oracle and
 shielded per-block caps, the three VM bounds and ADR-142's two gas caps) splits
 the keys:
 

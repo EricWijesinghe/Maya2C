@@ -18,10 +18,10 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use crate::config::StorageConfig;
-use crate::state::fees::MAX_BLOCK_BYTES;
 use maya_crypto_pq::agility::SuitePolicy;
 use maya_dex::batch::SwapIntent;
 use maya_dex::types::PairId;
+use maya_governance::params::ParameterKey;
 use maya_ledger_math as ledger_math;
 use primitive_types::U256;
 use rocksdb::{BlockBasedOptions, Cache, DB, IteratorMode, Options, WriteBatch};
@@ -959,8 +959,11 @@ impl StateDB {
     /// [`maya_dex::batch`].
     fn stage_block(&self, block: &Block, context: BlockContext) -> Result<Overlay> {
         // ADR-072: every apply path stages through here, so the cap holds for
-        // a block that was never imported as well as for one that was.
-        block.check_size()?;
+        // a block that was never imported as well as for one that was. The
+        // caps are the governed values in force (ADR-155): the table this
+        // state committed, which is the one the block is judged by.
+        let (max_bytes, max_txs) = self.block_caps()?;
+        block.check_size_within(max_bytes, max_txs)?;
         let mut overlay = Overlay::new();
         // Here and not in a commit path, so all four agree on which accounts
         // tree this block's root is built from.
@@ -1159,11 +1162,28 @@ impl StateDB {
         context: BlockContext,
         difficulty_target: [u8; HASH_LEN],
     ) -> Result<Vec<Transaction>> {
-        self.select_applicable_within(transactions, context, difficulty_target, MAX_BLOCK_BYTES)
+        let (max_bytes, _) = self.block_caps()?;
+        self.select_applicable_within(transactions, context, difficulty_target, max_bytes)
+    }
+
+    /// `(block.max_bytes, block.max_transactions)` in force for the next
+    /// block (ADR-155): the committed parameter table's values.
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Storage`] or [`NodeError::Decode`] reading the table.
+    pub fn block_caps(&self) -> Result<(u64, u64)> {
+        let table = self.parameters()?;
+        Ok((
+            table.get(ParameterKey::BlockMaxBytes).saturating_to_u64(),
+            table
+                .get(ParameterKey::BlockMaxTransactions)
+                .saturating_to_u64(),
+        ))
     }
 
     /// [`StateDB::select_applicable`] under an explicit wire-byte `cap`, which
-    /// the node passes as [`MAX_BLOCK_BYTES`] (ADR-072).
+    /// the node passes as the governed `block.max_bytes` (ADR-072, ADR-155).
     ///
     /// Admission is first-fit in order: a transaction that would take the block
     /// over `cap` is passed over and the ones after it are still considered.
@@ -1183,6 +1203,7 @@ impl StateDB {
         cap: u64,
     ) -> Result<Vec<Transaction>> {
         self.get_chain_tag()?;
+        let (_, max_txs) = self.block_caps()?;
         let mut overlay = Overlay::new();
         self.mark_sparse_accounts(&mut overlay, context)?;
         overlay.difficulty_target = difficulty_target;
@@ -1215,6 +1236,11 @@ impl StateDB {
             // and changes no state. Staging it and rolling back would give the same block.
             if wire.saturating_add(len) > cap {
                 continue;
+            }
+            // The count cap (ADR-155): once the block is full by count, nothing
+            // after can be admitted, so selection stops.
+            if kept.len() as u64 >= max_txs {
+                break;
             }
             let contract = matches!(
                 tx.kind,

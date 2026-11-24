@@ -1034,3 +1034,14 @@ heavier frames, so the vectors' frame recurses 1,090 deep (was 1,487) and a
 1,000-local frame 2 (was 15); a function weighing more than 32,768 slots traps
 on every call. Spec GAS-10, ADR-142 amendment 8 (revised), vectors at 1,089,
 1,090 and 1,091 levels.
+
+## 2026-11-24 — Block bytes and transaction count move by vote, inside compiled ceilings (Eric 2026-11-24)
+
+Eric 2026-11-24: every limit liftable without a hard fork, each fix a guarantee from block 0. ADR-155 §3 (B1, NEW-4); spec CON-12, CON-13, CON-17; invariant 33.
+
+- **Governed.** `block.max_bytes` (tag 21) starts at 5 MiB and a vote may set [4,259,840, 7 MiB]; `block.max_transactions` (tag 22) starts at 65,536 within [1,024, 815,559]. Both are validity rules (the 30-day lead). Tags 19 and 20 stay with #644.
+- **Ceilings bound to the transport.** 7 MiB is what one 8 MiB gossip frame carries with a mebibyte of framing and what a 24 MiB sync response holds; both are compile-time asserts. Raising the ceiling is a release with larger or chunked frames, never a format change. 815,559 is the byte ceiling at 9 bytes an entry.
+- **Where read.** Import checks the values in force at the tip, so an over-cap block never waits in the orphan pool; every apply path (`stage_block`) checks those of the state it extends; selection and the DAG-BFT decode budget (3/2 of the cap) follow the value in force.
+- **Contradictions removed.** The epoch sync byte bound is derived from the epoch length at the ceilings (`certsync::max_epoch_bytes`; the fixed 4 GiB was refuted by 3,600 x 5 MiB = 17.58 GiB). `vm.max_module_bytes` is enforced at execution and mempool admission, and its range ends at the VM's compiled 512 KiB, which is also the decoder's bound: every size a vote can set decodes, validates and fits one block's gas (the earlier 2 MiB top was read nowhere and past what the 300M gas ceiling pays for; PR #702 review).
+- **Caps judged against the parent (PR #702 review, Eric 2026-11-24).** Arrival checks only the compiled ceilings; the governed caps are judged where the block is applied, against its parent's state, so nodes on either side of an activation height agree on a side-branch or late block. The decoder reserves at most 4,096 transactions before any decodes.
+- **Not done:** no x2 ramp per activation (Lane B design); the per-vertex proposal cap still derives from the starting budget. Stacked on #687.

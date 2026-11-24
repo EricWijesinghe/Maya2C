@@ -35,6 +35,7 @@ use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
+use crate::state::fees::{BLOCK_BYTES_CEILING, BLOCK_TXS_CEILING};
 use crate::state::{BlockContext, StateDB};
 
 /// Opening a stored chain, importing headers ahead of bodies, and pruning.
@@ -545,8 +546,13 @@ impl Chain {
         // than waved through as a block already held. Hashing the body is far
         // cheaper than the Argon2 pass below.
         block.check_tx_root()?;
-        // ADR-072: a block over the cap is invalid whoever built it.
-        block.check_size()?;
+        // ADR-072: a block over the cap is invalid whoever built it. Here only
+        // the compiled ceilings, which no vote moves (ADR-155): a block over
+        // them is refused before it can wait in the orphan pool. The governed
+        // caps belong to the state the block extends, which this node's tip
+        // need not be (a side branch, a late block), so staging judges those
+        // against the parent's table and every node reaches the same verdict.
+        block.check_size_within(BLOCK_BYTES_CEILING, BLOCK_TXS_CEILING)?;
 
         let id = block.header.id();
         // A record without a body is a header validated ahead of it, as a

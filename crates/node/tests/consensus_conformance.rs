@@ -94,6 +94,25 @@ fn outcome(ok: bool) -> &'static str {
     if ok { "ok" } else { "error" }
 }
 
+/// A block of `count` empty unsigned transactions: what the count rules judge.
+fn empty_block(count: u64) -> custom_l1_node::core::block::Block {
+    let txs = (0..count)
+        .map(|n| Transaction::new(vec![], vec![], n))
+        .collect();
+    custom_l1_node::core::block::Block::new(
+        custom_l1_node::core::block::BlockHeader {
+            version: 0,
+            prev_hash: [0; 32],
+            state_root: [0; 32],
+            timestamp: 0,
+            nonce: 0,
+            difficulty_target: [0xff; 32],
+            tx_root: [0; 32],
+        },
+        txs,
+    )
+}
+
 fn check(case: &Value) {
     let id = case["id"].as_str().unwrap();
     let expect = &case["expect"];
@@ -227,6 +246,45 @@ fn check(case: &Value) {
                 .join(",");
             assert_eq!(bytes.to_string(), expect["bytes"].as_str().unwrap(), "{id}");
             assert_eq!(listed, expect["admitted"].as_str().unwrap(), "{id}");
+        }
+        "block_caps_range" => {
+            use maya_governance::params::ParameterKey;
+            for (key, name) in [
+                (ParameterKey::BlockMaxBytes, "bytes"),
+                (ParameterKey::BlockMaxTransactions, "transactions"),
+            ] {
+                let bounds = key.bounds();
+                let want = &expect[name];
+                for (got, field) in [
+                    (bounds.min, "min"),
+                    (bounds.default, "default"),
+                    (bounds.max, "max"),
+                ] {
+                    assert_eq!(
+                        got.saturating_to_u64().to_string(),
+                        want[field].as_str().unwrap(),
+                        "{id}: {name} {field}"
+                    );
+                }
+            }
+        }
+        "block_count_within_cap" => {
+            let block = empty_block(num(&case["count"]));
+            let judged = block.check_size_within(u64::MAX, num(&case["cap"]));
+            assert_eq!(outcome(judged.is_ok()), want, "{id}: {judged:?}");
+        }
+        "block_decode_count" => {
+            let bytes = empty_block(num(&case["count"])).to_bytes();
+            let decoded = custom_l1_node::core::block::Block::from_bytes(&bytes);
+            assert_eq!(outcome(decoded.is_ok()), want, "{id}");
+        }
+        "decode_budget" => {
+            assert_eq!(
+                custom_l1_node::consensus::bft::builder::decode_budget(num(&case["cap"]))
+                    .to_string(),
+                expect["budget"].as_str().unwrap(),
+                "{id}"
+            );
         }
         "decode_cut" => {
             let lens: Vec<usize> = case["tx_lens"]

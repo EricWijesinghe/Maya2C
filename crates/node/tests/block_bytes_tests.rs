@@ -235,10 +235,12 @@ fn a_block_over_the_cap_is_refused_on_import() {
     // Repeats of one transaction are enough: the size rule is checked before
     // any transaction is executed, so the duplicates need not be valid.
     let count = usize::try_from(MAX_BLOCK_BYTES).unwrap() / tx.to_bytes().len() + 1;
+    // A child of genesis: the governed cap is judged against the state the
+    // block extends (ADR-155), so the block must name a parent this node holds.
     let block = Block::new(
         BlockHeader {
             version: 0,
-            prev_hash: [0; 32],
+            prev_hash: chain.genesis(),
             state_root: [0; 32],
             timestamp: 1_000_001,
             nonce: 0,

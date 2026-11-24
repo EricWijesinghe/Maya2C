@@ -607,8 +607,100 @@ fn block_size_cases() -> Vec<Value> {
     let big = vec![hybrid; 400];
     let cap = consensus::MAX_BLOCK_BYTES;
     cases.push(json!({"id": "block-size-400-hybrid-within-cap", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&big), "cap": cap.to_string(), "expect": {"result": "ok", "bytes": consensus::block_wire_bytes(&big).to_string(), "admitted": idx(&consensus::first_fit(&big, cap))}}));
+    cases.extend(governed_cap_cases());
     cases.extend(decode_cut_cases());
     cases
+}
+
+/// CON-12 and CON-13 under governed caps (ADR-155): the vote range of each
+/// cap, a block judged at the floor and at the ceiling, the count cap, the
+/// decoder's count bound, and the decode budget following the cap in force.
+fn governed_cap_cases() -> Vec<Value> {
+    use consensus::{
+        BLOCK_BYTES_CEILING, BLOCK_BYTES_FLOOR, BLOCK_TXS_CEILING, BLOCK_TXS_FLOOR,
+        DEFAULT_BLOCK_TXS, MAX_BLOCK_BYTES,
+    };
+    let ok = |pass: bool| {
+        if pass {
+            json!({"result": "ok"})
+        } else {
+            json!({"result": "error", "error": "BlockTooLarge"})
+        }
+    };
+    // Lengths whose block is exactly `cap` bytes: the overhead, one prefix, one body.
+    let exactly = |cap: u64| vec![cap - consensus::block_wire_bytes(&[0])];
+    let bytes_case = |id: &str, lens: Vec<u64>, cap: u64| {
+        let pass = consensus::block_wire_bytes(&lens) <= cap;
+        json!({"id": id, "rules": ["CON-12"], "fn": "block_within_cap",
+            "tx_lens": lens.iter().map(u64::to_string).collect::<Vec<_>>(),
+            "cap": cap.to_string(), "expect": ok(pass)})
+    };
+    let count_case = |id: &str, count: u64, cap: u64| {
+        json!({"id": id, "rules": ["CON-12"], "fn": "block_count_within_cap",
+            "count": count.to_string(), "cap": cap.to_string(),
+            "expect": ok(consensus::count_within_cap(count, cap))})
+    };
+    let decode_case = |id: &str, count: u64| {
+        let expect = if consensus::decodable_count(count) {
+            json!({"result": "ok"})
+        } else {
+            json!({"result": "error", "error": "Decode"})
+        };
+        json!({"id": id, "rules": ["CON-12"], "fn": "block_decode_count", "count": count.to_string(), "expect": expect})
+    };
+    let budget_case = |id: &str, cap: u64| {
+        json!({"id": id, "rules": ["CON-13"], "fn": "decode_budget", "cap": cap.to_string(),
+            "expect": {"result": "ok", "budget": consensus::decode_budget(cap).to_string()}})
+    };
+    let over = |cap: u64| {
+        let mut lens = exactly(cap);
+        lens[0] += 1;
+        lens
+    };
+    vec![
+        json!({"id": "block-caps-vote-range", "rules": ["CON-12"], "fn": "block_caps_range",
+            "expect": {"result": "ok",
+                "bytes": {"min": BLOCK_BYTES_FLOOR.to_string(), "default": MAX_BLOCK_BYTES.to_string(), "max": BLOCK_BYTES_CEILING.to_string()},
+                "transactions": {"min": BLOCK_TXS_FLOOR.to_string(), "default": DEFAULT_BLOCK_TXS.to_string(), "max": BLOCK_TXS_CEILING.to_string()}}}),
+        bytes_case(
+            "block-at-the-floor-cap-accepted",
+            exactly(BLOCK_BYTES_FLOOR),
+            BLOCK_BYTES_FLOOR,
+        ),
+        bytes_case(
+            "block-over-the-floor-cap-refused",
+            over(BLOCK_BYTES_FLOOR),
+            BLOCK_BYTES_FLOOR,
+        ),
+        bytes_case(
+            "block-at-the-ceiling-cap-accepted",
+            exactly(BLOCK_BYTES_CEILING),
+            BLOCK_BYTES_CEILING,
+        ),
+        bytes_case(
+            "block-over-the-ceiling-cap-refused",
+            over(BLOCK_BYTES_CEILING),
+            BLOCK_BYTES_CEILING,
+        ),
+        count_case(
+            "block-count-at-the-cap-accepted",
+            BLOCK_TXS_FLOOR,
+            BLOCK_TXS_FLOOR,
+        ),
+        count_case(
+            "block-count-over-the-cap-refused",
+            BLOCK_TXS_FLOOR + 1,
+            BLOCK_TXS_FLOOR,
+        ),
+        decode_case("block-decode-count-at-the-ceiling", BLOCK_TXS_CEILING),
+        decode_case(
+            "block-decode-count-over-the-ceiling-refused",
+            BLOCK_TXS_CEILING + 1,
+        ),
+        budget_case("decode-budget-at-the-starting-cap", MAX_BLOCK_BYTES),
+        budget_case("decode-budget-at-the-floor", BLOCK_BYTES_FLOOR),
+        budget_case("decode-budget-at-the-ceiling", BLOCK_BYTES_CEILING),
+    ]
 }
 
 /// CON-13: the builder decodes a prefix of the distinct payloads, and the

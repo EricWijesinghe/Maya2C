@@ -160,13 +160,14 @@ fn replay_certificates(
 ) -> Result<(BftDriver, Step), Box<dyn Error>> {
     use custom_l1_node::consensus::bft::certsync::CertSource as _;
     let source = RpcBootstrapSource::new(url, tokio::runtime::Handle::current())?;
-    let (epoch, (keys, weights), tag) = {
+    let (epoch, (keys, weights), tag, max_bytes) = {
         let c = lock_chain(chain);
         let (epoch, keys) = certsync::head_epoch(&c, setup)?;
         (
             epoch,
             keys,
             custom_l1_node::core::ChainTag::from_genesis(c.genesis()),
+            certsync::epoch_byte_bound(&c)?,
         )
     };
     let dir = data_dir.join(BFT_DIR);
@@ -184,6 +185,7 @@ fn replay_certificates(
             weights.as_deref(),
             &dir,
             certsync::PAGE,
+            max_bytes,
             tag,
         )?;
         if fetched.skipped > 0 {

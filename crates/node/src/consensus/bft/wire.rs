@@ -32,7 +32,7 @@ pub const BROADCAST: u16 = u16::MAX;
 
 /// Most bytes one signature may claim. An ML-DSA-87 validator signature is 4,627; the bound only
 /// has to stop a length prefix from asking for gigabytes.
-const MAX_SIGNATURE_BYTES: usize = 8 * 1024;
+pub(crate) const MAX_SIGNATURE_BYTES: usize = 8 * 1024;
 
 /// Most bytes one transaction may claim inside a vertex: the most the
 /// transaction codec accepts, or a legal transaction could be mined by no one.
