@@ -65,7 +65,7 @@ pub use maya_dex::amm::Pool;
 pub use maya_dex::book::{Order, OrderId, Side};
 pub use maya_dex::types::{Direction, NATIVE_ASSET, PRICE_SCALE};
 
-pub use account::{ACCOUNT_LEN, Account, Address};
+pub use account::{ACCOUNT_LEN, AUTH_KIND_KEY, Account, Address};
 pub use asset::{AssetId, AssetRecord, derive_asset_id};
 pub use channel::{ChannelRecord, ChannelStatus};
 pub use context::BlockContext;

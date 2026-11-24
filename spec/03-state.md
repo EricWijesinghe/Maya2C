@@ -18,7 +18,7 @@ order, and the first rule that fails is the result:
 
 ## State root
 
-- **ROOT-1** An account's leaf is `blake3(0x00 ‖ address ‖ balance_u256 ‖ nonce_u64)`: the balance as 32 bytes little-endian (ADR-046), the nonce as 8. *(positive only: defines a value)*
+- **ROOT-1** An account's leaf is `blake3(0x00 ‖ address ‖ balance_u256 ‖ nonce_u64 ‖ auth_kind_u8)`: the balance as 32 bytes little-endian (ADR-046), the nonce as 8, then the account's auth kind as one byte (ADR-155, P7). Auth kind 0 is the address's own key, the only kind defined; a record naming any other kind is refused. The 41-byte record `balance ‖ nonce ‖ auth_kind` is the account's stored form. *(positive only: defines a value)*
 - **ROOT-2** An internal node is `blake3(0x01 ‖ left ‖ right)`. *(positive only: defines a value)*
 - **ROOT-3** Leaves are paired left to right; an unpaired last node is promoted unchanged, not duplicated; this repeats until one node remains. With no leaves the root is 32 zero bytes. *(positive only: defines a value)*
 - **ROOT-4** Leaves are ordered by ascending address. With no other state layer present, the state root is this accounts root. *(positive only: defines a value)*

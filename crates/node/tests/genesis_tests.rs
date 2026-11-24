@@ -459,8 +459,10 @@ fn a_genesis_names_only_valid_suite_deprecations() {
 
 /// Genesis id of a DAG-BFT genesis with no upgrade levers (ADR-082). A golden
 /// value: a change here means every existing BFT genesis changed identity.
+/// Re-pinned for ADR-155: the auth-kind byte is in every account leaf, so the
+/// allocations' state root, and with it the id, moved.
 const PINNED_BFT_EMPTY_LEVERS_ID: &str =
-    "fb6a41f4e8bd082cb6f4cff551cb31676e06a73796da0515e982c34d820f498e";
+    "742cb6df386d6a578982e2ac4fe2e0804cecbe69135a26fc5c1b13077a78f704";
 
 #[test]
 fn a_bft_genesis_with_empty_levers_has_its_pinned_id() {

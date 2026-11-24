@@ -34,7 +34,30 @@ impl<A> StarkAir for A where
 {
 }
 
-/// A serialized proof.
+/// Envelope version of every proof this build writes: the first byte of
+/// [`Proof::as_bytes`], before the Plonky3 encoding (P3, ADR-155).
+///
+/// A later circuit, field or hash gets a new version, so a verifier can tell
+/// which one a proof claims from its bytes alone rather than by trying each
+/// decoder. A version this build does not know is refused before decoding.
+pub const PROOF_VERSION: u8 = 1;
+
+/// The Plonky3 encoding inside a proof's envelope.
+///
+/// # Errors
+///
+/// [`ZkError::Malformed`] for an empty proof or an unknown version.
+fn body(bytes: &[u8]) -> Result<&[u8], ZkError> {
+    match bytes.split_first() {
+        Some((&PROOF_VERSION, rest)) => Ok(rest),
+        Some((other, _)) => Err(ZkError::Malformed(format!(
+            "proof version {other}, expected {PROOF_VERSION}"
+        ))),
+        None => Err(ZkError::Malformed("empty proof, no version".into())),
+    }
+}
+
+/// A serialized proof: [`PROOF_VERSION`] then the Plonky3 encoding.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Proof {
     bytes: Vec<u8>,
@@ -76,7 +99,8 @@ pub fn prove<A: StarkAir>(
 ) -> Result<Proof, ZkError> {
     let config = config::config()?;
     let proof = p3_uni_stark::prove(&config, air, trace, public);
-    let bytes = postcard::to_allocvec(&proof).map_err(|e| ZkError::Malformed(e.to_string()))?;
+    let bytes = postcard::to_extend(&proof, vec![PROOF_VERSION])
+        .map_err(|e| ZkError::Malformed(e.to_string()))?;
     Ok(Proof { bytes })
 }
 
@@ -99,7 +123,7 @@ pub fn verify<A: StarkAir>(air: &A, proof: &Proof, public: &[F]) -> Result<(), Z
 pub fn verify_bytes<A: StarkAir>(air: &A, bytes: &[u8], public: &[F]) -> Result<(), ZkError> {
     let config = config::config()?;
     let decoded: p3_uni_stark::Proof<Config> =
-        postcard::from_bytes(bytes).map_err(|e| ZkError::Malformed(e.to_string()))?;
+        postcard::from_bytes(body(bytes)?).map_err(|e| ZkError::Malformed(e.to_string()))?;
     p3_uni_stark::verify(&config, air, &decoded, public)
         .map_err(|e| ZkError::Rejected(format!("{e:?}")))
 }
@@ -137,6 +161,6 @@ pub fn security_bits<A: StarkAir>(air: &A, degree_bits: usize) -> (usize, usize)
 /// [`ZkError::Malformed`] if the bytes do not decode.
 pub fn degree_bits(proof: &Proof) -> Result<usize, ZkError> {
     let decoded: p3_uni_stark::Proof<Config> =
-        postcard::from_bytes(&proof.bytes).map_err(|e| ZkError::Malformed(e.to_string()))?;
+        postcard::from_bytes(body(&proof.bytes)?).map_err(|e| ZkError::Malformed(e.to_string()))?;
     Ok(decoded.degree_bits)
 }

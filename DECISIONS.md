@@ -923,3 +923,14 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — Format room before genesis: evidence at any block size, versioned certificates, account auth kind, proof version (Eric 2026-11-24)
+
+Eric 2026-11-24: every ceiling another network might one day need is closed before genesis, and each fix is a guarantee the chain makes from block 0. ADR-155.
+
+- **Double-signing is provable at any block size (NEW-1).** The vertex digest hashes a parents root and a batch root (CON-18), so equivocation evidence is two signed vertex headers, at most 8,293 bytes each. Before, two full-batch proposals made an 8,415,023-byte report against the 4 MiB transaction cap: the offence could not be filed.
+- **Certificates name their format; ids fit any committee (C2, NEW-7).** A certificate record starts with version byte 1; every validator id on the BFT wire is four bytes, and the digest hashes the author as four. This build's index stays 16-bit and refuses a wider id at decode (CON-19). Gossip frame version 2.
+- **Accounts carry an auth kind (P7).** The record is 41 bytes, the last byte 0 (the address's own key) and refused otherwise; the byte is in every state leaf (ROOT-1). The stateless leaf value follows (41 bytes).
+- **STARK proofs carry a version byte (P3).** Byte 1 before the Plonky3 encoding; another version is refused before decoding.
+- **Takes effect at the re-genesis.** Block ids, state roots, the genesis id and certificate bytes change; the testnet re-genesises with the rest of the re-freeze.
+- **Not changed here:** the block attestation frame still carries a two-byte validator index (attestation evidence is #680/#686's).

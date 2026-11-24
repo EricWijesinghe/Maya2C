@@ -21,7 +21,8 @@ use crate::error::{Result, Violation};
 use crate::params::VALUE_BYTES;
 use crate::partial::VerifiedTree;
 
-/// An account as a leaf holds it: balance, then nonce, little-endian.
+/// An account as a leaf holds it: balance, then nonce, little-endian, then
+/// auth kind 0 (ADR-155).
 ///
 /// Byte-identical to the node's `Account::encode`, which a node test asserts.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -35,23 +36,33 @@ pub struct AccountState {
 /// Width of the balance field inside a leaf: a little-endian `U256`.
 const BALANCE_BYTES: usize = 32;
 
+/// End of the nonce field inside a leaf; the auth kind follows.
+const NONCE_END: usize = BALANCE_BYTES + 8;
+
 impl AccountState {
     /// Fixed-width leaf value.
     #[must_use]
     pub fn encode(&self) -> Value {
         let mut out = [0u8; VALUE_BYTES];
         self.balance.to_little_endian(&mut out[..BALANCE_BYTES]);
-        out[BALANCE_BYTES..].copy_from_slice(&self.nonce.to_le_bytes());
+        out[BALANCE_BYTES..NONCE_END].copy_from_slice(&self.nonce.to_le_bytes());
+        // out[NONCE_END] stays 0: auth kind 0, the address's own key.
         out
     }
 
-    /// Decodes a leaf value. Every 40 bytes are some account.
+    /// Decodes a leaf value's balance and nonce. The auth-kind byte is not
+    /// read: the node refuses a record of any kind but 0 before it reaches a
+    /// tree (`Account::decode`), and a leaf is only ever a record's encoding.
     #[must_use]
     pub fn decode(value: &Value) -> Self {
-        let (balance, nonce) = value.split_at(BALANCE_BYTES);
+        let (balance, rest) = value.split_at(BALANCE_BYTES);
         Self {
             balance: U256::from_little_endian(balance),
-            nonce: u64::from_le_bytes(nonce.try_into().unwrap_or_default()),
+            nonce: u64::from_le_bytes(
+                rest[..NONCE_END - BALANCE_BYTES]
+                    .try_into()
+                    .unwrap_or_default(),
+            ),
         }
     }
 }

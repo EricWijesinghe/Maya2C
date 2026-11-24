@@ -10,11 +10,12 @@
 use maya_stateless_core::amount::{to_amount, to_u256};
 use std::sync::Arc;
 
-use maya_dag_bft::{Equivocation, Message};
+use maya_dag_bft::Equivocation;
 use maya_staking::{Effect, Participation};
 
 use crate::consensus::bft::auth::MlDsaAuthenticator;
-use crate::consensus::bft::{Envelope, unseal};
+use crate::consensus::bft::unseal;
+use crate::consensus::bft::wire::decode_signed_header;
 use crate::core::block::BlockHeader;
 use crate::core::codec::MAX_RECORD_BYTES;
 use crate::core::staking_payload::StakingAction;
@@ -237,14 +238,10 @@ impl StateDB {
         first: &[u8],
         second: &[u8],
     ) -> Result<[u8; 32]> {
-        let proposal = |frame: &[u8]| -> Result<(maya_dag_bft::Vertex, Vec<u8>)> {
-            match Envelope::decode(frame)?.message {
-                Message::Propose { vertex, signature } => Ok((vertex, signature)),
-                _ => Err(NodeError::Decode("evidence is not a proposal".to_string())),
-            }
-        };
-        let (a, sa) = proposal(first)?;
-        let (b, sb) = proposal(second)?;
+        // Signed headers (NEW-1): the signature covers the header's digest,
+        // so the batch is never needed to prove the offence.
+        let (a, sa) = decode_signed_header(first)?;
+        let (b, sb) = decode_signed_header(second)?;
         let committee = self
             .record(overlay, &committee_record(a.epoch))?
             .map(|bytes| decode_committee(&bytes))

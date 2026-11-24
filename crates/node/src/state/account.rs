@@ -13,9 +13,21 @@ use primitive_types::U256;
 /// verifying a signature must be handed that key separately.
 pub type Address = [u8; 32];
 
-/// Serialized length of an [`Account`]: a 32-byte little-endian `U256` balance
-/// then a little-endian `u64` nonce. ADR-046 widened the balance from 8 bytes.
-pub const ACCOUNT_LEN: usize = 40;
+/// Serialized length of an [`Account`]: a 32-byte little-endian `U256` balance,
+/// a little-endian `u64` nonce, then the one-byte [`AUTH_KIND_KEY`]. ADR-046
+/// widened the balance from 8 bytes; ADR-155 added the auth kind (P7).
+pub const ACCOUNT_LEN: usize = 41;
+
+/// Auth kind 0: the account spends with the key its address hashes, the only
+/// kind this build executes (P7, ADR-155).
+///
+/// The byte is in every record and every state leaf from genesis, so a later
+/// kind (a smart-account policy, a recovery set, a new key scheme) is a value
+/// a scheduled upgrade defines, not a new record layout. A record naming any
+/// other kind is refused at decode, never read as kind 0.
+pub const AUTH_KIND_KEY: u8 = 0;
+
+const AUTH_KIND_OFFSET: usize = 40;
 
 /// Balance and replay counter for a single account.
 ///
@@ -32,12 +44,13 @@ pub struct Account {
 }
 
 impl Account {
-    /// Encodes the account as a fixed-width 40-byte record.
+    /// Encodes the account as a fixed-width [`ACCOUNT_LEN`]-byte record.
     #[must_use]
     pub fn encode(&self) -> [u8; ACCOUNT_LEN] {
         let mut buf = [0u8; ACCOUNT_LEN];
         self.balance.to_little_endian(&mut buf[0..32]);
         buf[32..40].copy_from_slice(&self.nonce.to_le_bytes());
+        buf[AUTH_KIND_OFFSET] = AUTH_KIND_KEY;
         buf
     }
 
@@ -47,7 +60,8 @@ impl Account {
     ///
     /// Returns [`NodeError::InvalidLength`] if `bytes` is not exactly
     /// [`ACCOUNT_LEN`] bytes, which indicates a corrupt or foreign record
-    /// rather than a recoverable condition.
+    /// rather than a recoverable condition, and [`NodeError::Decode`] for an
+    /// auth kind other than [`AUTH_KIND_KEY`].
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != ACCOUNT_LEN {
             return Err(NodeError::InvalidLength {
@@ -55,6 +69,13 @@ impl Account {
                 expected: ACCOUNT_LEN,
                 actual: bytes.len(),
             });
+        }
+
+        if bytes[AUTH_KIND_OFFSET] != AUTH_KIND_KEY {
+            return Err(NodeError::Decode(format!(
+                "account auth kind {} is not one this build executes",
+                bytes[AUTH_KIND_OFFSET]
+            )));
         }
 
         // Slices are exactly 32 and 8 bytes given the length check above.

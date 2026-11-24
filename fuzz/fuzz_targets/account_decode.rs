@@ -6,15 +6,16 @@
 //! underflow the circuit already prevents: a decoder that panics on a corrupt
 //! record turns a recoverable database problem into a node that cannot start.
 //!
-//! Like the header, the record is fixed-width and every 16-byte string is a
-//! valid account, so the accept/reject boundary is exactly the length check.
+//! The record is fixed-width, and a string of that width is a valid account
+//! exactly when its last byte is the one auth kind this build executes
+//! (ADR-155), so the accept/reject boundary is the length and that byte.
 
 #![no_main]
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use custom_l1_node::Account;
-use custom_l1_node::state::ACCOUNT_LEN;
+use custom_l1_node::state::{ACCOUNT_LEN, AUTH_KIND_KEY};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -33,11 +34,10 @@ fuzz_target!(|data: &[u8]| {
             );
         }
         Err(_) => {
-            assert_ne!(
-                data.len(),
-                ACCOUNT_LEN,
-                "every {ACCOUNT_LEN}-byte string is a well-formed account record, \
-                 but this one was rejected"
+            assert!(
+                data.len() != ACCOUNT_LEN || data[ACCOUNT_LEN - 1] != AUTH_KIND_KEY,
+                "every {ACCOUNT_LEN}-byte string ending in auth kind {AUTH_KIND_KEY} is a \
+                 well-formed account record, but this one was rejected"
             );
         }
     }

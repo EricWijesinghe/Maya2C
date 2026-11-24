@@ -22,9 +22,10 @@ pub const KEY_BYTES: usize = 32;
 /// Bits in a tree key, and so the deepest a leaf can sit.
 pub const KEY_BITS: usize = KEY_BYTES * 8;
 
-/// Bytes in a leaf value: a 32-byte little-endian `U256` balance, then a
-/// little-endian `u64` nonce (ADR-046 widened the balance from 8 bytes).
-pub const VALUE_BYTES: usize = 40;
+/// Bytes in a leaf value: a 32-byte little-endian `U256` balance, a
+/// little-endian `u64` nonce, then the one-byte auth kind (ADR-046 widened the
+/// balance from 8 bytes; ADR-155 added the auth kind, P7).
+pub const VALUE_BYTES: usize = 41;
 
 /// Largest encoded witness a decoder will look at.
 ///
@@ -73,7 +74,8 @@ pub const INTERNAL_COLUMNS: usize = 2 * LATTICE_DIGEST_BYTES * 8 / RING_DEGREE;
 ///
 /// Raised 2 → 3 for ADR-046: a 40-byte value (u256 balance + u64 nonce) plus a
 /// 32-byte key plus the marker bit is 577 bits, past the 512 two ring elements
-/// hold (`RING_DEGREE` = 256 coefficients per polynomial). Three give 768.
+/// hold (`RING_DEGREE` = 256 coefficients per polynomial). Three give 768,
+/// which still hold the 41-byte value of ADR-155 (585 bits).
 ///
 /// NEEDS crypto review before STATELESS activation (dark path, u64::MAX) — not
 /// on the genesis path. The live state commitment uses the `Blake3` backend,

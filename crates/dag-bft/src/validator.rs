@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use crate::auth::{Authenticator, Equivocation, SignContext, SignKind, Unauthenticated};
 use crate::commit::{Committer, SubDag};
 use crate::dag::Dag;
-use crate::vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex};
+use crate::vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex, VertexHeader};
 
 /// Rounds kept behind the last committed anchor before garbage collection.
 pub const GC_DEPTH: u64 = 50;
@@ -184,7 +184,7 @@ pub struct Validator<A = Unauthenticated> {
     voted: BTreeMap<(u64, ValidatorId), Digest>,
     /// The first signed proposal seen per (round, author), kept to prove an
     /// equivocation when a second one arrives.
-    seen: BTreeMap<(u64, ValidatorId), (Vertex, Vec<u8>, Digest)>,
+    seen: BTreeMap<(u64, ValidatorId), (VertexHeader, Vec<u8>, Digest)>,
     /// Certificates waiting for parents.
     buffer: BTreeMap<Digest, Certificate>,
     mempool: VecDeque<Payload>,
@@ -308,7 +308,7 @@ impl<A: Authenticator> Validator<A> {
         self.voted.insert((vertex.round, self.id), digest);
         self.seen.insert(
             (vertex.round, self.id),
-            (vertex.clone(), signature.clone(), digest),
+            (vertex.header(), signature.clone(), digest),
         );
         if vertex.round >= self.round {
             self.round = vertex.round;
@@ -511,7 +511,7 @@ impl<A: Authenticator> Validator<A> {
         match self.seen.get(&slot) {
             None => {
                 self.seen
-                    .insert(slot, (v.clone(), signature.to_vec(), digest));
+                    .insert(slot, (v.header(), signature.to_vec(), digest));
                 true
             }
             Some((_, _, first_digest)) if *first_digest == digest => true,
@@ -519,7 +519,7 @@ impl<A: Authenticator> Validator<A> {
                 out.equivocations.push(Equivocation {
                     first: first.clone(),
                     first_signature: first_signature.clone(),
-                    second: v.clone(),
+                    second: v.header(),
                     second_signature: signature.to_vec(),
                 });
                 false
@@ -821,7 +821,7 @@ impl<A: Authenticator> Validator<A> {
         self.voted.insert((round, self.id), digest);
         self.seen.insert(
             (round, self.id),
-            (vertex.clone(), signature.clone(), digest),
+            (vertex.header(), signature.clone(), digest),
         );
         self.round = round;
         self.waiting_since = None;

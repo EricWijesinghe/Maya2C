@@ -40,7 +40,7 @@ pub mod proof;
 pub mod sanctions;
 pub mod zkml;
 
-pub use proof::{Proof, StarkAir, prove, security_bits, verify};
+pub use proof::{PROOF_VERSION, Proof, StarkAir, prove, security_bits, verify};
 
 /// Errors from proving and verifying.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

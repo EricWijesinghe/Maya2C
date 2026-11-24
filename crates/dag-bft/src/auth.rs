@@ -10,7 +10,9 @@
 //! signature over the vertex digest — so a certificate proves both that a quorum (n − f) of
 //! validators saw the vertex and that its author made it.
 
-use crate::vertex::{Digest, ValidatorId, Vertex};
+#[cfg(test)]
+use crate::vertex::Vertex;
+use crate::vertex::{Digest, ValidatorId, VertexHeader};
 
 /// Prefixed to every digest a validator signs. The vertex digest already has
 /// its own BLAKE3 domain; this one makes the *signature* unusable anywhere
@@ -78,14 +80,18 @@ impl Authenticator for Unauthenticated {
 /// staking module slashes on. Certification makes equivocation harmless to
 /// safety (only one of the two can gather a quorum) but not free, and this is
 /// what makes it cost the author its bond.
+///
+/// Headers, not vertices: a signature covers [`VertexHeader::digest`], so the
+/// header is the whole proof, and evidence stays a few kilobytes however much
+/// payload the two vertices carried (NEW-1, ADR-155).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Equivocation {
-    /// The vertex seen first.
-    pub first: Vertex,
+    /// The header seen first.
+    pub first: VertexHeader,
     /// Its author's signature.
     pub first_signature: Vec<u8>,
-    /// The conflicting vertex.
-    pub second: Vertex,
+    /// The conflicting header.
+    pub second: VertexHeader,
     /// Its author's signature.
     pub second_signature: Vec<u8>,
 }
@@ -137,9 +143,9 @@ mod tests {
         let auth = ById(0);
         let sig = |a: ValidatorId| a.to_le_bytes().to_vec();
         let ev = |a: Vertex, b: Vertex, sa, sb| Equivocation {
-            first: a,
+            first: a.header(),
             first_signature: sa,
-            second: b,
+            second: b.header(),
             second_signature: sb,
         };
         assert!(ev(vertex(2, 5, 1), vertex(2, 5, 2), sig(2), sig(2)).is_valid(&auth));

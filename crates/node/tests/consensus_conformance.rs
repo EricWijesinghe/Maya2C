@@ -263,7 +263,75 @@ fn check(case: &Value) {
                 "{id}"
             );
         }
+        "vertex_digest" => {
+            let v = vertex(&case["vertex"]);
+            let header = v.header();
+            assert_eq!(
+                hex::encode(header.parents_root),
+                expect["parents_root"].as_str().unwrap(),
+                "{id}"
+            );
+            assert_eq!(
+                hex::encode(header.batch_root),
+                expect["batch_root"].as_str().unwrap(),
+                "{id}"
+            );
+            assert_eq!(
+                hex::encode(v.digest()),
+                expect["digest"].as_str().unwrap(),
+                "{id}"
+            );
+        }
+        "certificate_record" => {
+            use custom_l1_node::consensus::bft::wire::{decode_certificate, encode_certificate};
+            let bytes = hex::decode(case["bytes"].as_str().unwrap()).unwrap();
+            let decoded = decode_certificate(&bytes);
+            assert_eq!(outcome(decoded.is_ok()), want, "{id}: {decoded:?}");
+            if let Ok(cert) = decoded {
+                assert_eq!(cert.vertex, vertex(&case["vertex"]), "{id}");
+                let votes: Vec<(u16, Vec<u8>)> = case["votes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| {
+                        (
+                            u16::try_from(num(&v["voter"])).unwrap(),
+                            hex::decode(v["signature"].as_str().unwrap()).unwrap(),
+                        )
+                    })
+                    .collect();
+                let got: Vec<(u16, Vec<u8>)> = cert
+                    .votes
+                    .iter()
+                    .copied()
+                    .zip(cert.signatures.clone())
+                    .collect();
+                assert_eq!(got, votes, "{id}");
+                assert_eq!(encode_certificate(&cert), bytes, "{id}: one encoding");
+            }
+        }
         other => panic!("{id}: unknown fn {other}"),
+    }
+}
+
+fn vertex(v: &Value) -> maya_dag_bft::Vertex {
+    let hexes = |k: &str| -> Vec<Vec<u8>> {
+        v[k].as_array()
+            .unwrap()
+            .iter()
+            .map(|h| hex::decode(h.as_str().unwrap()).unwrap())
+            .collect()
+    };
+    maya_dag_bft::Vertex {
+        epoch: num(&v["epoch"]),
+        round: num(&v["round"]),
+        author: u16::try_from(num(&v["author"])).unwrap(),
+        timestamp_ms: num(&v["timestamp_ms"]),
+        parents: hexes("parents")
+            .into_iter()
+            .map(|p| p.try_into().unwrap())
+            .collect(),
+        batch: hexes("batch"),
     }
 }
 
