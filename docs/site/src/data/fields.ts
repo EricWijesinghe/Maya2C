@@ -27,7 +27,7 @@ export const asOf = "2026-11-01";
 export const ledgerFile = "features.toml";
 
 const vision = "/reference/architecture-vision";
-const adr = "https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr";
+const adr = "https://github.com/maya2c/Maya2C/blob/master/docs/adr";
 
 export const fields: Field[] = [
   {
