@@ -14,6 +14,9 @@ pub mod notary;
 #[cfg(feature = "cli")]
 pub mod vault;
 
+use std::path::Path;
+
+use anyhow::Context as _;
 use maya_vm::host::{ContractId, MemoryState};
 use maya_vm::runtime::Vm;
 use maya_vm::trace::Traced;
@@ -69,6 +72,42 @@ pub fn record(
             .with_step_gas(step_gas),
         state,
     ))
+}
+
+/// File `dev`, `fork` and `replay` leave in a working directory they made, so
+/// a re-run only ever wipes a directory this CLI created.
+pub const SCRATCH_MARKER: &str = ".maya2c-scratch";
+
+/// Makes `dir` a fresh, empty working directory carrying [`SCRATCH_MARKER`].
+/// An existing `dir` is wiped only when it is empty or already carries the
+/// marker: a mistyped `--dir` (a home directory, a project, a drive root) is
+/// refused rather than deleted.
+///
+/// # Errors
+///
+/// `dir` holds files this CLI did not create, is not a directory, or cannot
+/// be cleared or created.
+pub fn reset_scratch_dir(dir: &Path) -> anyhow::Result<()> {
+    match std::fs::read_dir(dir) {
+        Ok(mut entries) => {
+            if entries.next().is_some() && !dir.join(SCRATCH_MARKER).is_file() {
+                anyhow::bail!(
+                    "refusing to wipe {}: it is not empty and was not created by maya2c \
+                     (no {SCRATCH_MARKER}); pick a new --dir or delete it yourself",
+                    dir.display()
+                );
+            }
+            std::fs::remove_dir_all(dir).with_context(|| format!("clearing {}", dir.display()))?;
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e).with_context(|| format!("reading {}", dir.display())),
+    }
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+    std::fs::write(
+        dir.join(SCRATCH_MARKER),
+        "created by maya2c; wiped on every run\n",
+    )
+    .with_context(|| format!("marking {}", dir.display()))
 }
 
 /// What a debug session runs: the call and the chain context it sees.
