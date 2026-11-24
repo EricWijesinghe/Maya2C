@@ -47,7 +47,7 @@ bootnode (`p2p.maya2c.dev`) outward. Leave the cloud firewalls at
 3. **On the e2-micro only**, add swap:
    `sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab`
 4. **Install and join** (any VM):
-   `curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh | bash`
+   `curl -fsSL https://raw.githubusercontent.com/maya2c/Maya2C/master/scripts/join-testnet.sh | bash`
    - The script checks the release and genesis hashes, makes the validator
      key sealed under a passphrase file (`/var/lib/maya2c/validator.pass`,
      owner-only), and starts the node as a service. **Back up

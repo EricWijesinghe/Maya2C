@@ -30,7 +30,7 @@ use maya_vrf::keys::VrfPublicKey;
 use crate::crypto::suites::{SuiteSunset, SuiteSunsets};
 use crate::oracle::registry::{OracleAuthority, OracleRegistry};
 use crate::sealed::CommitteeRecord;
-use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
+use crate::state::context::SHIELDED_NEVER;
 use crate::state::{Account, Address, StateDB};
 use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule};
 
@@ -124,13 +124,13 @@ pub struct GenesisConfig {
     pub security_council: Option<CouncilGenesis>,
     /// First height at which shielded join-splits execute (ADR-037).
     ///
-    /// Absent means [`SHIELDED_ACTIVATION_HEIGHT`] (from block zero), which is
-    /// what every genesis written before this field meant, and leaves the
-    /// genesis id unchanged. Present, it is committed into the genesis id
+    /// Absent means [`SHIELDED_NEVER`]: the pool is off unless a genesis
+    /// turns it on by name (Eric 2026-11-24, P4). A forgotten field therefore
+    /// fails closed, never into a pool whose circuit is unaudited. Absent
+    /// leaves the genesis id as it was; present, it is committed into the id
     /// (`chain_id_commitment`), so two operators who disagree about whether
-    /// the pool runs disagree about block zero. Mainnet v1 sets
-    /// [`crate::state::context::SHIELDED_NEVER`]: its circuit is unaudited, and a pool that never
-    /// runs cannot mint.
+    /// the pool runs disagree about block zero. A testnet that runs the pool
+    /// names `0`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shielded_activation_height: Option<u64>,
 }
@@ -1210,11 +1210,11 @@ impl GenesisConfig {
         *h.finalize().as_bytes()
     }
 
-    /// First height at which shielded join-splits execute on this network.
+    /// First height at which shielded join-splits execute on this network:
+    /// never, where the genesis names none (P4).
     #[must_use]
     pub fn shielded_activation(&self) -> u64 {
-        self.shielded_activation_height
-            .unwrap_or(SHIELDED_ACTIVATION_HEIGHT)
+        self.shielded_activation_height.unwrap_or(SHIELDED_NEVER)
     }
 
     /// The chain id, and the DAG-BFT committee where there is one.
