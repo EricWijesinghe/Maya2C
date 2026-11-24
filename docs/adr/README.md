@@ -136,6 +136,7 @@ The observation that would make this worth reopening.
 | [107](ADR-107-smart-account-promotion.md) | Smart-account promotion: session keys and spending limits on the v9 frame through `verify_with_state` | Proposed |
 | [108](ADR-108-liquid-staking-receipt.md) | Liquid staking: protocol pool, exchange-rate receipt asset, slashing socialized through `Staking::slash` | Proposed |
 | [109](ADR-109-scheduled-payments.md) | Scheduled payments under `sp:`: prepaid escrow, executed at a height in the apply path, bounded per block | Proposed |
+| [135](ADR-135-v4-umbrella.md) | v4 umbrella: tokens mint/burn, NFTs, names, sponsored fees (wire v13), smart-account policy, scheduled payments as one fork; bits 41-46; threat models and cut list | Proposed |
 | [117](ADR-117-multisig-suite-diversity.md) | Multisig suite diversity: mixed suites already shipped in v8; a per-family approval floor in a v12 frame | Proposed |
 | [118](ADR-118-compressed-state-collections.md) | Compressed collections: one BLAKE3 sparse root on chain, items proven by witness, 64-block root history, one-way decompress | Proposed |
 | [119](ADR-119-data-carrier.md) | Data carrier: `TxKind::Data { tag, body }` with no state effect, 64 KiB cap, byte fee only, indexer convention by tag | Proposed |
@@ -158,3 +159,4 @@ The observation that would make this worth reopening.
 | [115](ADR-115-post-quantum-vrf.md) | Post-quantum beacon randomness: hash-chain scheme 2 mixed with ECVRF; lattice scheme 3 reserved behind a written research gate | Proposed |
 | [137](ADR-137-hardware-intelligence.md) | Hardware intelligence: Hub GPU tuner with rollback, self-tuning node that cannot change a result, GPU signature checks that stay advisory, inference jobs scheduled around mining | Proposed |
 | [140](ADR-140-chat-expression-and-privacy.md) | Maya2C Chat expression, anonymity and deletion suite: new frames inside the encryption, gifts as clear-signed tips over the payment-request flow, pairwise identities, deletion as a request honest clients obey | Proposed |
+| [142](ADR-142-vm-gas-caps-and-storage-pricing.md) | Contract gas caps per transaction and per block (governed, compiled bounds), native work priced in fuel at ~1 ns a unit, lazy per-key contract storage | Accepted |

@@ -82,8 +82,8 @@ const ROTATION_HEIGHT_SAMPLE_INTERVAL: Duration = Duration::from_secs(15);
 
 /// How far ahead of the tip the next epoch's cache is generated.
 ///
-/// A hundred blocks is twenty-five minutes at a 15-second target, against a
-/// generation that takes about a second. Deliberately far more headroom than
+/// A hundred blocks is about a hundred seconds at one block a second
+/// (docs/block-time.md), against a generation that takes about a second. Deliberately far more headroom than
 /// the job needs: the cost of being early is one extra 64 MiB allocation that
 /// was going to be made anyway, and the cost of being late is every node on the
 /// network stalling on the same block.
@@ -326,7 +326,7 @@ fn print_usage() {
          \x20                    or required. See docs/pq-transport.md\n  \
          --mlkem1024 <MODE>   ML-KEM-1024 (NIST level 5): preferred (default),\n  \
          \x20                    off (ML-KEM-768 only), or required (1024 only)\n  \
-         --prune              prune bodies older than one DAG epoch (30,000 blocks)\n  \
+         --prune              prune bodies older than 30,000 blocks (about 8.3 h)\n  \
          --prune-depth <N>    prune bodies older than N blocks (implies --prune)\n  \
          --snapshot-depth <N> serve snapshots once N blocks deep, without pruning\n  \
          --prune-without-archive  prune without writing any archive first\n  \
@@ -350,7 +350,8 @@ fn print_usage() {
          offline longer than about 13 days on 3,600-block epochs restores with --bootstrap-from (ADR-060)\n  \
          --allow-unconfirmed-start  start with an old tip and no source head beyond the window. Only for a\n                           \
          halted network (longer than the window) or a genesis signed long before launch. It is\n                           \
-         refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block\n  \
+         refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block.\n                           \
+         Not in production builds (CON-08): a mainnet node always starts from --trusted-block\n  \
          --i-know-this-validator-never-signed  start a committee validator whose <data-dir>/bft is missing\n                           \
          on a recent chain. Only for a key that signed nothing this epoch: otherwise it can sign\n                           \
          a round twice, which is equivocation and is slashed\n  \
@@ -440,7 +441,10 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--trusted-block" => args.trusted_block = Some(parse_trusted_block(&value()?)?),
-            "--allow-unconfirmed-start" => args.allow_unconfirmed_start = true,
+            "--allow-unconfirmed-start" => {
+                rejoin::unconfirmed_start_permitted(cfg!(feature = "production"))?;
+                args.allow_unconfirmed_start = true;
+            }
             "--i-know-this-validator-never-signed" => args.never_signed = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,

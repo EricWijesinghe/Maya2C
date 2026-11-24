@@ -5,7 +5,8 @@
 //! end-to-end test that needs `RocksDB`, a genesis file, and a mined block in
 //! order to check that a 404 is a 404 is a test nobody runs.
 
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use jsonrpsee::core::client::ClientT;
@@ -20,6 +21,14 @@ use crate::error::GatewayError;
 /// A gateway that waits forever on a wedged node holds a connection per waiting
 /// client and turns one stuck backend into an exhausted frontend.
 pub const NODE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long one `get_supply` answer is reused.
+///
+/// The node computes supply by walking state, so it is the costliest public
+/// read; supply moves once per block, so two seconds of staleness changes
+/// nothing a caller can act on, and every gateway route then costs the node
+/// at most one walk per window however many clients ask.
+pub const SUPPLY_TTL: Duration = Duration::from_secs(2);
 
 /// An account's balance and nonce, as the node reports them.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
@@ -130,10 +139,17 @@ pub trait NodeClient: Send + Sync + 'static {
 }
 
 /// A [`NodeClient`] backed by a real node's JSON-RPC port.
+///
+/// Cloning is cheap and shares the connection pool and the supply cache.
+#[derive(Clone)]
 pub struct RpcNodeClient {
     client: HttpClient,
     /// Also forward [`allowlist::BOOTSTRAP_METHODS`] (`--bootstrap`).
     bootstrap: bool,
+    /// The last `get_supply` answer and when it arrived. Held across the
+    /// node call, so concurrent callers wait for one call instead of each
+    /// making their own.
+    supply: Arc<tokio::sync::Mutex<Option<(Instant, Supply)>>>,
 }
 
 impl RpcNodeClient {
@@ -150,6 +166,7 @@ impl RpcNodeClient {
         Ok(Self {
             client,
             bootstrap: false,
+            supply: Arc::new(tokio::sync::Mutex::new(None)),
         })
     }
 
@@ -215,7 +232,36 @@ impl NodeClient for RpcNodeClient {
     }
 
     async fn get_supply(&self) -> Result<Supply, GatewayError> {
-        self.call("get_supply", rpc_params![]).await
+        // The fetch runs in its own task, so a caller that disconnects (its
+        // handler future is dropped) does not drop the node call with it: the
+        // node finishes its walk either way, and the answer must still reach
+        // the cache, or connect-and-close would buy one walk per request.
+        //
+        // One deadline covers the lock wait and the call: behind a hung call,
+        // a queued fetch would otherwise sit out the earlier one's
+        // NODE_TIMEOUT and then its own. A timed-out fetch caches nothing.
+        let this = self.clone();
+        let fetch = tokio::spawn(async move {
+            let fetch = async {
+                let mut cached = this.supply.lock().await;
+                if let Some((at, supply)) = cached.as_ref()
+                    && at.elapsed() < SUPPLY_TTL
+                {
+                    return Ok(supply.clone());
+                }
+                let supply: Supply = this.call("get_supply", rpc_params![]).await?;
+                *cached = Some((Instant::now(), supply.clone()));
+                Ok(supply)
+            };
+            tokio::time::timeout(NODE_TIMEOUT, fetch)
+                .await
+                .map_err(|_| {
+                    GatewayError::Upstream("get_supply: node call timed out".to_string())
+                })?
+        });
+        fetch
+            .await
+            .map_err(|e| GatewayError::Upstream(format!("get_supply: fetch task failed: {e}")))?
     }
 
     async fn send_raw_transaction(&self, raw: &str) -> Result<String, GatewayError> {

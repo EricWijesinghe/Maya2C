@@ -8,7 +8,7 @@ use maya_zk_stark::sanctions::{self, SanctionsList};
 #[test]
 fn the_account_viewing_key_opens_its_envelopes_and_no_one_elses() {
     let (alice, bob) = (ViewingKey::generate(), ViewingKey::generate());
-    let env = seal(b"pay 250 to supplier 7, invoice 2026-114", &alice.ek);
+    let env = seal(b"pay 250 to supplier 7, invoice 2026-114", &alice.ek).unwrap();
     assert_eq!(
         open(&env, &alice).unwrap(),
         b"pay 250 to supplier 7, invoice 2026-114"
@@ -20,8 +20,8 @@ fn the_account_viewing_key_opens_its_envelopes_and_no_one_elses() {
 fn a_disclosure_key_opens_one_transaction_and_not_the_accounts_others() {
     let alice = ViewingKey::generate();
     let (tax, salary) = (
-        seal(b"sale: 1,000", &alice.ek),
-        seal(b"salary: 4,000", &alice.ek),
+        seal(b"sale: 1,000", &alice.ek).unwrap(),
+        seal(b"salary: 4,000", &alice.ek).unwrap(),
     );
     let k = disclosure_key(&tax, &alice);
     assert_eq!(
@@ -37,9 +37,22 @@ fn a_disclosure_key_opens_one_transaction_and_not_the_accounts_others() {
 }
 
 #[test]
+fn an_empty_memo_still_seals_to_an_authenticated_body() {
+    let alice = ViewingKey::generate();
+    let env = seal(b"", &alice.ek).unwrap();
+    let bytes = env.to_bytes();
+    let reparsed = maya_privacy::Envelope::from_bytes(&bytes).unwrap();
+    assert_eq!(open(&reparsed, &alice).unwrap(), b"");
+    // A body with no tag (what a swallowed cipher error used to produce)
+    // never opens.
+    let cut = maya_privacy::Envelope::from_bytes(&bytes[..bytes.len() - 16]).unwrap();
+    assert_eq!(open(&cut, &alice), Err(PrivacyError::CannotOpen));
+}
+
+#[test]
 fn a_tampered_envelope_does_not_open() {
     let alice = ViewingKey::generate();
-    let mut bytes = seal(b"amount 10", &alice.ek).to_bytes();
+    let mut bytes = seal(b"amount 10", &alice.ek).unwrap().to_bytes();
     let last = bytes.len() - 1;
     bytes[last] ^= 1; // one bit of the sealed body
     let env = maya_privacy::Envelope::from_bytes(&bytes).unwrap();

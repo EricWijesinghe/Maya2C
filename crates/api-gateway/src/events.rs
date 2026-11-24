@@ -386,20 +386,8 @@ pub fn router(events: Arc<Events>) -> Router {
         .with_state(events)
 }
 
-/// The caller, keyed the way the rate limiter keys it, except that an IPv6
-/// caller counts as its /64: one host routinely holds the whole prefix.
+/// The caller, keyed the way the rate limiter keys it ([`limit::bucket_key`]).
 struct Caller(IpAddr);
-
-fn cap_key(ip: IpAddr) -> IpAddr {
-    match ip {
-        IpAddr::V6(v6) => {
-            let mut segments = v6.segments();
-            segments[4..].fill(0);
-            IpAddr::V6(segments.into())
-        }
-        v4 @ IpAddr::V4(_) => v4,
-    }
-}
 
 impl FromRequestParts<Arc<Events>> for Caller {
     type Rejection = GatewayError;
@@ -409,7 +397,7 @@ impl FromRequestParts<Arc<Events>> for Caller {
         events: &Arc<Events>,
     ) -> Result<Self, GatewayError> {
         limit::client_address(events.config.client_ip, &parts.headers, &parts.extensions)
-            .map(|ip| Caller(cap_key(ip)))
+            .map(|ip| Caller(limit::bucket_key(ip)))
             .ok_or_else(|| GatewayError::BadRequest("caller address unknown".to_string()))
     }
 }

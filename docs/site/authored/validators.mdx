@@ -32,10 +32,10 @@ allocation, and anyone who says otherwise is not speaking for this project.
 
 | | Status |
 |---|---|
-| Validator software | Shipped: `maya2c-node` on the [releases page](https://github.com/EricWijesinghe/Maya2C/releases) |
+| Validator software | Shipped: `maya2c-node` on the [releases page](https://github.com/maya2c/Maya2C/releases) |
 | Registering a key | Shipped: `l1-wallet register-validator` |
-| Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
-| Committee today | Four validators, all run by the project, on one machine. Real multi-signer DAG-BFT, but not independent: one machine failing halts the chain until it returns (it does not fork it). Mainnet launches the same way, and other machines join after launch ([ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)). Live membership is on the [status page](https://status.maya2c.dev/). |
+| Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
+| Committee today | Four validators, all run by the project, on one machine. Real multi-signer DAG-BFT, but not independent: one machine failing halts the chain until it returns (it does not fork it). Mainnet launches the same way, and other machines join after launch ([ADR-047](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)). Live membership is on the [status page](https://status.maya2c.dev/). |
 | Connecting to the network | A public WebSocket bootnode at `p2p.maya2c.dev`, and a bootstrap endpoint for snapshots and headers at `bootstrap.maya2c.dev` |
 | Open registration | **Not yet.** Registrations are reviewed; see below. |
 
@@ -44,7 +44,7 @@ allocation, and anyone who says otherwise is not speaking for this project.
 Today every validator seat carries one vote, whatever its stake. A registration
 whose node never comes online still takes a seat, and with enough absent seats
 no quorum can form and the chain stops
-([ADR-039](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md)).
+([ADR-039](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md)).
 The arithmetic is in the scientists tab below.
 
 Until votes are weighted by stake, the testnet validator only proposes
@@ -64,7 +64,7 @@ how mainnet will work.
 ## Steps
 
 1. **Install** `maya2c-node` and `l1-wallet` from the
-   [releases page](https://github.com/EricWijesinghe/Maya2C/releases), and check
+   [releases page](https://github.com/maya2c/Maya2C/releases), and check
    them against `SHA256SUMS`.
 2. **Make a validator key.** This prints its public key:
 
@@ -78,7 +78,7 @@ how mainnet will work.
 3. **Make a wallet** with `l1-wallet generate` (it writes `wallet.key` by
    default), then note the address with `l1-wallet address`.
 4. **Apply** by opening a
-   [validator application](https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml)
+   [validator application](https://github.com/maya2c/Maya2C/issues/new?template=validator-application.yml)
    with the public key and the address. Never paste a key file.
 5. **Once approved and funded, register:**
 
@@ -129,7 +129,7 @@ how mainnet will work.
 | `--min-register-bond <N>` | Never propose a registration bonding less than N (ADR-039) |
 | `--catch-up-from <URL>` | Rejoin through a peer's attested checkpoint (ADR-038); repeatable |
 | `--trusted-block HEIGHT:HEX` | A RECENT block (within the unbonding window of the head) above the node's tip, that the catch-up must pass through. Required for a node stale past the unbonding window (B49); without it the node refuses to start. Heads reported by sources are unverified: the maximum decides whether the requirement applies (a head beyond the window confirms staleness) and how recent the block must be; pick one at least one epoch inside the window. A tip older than the window with no confirming head is refused unless `--allow-unconfirmed-start` is given (only for a network halted longer than the window, or a genesis signed long before launch). Trust model: a running follower assumes at least one honest source, a stale restart is safe with `--trusted-block` or the explicit flag, and operators should list two or more `https` sources A node offline longer than about 13 days on 3,600-block epochs restores from a snapshot with `--bootstrap-from`. See the hybrid-testnet hardening runbook for the windows per network |
-| `--allow-unconfirmed-start` | Start a node whose tip is older than the unbonding window when no source reports a head beyond it. Only for a network halted longer than the window, or a genesis signed long before launch: an eclipsed node looks the same. Prefer `--trusted-block` or `--bootstrap-from` |
+| `--allow-unconfirmed-start` | Start a node whose tip is older than the unbonding window when no source reports a head beyond it. Only for a network halted longer than the window, or a genesis signed long before launch: an eclipsed node looks the same. Prefer `--trusted-block` or `--bootstrap-from`. Not in the mainnet binary: there every start that needs trust takes a `--trusted-block` (CON-08); after a long halt, or for a late launch, that block is the node's own tip (`<tip height>:<tip id>`, or `0:<genesis id>`) |
 | `--snapshot-interval <N>` | Snapshot every N blocks; validators default to 3,600, 0 turns it off |
 | `--remote-signer <ADDR>` | Sign through `maya2c-signer` instead of a key file (ADR-033) |
 | `--allow-sleep` | Windows: start a validator even when the AC power plan can sleep the PC. Without it the node refuses, and says which two `powercfg` commands to run |
@@ -153,7 +153,7 @@ powercfg /change hibernate-timeout-ac 0
 
 The node then keeps the system awake while it runs. Lid-close is a separate
 setting: set it to "Do nothing" on AC. Details:
-[validator start guards](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/runbooks/validator-start-guards.md).
+[validator start guards](https://github.com/maya2c/Maya2C/blob/master/docs/runbooks/validator-start-guards.md).
 
 ## What being a validator means
 
@@ -173,7 +173,7 @@ setting: set it to "Do nothing" on AC. Details:
 ## The halting condition
 
 Let $m$ be the number of online seats and $k$ the number of absent seats, so the
-committee has $N = m + k$ seats. From [ADR-039](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md),
+committee has $N = m + k$ seats. From [ADR-039](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md),
 $f = \lfloor (N-1)/3 \rfloor$ and the quorum is $N - f$. The online seats can form a
 quorum alone exactly when $m \ge N - f$, that is, when
 
@@ -210,7 +210,7 @@ Double signing is the attack on the quorum argument in
 
 Under equal weights a seat is one vote regardless of bond. An attacker who
 registers $k$ idle keys therefore buys $k$ votes for the cost of $k$ bonds.
-Stake-weighted quorums ([ADR-040](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-040-stake-weighted-committee.md))
+Stake-weighted quorums ([ADR-040](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-040-stake-weighted-committee.md))
 change the unit of the threshold from seats to weight $W$, with $f = \lfloor (W-1)/3 \rfloor$.
 The attacker then needs roughly a third of the **stake**, not a third of the
 seats. The reviewed registration on the testnet is a stopgap until that lands.

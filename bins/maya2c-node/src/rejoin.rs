@@ -11,7 +11,10 @@
 //! with no confirming head is refused unless the operator passes
 //! `--allow-unconfirmed-start`, because an eclipsed node (every source it
 //! reaches is the attacker's) looks exactly like a halted network or an old
-//! genesis from its own side. A running follower assumes at least one honest
+//! genesis from its own side. A production build has no such flag, and a
+//! fresh production node (genesis only) joining a chain that has moved past
+//! genesis starts only from a `--trusted-block` (CON-08, ADR-043 amendment
+//! 2026-11-24): a source alone never decides which chain a new node follows. A running follower assumes at least one honest
 //! source: it keeps following and warns when no head is confirmed. Heads
 //! reported by sources are unverified. The maximum decides whether the
 //! requirement applies and how recent the block must be.
@@ -242,14 +245,68 @@ pub(crate) fn check_against_tip(
     ))
 }
 
+/// Whether `--allow-unconfirmed-start` may be given: never in a production
+/// build (CON-08). There a weak-subjectivity checkpoint has no way around it.
+///
+/// # Errors
+///
+/// The refusal text, naming the flag that replaces it.
+pub(crate) fn unconfirmed_start_permitted(production: bool) -> Result<(), String> {
+    if production {
+        return Err(
+            "--allow-unconfirmed-start is not available in a production build (CON-08): start with \
+             --trusted-block HEIGHT:HEX, a recent attested block learned from somewhere other than \
+             the sources this node catches up from, or, after a halt longer than the window or for \
+             a genesis signed long before launch, this node's own tip (0:<genesis id> on genesis)"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// The fresh-join rule (CON-08): a production node that holds only genesis
+/// (`local_height` 0) and is told by a source that the chain has moved past
+/// it joins only through a trusted block. At launch, while every source still
+/// reports genesis or none answers, no block exists to trust and none is
+/// needed; a long-range forgery needs validators that unbonded, and a chain
+/// still inside its first window has none (the time rule in [`decide`]).
+///
+/// # Errors
+///
+/// The refusal text.
+pub(crate) fn fresh_join(
+    local_height: u64,
+    claimed: Option<Claimed>,
+    trusted: Option<TrustedBlock>,
+    production: bool,
+) -> Result<(), String> {
+    // Genesis itself is no checkpoint: the block named must be above it.
+    let above_genesis = trusted.is_some_and(|t| t.height > local_height);
+    match claimed {
+        Some(head) if production && local_height == 0 && !above_genesis && head.height > 0 => {
+            Err(format!(
+                "this node holds only genesis and a source reports the chain at height {}: a \
+                 production node joins a running chain only through a trusted block (CON-08). \
+                 Start with --trusted-block HEIGHT:HEX, a recent attested block learned from \
+                 somewhere other than these sources (another operator, the explorer, a release \
+                 note)",
+                head.height
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The anchor a catch-up uses, from the pure facts.
 ///
 /// - Not stale, not time-old: [`Anchor::Unanchored`], or `Checked` with a trusted block.
 /// - Stale (a head confirms it): needs a trusted block, recent for the claimed
 ///   head. It is refused otherwise.
 /// - Time-old with no confirming head: a trusted block gives `Stale` (the
-///   hash-linked path, no claim needed). With no trusted block it is refused,
-///   unless `allow_unconfirmed` (the operator's `--allow-unconfirmed-start`).
+///   hash-linked path, no claim needed); one naming the tip itself gives
+///   `Checked` (a long halt, or an old genesis). With no trusted block it is
+///   refused, unless `allow_unconfirmed` (`--allow-unconfirmed-start`, test
+///   builds only).
 ///
 /// # Errors
 ///
@@ -265,11 +322,17 @@ pub(crate) fn decide(
     let unconfirmed = reason.is_none() && time_old(local, now);
     match (reason, trusted) {
         (None, _) if unconfirmed => match trusted {
-            // A block at or below this node's own tip gives no catch-up: it is
-            // the node's own history, so it does not lift the refusal.
             Some(block) if block.height > local.height => Ok(Anchor::Stale(block)),
+            // The tip itself (its id checked by `check_against_tip` before this):
+            // the operator states the chain they stand on, the production answer
+            // to a long halt or a genesis signed long before launch. A block
+            // below the tip is only old history, so it lifts nothing.
+            Some(block) if block.height == local.height => Ok(Anchor::Checked(block)),
             None if allow_unconfirmed => Ok(Anchor::Unanchored),
-            _ => Err(unconfirmed_refusal(now.saturating_sub(local.tip_timestamp))),
+            _ => Err(unconfirmed_refusal(
+                now.saturating_sub(local.tip_timestamp),
+                local.height,
+            )),
         },
         (None, None) => Ok(Anchor::Unanchored),
         (None, Some(block)) => Ok(Anchor::Checked(block)),
@@ -310,9 +373,9 @@ fn refusal(reason: Stale) -> String {
     )
 }
 
-fn unconfirmed_refusal(age_secs: u64) -> String {
+fn unconfirmed_refusal(age_secs: u64, tip_height: u64) -> String {
     format!(
-        "this node's tip is {age_secs} s old and no source reports a head beyond the unbonding window, so nothing confirms the network moved on. There are two honest causes: the network halted for longer than the window, or this genesis was signed long before launch. The attack this refuses: an eclipsed node (every source it reaches is the attacker's) sees exactly the same thing, and the keys of validators that unbonded can sign a chain at no cost. Pass --trusted-block HEIGHT:HEX instead when possible (a block above the tip, at least one epoch inside the window, from two or more independent sources), or --bootstrap-from. Only if neither is possible, and you know which honest cause applies, pass --allow-unconfirmed-start"
+        "this node's tip is {age_secs} s old and no source reports a head beyond the unbonding window, so nothing confirms the network moved on. There are two honest causes: the network halted for longer than the window, or this genesis was signed long before launch. The attack this refuses: an eclipsed node (every source it reaches is the attacker's) sees exactly the same thing, and the keys of validators that unbonded can sign a chain at no cost. Pass --trusted-block HEIGHT:HEX when possible (a block above the tip, at least one epoch inside the window, from two or more independent sources), or --bootstrap-from. If you know which honest cause applies, name this node's own tip instead: --trusted-block {tip_height}:<this node's tip id> (--trusted-block 0:<genesis id> on a genesis-only node). A non-production build also accepts --allow-unconfirmed-start"
     )
 }
 
@@ -466,6 +529,12 @@ pub(crate) fn round_anchor(
     claimed: Option<Claimed>,
 ) -> Result<Anchor, Box<dyn Error>> {
     let local = local_state(chain)?;
+    fresh_join(
+        chain.height(),
+        claimed,
+        pending,
+        cfg!(feature = "production"),
+    )?;
     Ok(round_decision(local, pending, claimed, clock_now())?)
 }
 
@@ -499,6 +568,7 @@ pub(crate) async fn anchor(
         return Ok(trusted.map_or(Anchor::Unanchored, Anchor::Checked));
     };
     let claimed = newest_claimed(urls).await;
+    fresh_join(tip_height, claimed, trusted, cfg!(feature = "production"))?;
     let now = clock_now();
     if let Some(ahead) = future_ahead(local, now) {
         eprintln!(
@@ -589,6 +659,35 @@ mod tests {
     /// Time past the window, and the head far beyond it in blocks.
     fn old_now() -> u64 {
         LOCAL.tip_timestamp + WINDOW_SECS + 1
+    }
+
+    #[test]
+    fn a_fresh_production_node_joins_a_running_chain_only_through_a_trusted_block() {
+        // CON-08: genesis only, and a source says the chain is at height 5,000.
+        let err = fresh_join(0, head(3, 5_000), None, true).unwrap_err();
+        assert!(err.contains("--trusted-block"), "{err}");
+        assert!(fresh_join(0, head(3, 5_000), Some(RECENT), true).is_ok());
+        // A node with history of its own is the rejoin guard's case, not this one.
+        assert!(fresh_join(10, head(3, 5_000), None, true).is_ok());
+    }
+
+    #[test]
+    fn at_launch_a_fresh_production_node_needs_no_trusted_block() {
+        // Every source still at genesis, or none answering: nothing to trust yet.
+        assert!(fresh_join(0, head(0, 0), None, true).is_ok());
+        assert!(fresh_join(0, None, None, true).is_ok());
+    }
+
+    #[test]
+    fn a_non_production_build_keeps_the_operator_choices() {
+        assert!(fresh_join(0, head(3, 5_000), None, false).is_ok());
+        assert!(unconfirmed_start_permitted(false).is_ok());
+    }
+
+    #[test]
+    fn a_production_build_refuses_the_unconfirmed_start_flag() {
+        let err = unconfirmed_start_permitted(true).unwrap_err();
+        assert!(err.contains("--trusted-block"), "{err}");
     }
 
     #[test]
@@ -996,5 +1095,59 @@ mod tests {
             decide(LOCAL, None, old_now(), Some(RECENT), false),
             Ok(Anchor::Stale(RECENT))
         );
+    }
+
+    #[test]
+    fn a_halted_network_restarts_when_the_operator_names_this_nodes_own_tip() {
+        // Why: a mainnet halted past the window. No source reports a head
+        // beyond it, and no block above the tip exists to trust, so stating the
+        // tip itself (id checked against the chain by `check_against_tip`) is
+        // the production way back. Anything below the tip still does not lift it.
+        let tip = TrustedBlock {
+            height: LOCAL.height,
+            id: [3; 32],
+        };
+        assert_eq!(
+            decide(LOCAL, None, old_now(), Some(tip), false),
+            Ok(Anchor::Checked(tip))
+        );
+        let below = TrustedBlock {
+            height: LOCAL.height - 1,
+            ..tip
+        };
+        assert!(decide(LOCAL, None, old_now(), Some(below), false).is_err());
+        // A head beyond the window still needs a recent block above the tip.
+        assert!(decide(LOCAL, head(18, 1_800), old_now(), Some(tip), false).is_err());
+    }
+
+    #[test]
+    fn a_genesis_signed_long_before_launch_starts_from_its_own_genesis_id() {
+        let genesis = Local {
+            height: 0,
+            epoch: 0,
+            tip_timestamp: 1,
+            ..LOCAL
+        };
+        let id = TrustedBlock {
+            height: 0,
+            id: [5; 32],
+        };
+        assert_eq!(
+            decide(genesis, None, old_now(), Some(id), false),
+            Ok(Anchor::Checked(id))
+        );
+        let err = decide(genesis, None, old_now(), None, false).unwrap_err();
+        assert!(err.contains("--trusted-block 0:"), "{err}");
+    }
+
+    #[test]
+    fn genesis_itself_is_no_trusted_block_for_joining_a_running_chain() {
+        // CON-08: naming block 0 must not stand in for a recent checkpoint.
+        let genesis_block = TrustedBlock {
+            height: 0,
+            id: [5; 32],
+        };
+        assert!(fresh_join(0, head(3, 5_000), Some(genesis_block), true).is_err());
+        assert!(fresh_join(0, head(0, 0), Some(genesis_block), true).is_ok());
     }
 }

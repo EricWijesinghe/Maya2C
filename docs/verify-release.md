@@ -6,7 +6,7 @@ one is independent:
 
 1. **The checksum.** The file is exactly the one listed in `SHA256SUMS`.
 2. **The signature.** The file was signed by `release-binaries.yml` running on a
-   `node-v*` tag in `EricWijesinghe/Maya2C`, and the signature is in the public
+   `node-v*` tag in `maya2c/Maya2C` (named `EricWijesinghe/Maya2C` before 2026-11-24; older releases carry that name and still verify), and the signature is in the public
    Sigstore transparency log (Rekor).
 3. **The build provenance.** GitHub recorded which commit and workflow built
    the file.
@@ -46,15 +46,15 @@ For a file named `maya2c-node.tar.gz`:
 
 ```
 cosign verify-blob --bundle maya2c-node.tar.gz.sigstore.json \
-  --certificate-identity-regexp '^https://github\.com/EricWijesinghe/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$' \
+  --certificate-identity-regexp '^https://github\.com/(maya2c|EricWijesinghe)/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   maya2c-node.tar.gz
 
-gh attestation verify maya2c-node.tar.gz --repo EricWijesinghe/Maya2C
+gh attestation verify maya2c-node.tar.gz --repo maya2c/Maya2C
 ```
 
 Do the same for `SHA256SUMS` with its own bundle and its own attestation
-(`gh attestation verify SHA256SUMS --repo EricWijesinghe/Maya2C`). Then check
+(`gh attestation verify SHA256SUMS --repo maya2c/Maya2C`). Then check
 the checksum (below). Each command prints an error and exits non-zero on any
 mismatch.
 
@@ -113,6 +113,26 @@ the steps above.
   if the secret exists before the step is written.
 - **Android keystore.** Add `ANDROID_KEYSTORE_BASE64` and the Android build job
   together. The `sign` job fails on the secret until signing exists.
-- **Environment approval.** The `sign` and `release` jobs use the `release`
-  environment. In GitHub settings, add required reviewers to that environment,
-  so one person's tag push cannot publish on its own.
+- **Updater key scope.** When `TAURI_SIGNING_PRIVATE_KEY` and its password are
+  added, add them as secrets of the `release` environment, not as repository
+  secrets, so only jobs that pass the environment gate can read them.
+
+## Repository settings the release depends on
+
+`updater-sign` (Tauri update key), `sign` (OIDC) and `release`
+(`contents: write`) run only for `node-v*` tags and all use the `release`
+environment; `cargo test -p xtask workflow_hardening` fails if a workflow edit
+drops either. The rest of the gate is in GitHub settings, which no file in the
+tree can pin. Recorded 2026-11-22 with the read-only commands below:
+
+| Setting | Recorded value | Check |
+|---|---|---|
+| `release` environment reviewers | required reviewer: the owner | `gh api repos/EricWijesinghe/Maya2C/environments/release --jq '.protection_rules'` |
+| `release` deployment refs | custom policy, one tag rule `node-v*` | `gh api repos/EricWijesinghe/Maya2C/environments/release/deployment-branch-policies --jq '.branch_policies'` |
+| Tag ruleset "release tags: owner only, immutable" | active, all tags; creation, update, deletion and non-fast-forward restricted; bypass: admin role | `gh api repos/EricWijesinghe/Maya2C/rulesets/24884483 --jq '{enforcement,conditions,rules,bypass_actors}'` |
+| Secrets | none at repository or `release` environment level (Tauri key not added yet) | `gh api repos/EricWijesinghe/Maya2C/actions/secrets --jq '.total_count'`; `gh api repos/EricWijesinghe/Maya2C/environments/release/secrets --jq '.total_count'` |
+
+The environment allows administrators to bypass it (`can_admins_bypass:
+true`) and does not prevent self-review; with one maintainer both are
+expected. Re-run the commands before each release and update this table when
+a value changes.
