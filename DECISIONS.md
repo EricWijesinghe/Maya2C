@@ -923,3 +923,9 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — Every consensus key names its suite (gap NEW-2, Eric 2026-11-24)
+
+- **Guarantee:** validator keys (registration payload, key record), council keys (record v2) and council approvals carry a suite byte. A new signature family reaches validators and the council through an upgrade to a compiled list at an activation height, with no new payload, record or frame format. The BFT signature bound is derived from that list. ADR-153, spec CRY-7.
+- **Departure from the gap note:** certificate entries get no suite byte. The voter's suite is stated by its key record, and a second copy could only disagree with it. Signatures on the BFT wire are already length-prefixed.
+- **Consensus:** wire and state format, landed before genesis. Genesis ids of chains with validators or a council change. The testnet re-genesises (runbook row).
