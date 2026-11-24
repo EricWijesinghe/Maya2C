@@ -131,7 +131,8 @@ fn a_first_committee_is_not_limited() {
     for i in 1..=10 {
         s.register(account(i), id(i), a(10_000), 0).unwrap();
     }
-    s.end_epoch(&Participation::default(), Amount::ZERO).unwrap();
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
     assert_eq!(s.active.len(), 10);
 }
 

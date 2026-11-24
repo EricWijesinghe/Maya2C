@@ -147,10 +147,32 @@ impl Staking {
     /// puts liveness before safety: four seats with a held equivocator have
     /// `f = 1` already spent on it, so one more Byzantine member can break
     /// safety, where three seats without it (`f = 0`) could only be halted.
+    ///
+    /// STK-23: of validators not in the ending committee, at most
+    /// [`entry_limit`] join, the highest stakes first. A chain with no
+    /// committee yet seats the top `max_validators` at once.
     fn next_committee(&self) -> Vec<ValidatorId> {
         let max = usize::from(self.params.max_validators);
-        let mut next: Vec<ValidatorId> =
-            self.ranked().into_iter().take(max).map(|s| s.id).collect();
+        let ranked = self.ranked();
+        let seated = |id: &ValidatorId| self.active.contains(id);
+        let mut entries = if self.active.is_empty() {
+            usize::MAX
+        } else {
+            entry_limit(ranked.iter().filter(|s| seated(&s.id)).count().min(max))
+        };
+        let mut next: Vec<ValidatorId> = ranked
+            .into_iter()
+            .filter(|s| {
+                if seated(&s.id) {
+                    return true;
+                }
+                let admit = entries > 0;
+                entries = entries.saturating_sub(1);
+                admit
+            })
+            .take(max)
+            .map(|s| s.id)
+            .collect();
         let held = self
             .active
             .iter()

@@ -146,4 +146,7 @@ Two quorums then share more than a third of each measure, so the node stays safe
 faulty side holds at most a third of the weight *or* at most a third of the seats. The
 intersection argument, the trade it costs (absent seats past a third halt a weighted chain),
 and the tests are in ADR-040's amendment of the same date. With section 6's equal weights the
-two thresholds are the same number, so an equal-weight committee behaves as before.
+two thresholds are the same number, so an equal-weight committee behaves as before. The seats
+counted are voters (members of positive weight), and committee elections admit at most
+STK-23's `entry_limit` newcomers per epoch so that seats which never come online are jailed
+before they can stop finality (review fixes 2026-11-25, in the same ADR-040 amendment).

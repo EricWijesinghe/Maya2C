@@ -16,11 +16,14 @@ pub type ValidatorId = u16;
 /// [`Committee::new`] — the two coincide and the thresholds are the classic
 /// ones. With stake as weight, a seat bought at the minimum bond carries
 /// next to no say, and stake spread over a few addresses carries no quorum
-/// without two thirds of the seats.
+/// without two thirds of the seats. The seats counted are *voters*, members
+/// of positive weight: a zero-weight member has no say by either measure.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Committee {
     weights: Arc<[u64]>,
     total: u128,
+    /// Members of positive weight: the `n` of the count rule.
+    voters: u16,
     /// Fewest members whose weight reaches a quorum.
     min_quorum_size: u16,
 }
@@ -34,22 +37,27 @@ impl Committee {
     }
 
     /// A committee whose member `i` votes with `weights[i]`, or `None` for
-    /// more members than a `u16` validator id can name. A zero weight is
-    /// counted as one, so every member can still be heard; the staking
-    /// module never elects a member without stake, and the node must hand
-    /// every peer the same weights (ADR-040 part 2).
+    /// more members than a `u16` validator id can name, or for members whose
+    /// weights are all zero (every set of signers would be a quorum). The
+    /// node must hand every peer the same weights (ADR-040 part 2).
+    ///
+    /// A zero weight is a seat with no say (Eric 2026-11-24 third round 5):
+    /// the member keeps its index and its leader slot, and counts for
+    /// neither the weight nor the seats of any threshold. That is how a
+    /// tombstone held by the committee floor sits.
     #[must_use]
     pub fn weighted(weights: Vec<u64>) -> Option<Self> {
         u16::try_from(weights.len()).ok()?;
-        Some(Self::from_weights(
-            weights.into_iter().map(|w| w.max(1)).collect(),
-        ))
+        if !weights.is_empty() && weights.iter().all(|w| *w == 0) {
+            return None;
+        }
+        Some(Self::from_weights(weights.into()))
     }
 
     fn from_weights(weights: Arc<[u64]>) -> Self {
         let total: u128 = weights.iter().map(|w| u128::from(*w)).sum();
         let quorum = total - total.saturating_sub(1) / 3;
-        let seats = weights.len();
+        let seats = weights.iter().filter(|w| **w > 0).count();
         let count_quorum = seats - seats.saturating_sub(1) / 3;
         let mut heaviest: Vec<u64> = weights.to_vec();
         heaviest.sort_unstable_by(|a, b| b.cmp(a));
@@ -65,6 +73,8 @@ impl Committee {
         Self {
             weights,
             total,
+            // At most the member count, which `weighted` bounds by u16::MAX.
+            voters: u16::try_from(seats).unwrap_or(u16::MAX),
             min_quorum_size: u16::try_from(needed.max(count_quorum)).unwrap_or(u16::MAX),
         }
     }
@@ -84,7 +94,7 @@ impl Committee {
     /// 2026-11-24 third round 5) is not a voter.
     #[must_use]
     pub fn voters(&self) -> u16 {
-        self.voters_in(0..self.size())
+        self.voters
     }
 
     /// Distinct voters among `members`; zero-weight seats, strangers and
@@ -112,15 +122,17 @@ impl Committee {
         self.tally(members).0
     }
 
-    /// Weight and number of distinct members among `members`; strangers
-    /// and repeats count for nothing in either.
+    /// Weight and number of distinct voters among `members`; strangers,
+    /// repeats and zero-weight seats count for nothing in either.
     fn tally(&self, members: impl IntoIterator<Item = ValidatorId>) -> (u128, usize) {
         let mut seen = vec![false; self.weights.len()];
         members
             .into_iter()
             .filter(|m| {
-                seen.get_mut(usize::from(*m))
-                    .is_some_and(|s| !std::mem::replace(s, true))
+                self.weight(*m) > 0
+                    && seen
+                        .get_mut(usize::from(*m))
+                        .is_some_and(|s| !std::mem::replace(s, true))
             })
             .fold((0, 0), |(w, n), m| (w + u128::from(self.weight(m)), n + 1))
     }
@@ -152,16 +164,16 @@ impl Committee {
     }
 
     /// Seats the committee tolerates being faulty: the largest f with
-    /// n ≥ 3f + 1, counted in members whatever their weight.
+    /// n ≥ 3f + 1, counted in voters whatever their positive weight.
     #[must_use]
     pub fn count_faults(&self) -> u16 {
-        self.size().saturating_sub(1) / 3
+        self.voters.saturating_sub(1) / 3
     }
 
     /// n − f: members a quorum needs besides its weight.
     #[must_use]
     pub fn count_quorum(&self) -> u16 {
-        self.size() - self.count_faults()
+        self.voters - self.count_faults()
     }
 
     /// f + 1 by members: seats an anchor's support needs besides its weight.
@@ -530,7 +542,12 @@ mod tests {
         let c = Committee::weighted(vec![5, 5, 5, 5, 0]).expect("5");
         assert_eq!((c.voters(), c.count_faults()), (4, 1));
         assert!(c.is_quorum([0, 1, 2]), "one of four voters may be down");
-        assert!(!c.is_validity([3, 4]), "the held seat is not a second voter");
+        // Validity needs f_n + 1 = 2 voters; weight alone is not enough, and
+        // the held seat is not the second voter.
+        let c = Committee::weighted(vec![20, 1, 1, 1, 0]).expect("5");
+        assert!(c.weight_of([0, 4]) >= c.validity());
+        assert!(!c.is_validity([0, 4]), "the held seat is not a second voter");
+        assert!(c.is_validity([0, 1]));
     }
 
     #[test]

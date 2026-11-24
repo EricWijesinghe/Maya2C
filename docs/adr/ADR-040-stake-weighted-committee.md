@@ -459,8 +459,26 @@ Tests:
   used before halt the chain before the boundary under this rule (it failed at
   "no second boundary" until changed);
 - `crates/light-client/tests/finality_tests.rs`: `stake_on_a_few_seats_is_never_a_checkpoint_quorum`;
-- CON-20 vectors in `spec/tests/consensus.json` (18 cases), replayed by
+- CON-20 vectors in `spec/tests/consensus.json` (22 cases after the review fixes), replayed by
   `crates/node/tests/consensus_conformance.rs` and `spec/verifier-ts/verify.ts`.
 
+Review fixes (2026-11-25), red first against the pre-fix sources:
+- `crates/dag-bft/src/vertex.rs`: `a_zero_weight_seat_is_seated_but_never_counted`,
+  `a_committee_with_no_weight_is_refused`; `crates/dag-bft/tests/property_tests.rs`:
+  `zero_weight_seats_change_neither_threshold`;
+- `crates/staking/tests/committee_entry.rs` (STK-23):
+  `absent_minimum_bond_seats_never_pass_a_third_of_the_committee` (the review's seven plus
+  four), `the_entry_limit_keeps_half_the_seat_faults_for_honest_ones`,
+  `a_committee_below_the_floor_refills_past_the_limit`, `a_first_committee_is_not_limited`,
+  `a_richer_newcomer_displaces_at_most_the_limit_from_a_full_committee`,
+  `a_patient_attacker_needs_several_epochs_of_service_to_hold_a_third` (the residual,
+  measured);
+- `crates/node/tests/bft_staking_tests.rs`: `absent_cheap_seats_join_one_per_epoch_so_an_equal_weight_chain_goes_on`
+  and `absent_cheap_seats_join_one_per_epoch_so_a_weighted_chain_goes_on` (the two halting
+  tests, now asserting finality through two boundaries), and
+  `cheap_seats_added_to_capped_stake_reach_no_quorum_in_one_epoch` (issue 2, measured);
+- CON-20 vectors for zero-weight seats, STK-23 in `spec/06-staking.md`.
+
 Consensus-visible: certificates and checkpoints that were valid under weight alone may now be
-refused. This is a re-freeze change and needs a re-genesis.
+refused, and committee elections admit newcomers at the STK-23 rate. This is a re-freeze change
+and needs a re-genesis.

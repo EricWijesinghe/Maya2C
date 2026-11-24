@@ -789,8 +789,8 @@ fn quorum_cases() -> Vec<Value> {
         case(
             "validity-zero-weight-seat-is-no-second-voter",
             "validity",
-            &[5, 5, 5, 5, 0],
-            &[3, 4],
+            &[20, 1, 1, 1, 0],
+            &[0, 4],
         ),
         case(
             "quorum-committee-of-zero-weights-refused",

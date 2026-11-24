@@ -1656,12 +1656,102 @@
     },
     {
       "expect": {
-        "result": "ok",
-        "seats": "3",
-        "weight": "3"
+        "error": "NoQuorum",
+        "result": "error"
       },
       "fn": "quorum",
-      "id": "quorum-zero-weight-counts-as-one",
+      "id": "quorum-zero-weight-seat-is-no-voter",
+      "rules": [
+        "CON-20"
+      ],
+      "signers": [
+        0,
+        1,
+        3
+      ],
+      "weights": [
+        "5",
+        "5",
+        "5",
+        "0"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "seats": "3",
+        "weight": "11"
+      },
+      "fn": "quorum",
+      "id": "quorum-voters-around-a-zero-weight-seat",
+      "rules": [
+        "CON-20"
+      ],
+      "signers": [
+        0,
+        1,
+        2
+      ],
+      "weights": [
+        "5",
+        "5",
+        "5",
+        "0"
+      ]
+    },
+    {
+      "expect": {
+        "result": "ok",
+        "seats": "3",
+        "weight": "14"
+      },
+      "fn": "quorum",
+      "id": "quorum-zero-weight-seat-spends-no-seat-fault",
+      "rules": [
+        "CON-20"
+      ],
+      "signers": [
+        0,
+        1,
+        2
+      ],
+      "weights": [
+        "5",
+        "5",
+        "5",
+        "5",
+        "0"
+      ]
+    },
+    {
+      "expect": {
+        "error": "NoValidity",
+        "result": "error"
+      },
+      "fn": "validity",
+      "id": "validity-zero-weight-seat-is-no-second-voter",
+      "rules": [
+        "CON-20"
+      ],
+      "signers": [
+        0,
+        4
+      ],
+      "weights": [
+        "20",
+        "1",
+        "1",
+        "1",
+        "0"
+      ]
+    },
+    {
+      "expect": {
+        "error": "NoCommittee",
+        "result": "error"
+      },
+      "fn": "quorum",
+      "id": "quorum-committee-of-zero-weights-refused",
       "rules": [
         "CON-20"
       ],

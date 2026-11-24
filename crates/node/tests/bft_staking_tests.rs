@@ -808,8 +808,8 @@ fn a_node_catches_up_by_checkpoints_across_a_boundary_that_shrinks_the_committee
     // absent seat, so five seats become four. A node that slept through it
     // must cross by checkpoints alone: epoch 1's final checkpoint against
     // epoch 1's committee, then epoch 2's against the four. One absent seat,
-    // not the three of round 8: under the dual quorum (CON-20) three absent
-    // seats of seven halt the chain before it reaches the boundary.
+    // not the three of round 8: STK-23 seats one newcomer per epoch, so three
+    // registrations would leave five seats at the boundary, not four.
     let mut mesh = Mesh::with(true);
     mesh.submit(&register(5, 1_000, 0));
     let mut book = custom_l1_node::consensus::bft::attest::CheckpointBook::default();
