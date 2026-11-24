@@ -170,6 +170,28 @@ fn cheap_seats_make_a_head_quorum_but_never_a_stake_quorum() {
 }
 
 #[test]
+fn stake_on_a_few_seats_is_never_a_checkpoint_quorum() {
+    // ADR-040 amendment 2026-11-24, the dual quorum: four addresses of ten
+    // hold 80% of the stake. The light client refuses their checkpoint,
+    // because four seats are short of the seven a quorum needs, and accepts
+    // one that three more seats complete.
+    let (signing, verifying) = members(1..=10);
+    let weights = vec![200, 200, 200, 200, 34, 33, 33, 33, 33, 34];
+    let h = header([1; 32], 10);
+    let mut client =
+        FinalityClient::new(CHAIN, policy(), anchor(verifying, Some(weights))).unwrap();
+    let heavy = checkpoint(&signing, &CHAIN, 0, 10, h.id(), &[0, 1, 2, 3]);
+    assert!(matches!(
+        client.accept_checkpoint(&heavy, &h, 10),
+        Err(LightClientError::CheckpointRejected(_))
+    ));
+    assert_eq!(client.height(), 0, "a refused checkpoint moved the client");
+    let full = checkpoint(&signing, &CHAIN, 0, 10, h.id(), &[0, 1, 2, 3, 4, 5, 6]);
+    client.accept_checkpoint(&full, &h, 10).unwrap();
+    assert_eq!(client.height(), 10);
+}
+
+#[test]
 fn a_checkpoint_from_another_epoch_is_refused() {
     let (signing, verifying) = members(1..=4);
     let mut client = FinalityClient::new(CHAIN, policy(), anchor(verifying, None)).unwrap();

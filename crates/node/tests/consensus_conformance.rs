@@ -263,6 +263,42 @@ fn check(case: &Value) {
                 "{id}"
             );
         }
+        // CON-20 against the engine itself: the node, its checkpoints and the
+        // light client all count a quorum through `Committee`.
+        f @ ("quorum" | "validity") => {
+            let weights: Vec<u64> = case["weights"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(num)
+                .collect();
+            let signers: Vec<u16> = case["signers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| u16::try_from(v.as_u64().unwrap()).unwrap())
+                .collect();
+            let committee = maya_dag_bft::Committee::weighted(weights).unwrap();
+            let met = if f == "quorum" {
+                committee.is_quorum(signers)
+            } else {
+                committee.is_validity(signers)
+            };
+            assert_eq!(outcome(met), want, "{id}");
+            if met {
+                let (weight, seats) = if f == "quorum" {
+                    (committee.quorum(), committee.count_quorum())
+                } else {
+                    (committee.validity(), committee.count_validity())
+                };
+                assert_eq!(
+                    weight.to_string(),
+                    expect["weight"].as_str().unwrap(),
+                    "{id}"
+                );
+                assert_eq!(seats.to_string(), expect["seats"].as_str().unwrap(), "{id}");
+            }
+        }
         other => panic!("{id}: unknown fn {other}"),
     }
 }

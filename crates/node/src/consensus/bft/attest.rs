@@ -184,8 +184,8 @@ pub struct Checkpoint {
 impl Checkpoint {
     /// Checks that a quorum of distinct `committee` members signed it, the
     /// quorum counted in `weights` (one per member, committee order) on a
-    /// stake-weighted chain (ADR-040 part 2), or in heads where `weights` is
-    /// `None`. There is no default: a caller that forgets the weights would
+    /// stake-weighted chain (ADR-040 part 2) as well as in heads, or in heads
+    /// alone where `weights` is `None`. There is no default: a caller that forgets the weights would
     /// count cheap seats as equals. A catching-up node imports blocks on this
     /// quorum alone, so on a weighted chain it must be stake, or cheap
     /// seats could attest a chain of their own making.
@@ -223,7 +223,9 @@ impl Checkpoint {
 }
 
 /// Whether `signers` form a quorum of a committee of `size`: n − f heads
-/// (ADR-039), or W − f stake when `weights` is given (ADR-040 part 2).
+/// (ADR-039), and also W − f stake when `weights` is given (ADR-040 part 2
+/// and its dual-quorum amendment 2026-11-24). The engine's own rule, so a
+/// checkpoint and a certificate can never disagree about what a quorum is.
 fn has_quorum(
     signers: impl IntoIterator<Item = u16>,
     size: usize,
@@ -593,6 +595,54 @@ mod tests {
             collector.newest().is_none(),
             "the forged one must not have counted"
         );
+    }
+
+    #[test]
+    fn stake_on_a_few_seats_never_finalizes_without_two_thirds_of_the_seats() {
+        // Eric 2026-11-24 (third round), the dual quorum: one party holds
+        // 80% of the weight on four addresses of ten, each at the 20% cap.
+        // Its four signatures are a stake quorum and short of the seven
+        // seats a quorum needs, so no checkpoint forms and none verifies.
+        let (signing, committee) = keys(10);
+        let weights = [200, 200, 200, 200, 34, 33, 33, 33, 33, 34];
+        let mut collector = Collector::default();
+        let mut four = BTreeMap::new();
+        for v in 0..4 {
+            let a = attest(&signing, v, 5, 1);
+            four.insert(v, a.signature.clone());
+            assert!(matches!(
+                collector
+                    .add(a, &CHAIN, &committee, Some(&weights))
+                    .unwrap(),
+                Collected::Counted
+            ));
+        }
+        assert!(collector.newest().is_none(), "four seats of ten finalized");
+        let forged = Checkpoint {
+            epoch: 0,
+            height: 5,
+            block: [1; 32],
+            signatures: four,
+        };
+        assert!(forged.verify(&CHAIN, &committee, Some(&weights)).is_err());
+        // Normal finality: three more seats complete both thresholds.
+        let mut made = None;
+        for v in 4..7 {
+            if let Collected::Checkpoint(c) = collector
+                .add(
+                    attest(&signing, v, 5, 1),
+                    &CHAIN,
+                    &committee,
+                    Some(&weights),
+                )
+                .unwrap()
+            {
+                made = Some(c);
+            }
+        }
+        let c = made.expect("seven seats with the stake are a quorum");
+        assert_eq!(c.signatures.len(), 7);
+        c.verify(&CHAIN, &committee, Some(&weights)).unwrap();
     }
 
     #[test]

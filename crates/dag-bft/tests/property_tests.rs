@@ -22,6 +22,25 @@ fn check(committee: &Committee, total: u128) -> Result<(), TestCaseError> {
         "honest weight cannot reach quorum: W={total} q={q} f={f}"
     );
     prop_assert!(committee.validity() == f + 1);
+    // The seat dimension of the dual quorum (ADR-040 amendment 2026-11-24).
+    let n = u128::from(committee.size());
+    let (qc, fc) = (
+        u128::from(committee.count_quorum()),
+        u128::from(committee.count_faults()),
+    );
+    prop_assert!(n > 3 * fc, "f too large by seats: n={n} f={fc}");
+    prop_assert!(
+        2 * qc > n + fc,
+        "quorums may share no honest seat: n={n} q={qc}"
+    );
+    prop_assert!(
+        qc <= n - fc,
+        "honest seats cannot reach quorum: n={n} q={qc}"
+    );
+    prop_assert!(u128::from(committee.count_validity()) == fc + 1);
+    // Every member is a quorum together; the floor never exceeds the seats.
+    prop_assert!(committee.is_quorum(0..committee.size()));
+    prop_assert!(u128::from(committee.min_quorum_size()) <= n);
     Ok(())
 }
 

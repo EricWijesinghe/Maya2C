@@ -2,8 +2,8 @@
 //! synchronous variant.
 //!
 //! Even rounds have an anchor chosen round-robin. An anchor is committed
-//! *directly* when at least f + 1 certificates of the next round reference
-//! it. Committing an anchor first commits, oldest first, every earlier
+//! *directly* when certificates of the next round carrying f + 1 of the
+//! weight and f + 1 of the seats reference it (`Committee::is_validity`). Committing an anchor first commits, oldest first, every earlier
 //! uncommitted anchor it has a path to — quorum intersection guarantees that
 //! any anchor some honest node committed directly is reachable from every
 //! later committed anchor, so every honest node commits the same anchor
@@ -71,12 +71,12 @@ impl Committer {
                 Self::anchor(dag, committee, round),
                 Self::anchor_digest(dag, committee, round),
             ) {
-                let votes = committee.weight_of(
+                let supported = committee.is_validity(
                     dag.round(round + 1)
                         .filter(|c| c.vertex.parents.contains(&digest))
                         .map(|c| c.vertex.author),
                 );
-                if votes >= committee.validity() {
+                if supported {
                     self.commit_chain(dag, committee, anchor, &mut out);
                 }
             }

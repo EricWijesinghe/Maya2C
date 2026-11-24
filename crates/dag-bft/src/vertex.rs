@@ -10,11 +10,13 @@ pub type ValidatorId = u16;
 
 /// A fixed validator set for one epoch, with each member's voting weight.
 ///
-/// Every threshold counts weight, not heads (ADR-040). With equal weights —
-/// [`Committee::new`] — weight is a head count and the thresholds are the
-/// classic ones. With stake as weight, a seat bought at the minimum bond
-/// carries next to no say: holding a third of the *seats* no longer stops
-/// a quorum; it takes a third of the *stake*.
+/// Every threshold is dual (ADR-040 amendment 2026-11-24): it counts
+/// weight (ADR-040) *and* heads. A quorum is W − f of the weight and n − f
+/// of the members at once; validity is f + 1 of each. With equal weights —
+/// [`Committee::new`] — the two coincide and the thresholds are the classic
+/// ones. With stake as weight, a seat bought at the minimum bond carries
+/// next to no say, and stake spread over a few addresses carries no quorum
+/// without two thirds of the seats.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Committee {
     weights: Arc<[u64]>,
@@ -47,6 +49,8 @@ impl Committee {
     fn from_weights(weights: Arc<[u64]>) -> Self {
         let total: u128 = weights.iter().map(|w| u128::from(*w)).sum();
         let quorum = total - total.saturating_sub(1) / 3;
+        let seats = weights.len();
+        let count_quorum = seats - seats.saturating_sub(1) / 3;
         let mut heaviest: Vec<u64> = weights.to_vec();
         heaviest.sort_unstable_by(|a, b| b.cmp(a));
         let mut reached = 0u128;
@@ -61,13 +65,15 @@ impl Committee {
         Self {
             weights,
             total,
-            min_quorum_size: u16::try_from(needed).unwrap_or(u16::MAX),
+            min_quorum_size: u16::try_from(needed.max(count_quorum)).unwrap_or(u16::MAX),
         }
     }
 
-    /// Fewest members whose weight can reach a quorum, the heaviest first:
-    /// a head-count floor any quorum's member list must clear, checkable
-    /// before anyone knows who the members are. Equal weights: n − f.
+    /// Fewest members that can be a quorum: the larger of the seat quorum
+    /// n − f and the fewest members whose weight reaches W − f, the heaviest
+    /// first. A head-count floor any quorum's member list must clear,
+    /// checkable before anyone knows who the members are. Equal weights:
+    /// n − f.
     #[must_use]
     pub fn min_quorum_size(&self) -> u16 {
         self.min_quorum_size
@@ -88,6 +94,12 @@ impl Committee {
 
     /// Total weight of `members`, each counted once however often it appears.
     pub fn weight_of(&self, members: impl IntoIterator<Item = ValidatorId>) -> u128 {
+        self.tally(members).0
+    }
+
+    /// Weight and number of distinct members among `members`; strangers
+    /// and repeats count for nothing in either.
+    fn tally(&self, members: impl IntoIterator<Item = ValidatorId>) -> (u128, usize) {
         let mut seen = vec![false; self.weights.len()];
         members
             .into_iter()
@@ -95,8 +107,7 @@ impl Committee {
                 seen.get_mut(usize::from(*m))
                     .is_some_and(|s| !std::mem::replace(s, true))
             })
-            .map(|m| u128::from(self.weight(m)))
-            .sum()
+            .fold((0, 0), |(w, n), m| (w + u128::from(self.weight(m)), n + 1))
     }
 
     /// Weight the committee tolerates being faulty: the largest f with
@@ -125,9 +136,40 @@ impl Committee {
         self.faults() + 1
     }
 
-    /// Whether `members` carry a quorum.
+    /// Seats the committee tolerates being faulty: the largest f with
+    /// n ≥ 3f + 1, counted in members whatever their weight.
+    #[must_use]
+    pub fn count_faults(&self) -> u16 {
+        self.size().saturating_sub(1) / 3
+    }
+
+    /// n − f: members a quorum needs besides its weight.
+    #[must_use]
+    pub fn count_quorum(&self) -> u16 {
+        self.size() - self.count_faults()
+    }
+
+    /// f + 1 by members: seats an anchor's support needs besides its weight.
+    #[must_use]
+    pub fn count_validity(&self) -> u16 {
+        self.count_faults() + 1
+    }
+
+    /// Whether `members` carry a quorum: W − f of the weight *and* n − f of
+    /// the seats. Two such sets share more than f weight and more than f
+    /// seats, so they share an honest member if the faulty side holds at
+    /// most f by either measure (ADR-040 amendment 2026-11-24).
     pub fn is_quorum(&self, members: impl IntoIterator<Item = ValidatorId>) -> bool {
-        self.weight_of(members) >= self.quorum()
+        let (weight, seats) = self.tally(members);
+        weight >= self.quorum() && seats >= usize::from(self.count_quorum())
+    }
+
+    /// Whether `members` carry validity, the support that commits an
+    /// anchor: f + 1 of the weight *and* f + 1 of the seats, so some of it
+    /// is honest under either bound.
+    pub fn is_validity(&self, members: impl IntoIterator<Item = ValidatorId>) -> bool {
+        let (weight, seats) = self.tally(members);
+        weight >= self.validity() && seats >= usize::from(self.count_validity())
     }
 
     /// Anchor author for an even `round`: round-robin over members, so every
@@ -316,12 +358,91 @@ mod tests {
     }
 
     #[test]
-    fn a_seat_bought_at_the_minimum_bond_cannot_block_a_quorum() {
-        // ADR-040: one operator with 10^9 staked, three seats at 10^3 each.
-        // By heads the three are > f of four; by stake they are nothing.
+    fn neither_stake_alone_nor_seats_alone_make_a_quorum() {
+        // ADR-040 and its dual-quorum amendment: one operator with 10^9
+        // staked, three seats at 10^3 each. The cheap seats are three of
+        // four heads but no stake; the bonded operator is all the stake but
+        // one head. A quorum needs both.
         let c = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]).expect("4");
-        assert!(c.is_quorum([0]), "the bonded operator alone is a quorum");
-        assert!(!c.is_quorum([1, 2, 3]), "the cheap seats are not");
+        assert!(!c.is_quorum([0]), "stake without seats is not a quorum");
+        assert!(!c.is_quorum([1, 2, 3]), "seats without stake are not");
+        assert!(c.is_quorum([0, 1, 2]), "stake and seats together are");
+    }
+
+    #[test]
+    fn stake_split_over_a_few_capped_addresses_cannot_finalize_alone() {
+        // Eric 2026-11-24 (third round): one party spreads its stake over
+        // four operator addresses, each held to the 20% cap. That is 80% of
+        // the weight on 4 of 10 seats: far past W − f by weight, short of
+        // n − f = 7 by seats.
+        let c = Committee::weighted(vec![200, 200, 200, 200, 34, 33, 33, 33, 33, 34]).expect("10");
+        assert!(
+            c.weight_of(0..4) >= c.quorum(),
+            "the party holds a weight quorum"
+        );
+        assert_eq!(c.count_quorum(), 7);
+        assert!(!c.is_quorum(0..4), "but not a quorum");
+        assert!(c.is_quorum(0..7), "with three honest seats it is one");
+    }
+
+    #[test]
+    fn dual_quorums_overlap_in_more_than_the_faulty_weight_and_the_faulty_seats() {
+        let mut seed: u64 = 0xD0A1;
+        for n in 1..=64usize {
+            let weights: Vec<u64> = (0..n)
+                .map(|_| {
+                    seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    (seed >> 44) + 1
+                })
+                .collect();
+            let c = Committee::weighted(weights).expect("64 members at most");
+            let (size, fc, qc) = (
+                u128::from(c.size()),
+                u128::from(c.count_faults()),
+                u128::from(c.count_quorum()),
+            );
+            assert!(size > 3 * fc, "n = {n}");
+            assert!(
+                2 * qc > size + fc,
+                "n = {n}: two quorums may share only faulty seats"
+            );
+            assert!(
+                qc <= size - fc,
+                "n = {n}: the honest seats cannot reach a quorum"
+            );
+            assert_eq!(c.count_validity(), c.count_faults() + 1);
+            assert!(
+                u128::from(c.min_quorum_size()) >= qc,
+                "n = {n}: the head-count floor is below the seat quorum"
+            );
+        }
+    }
+
+    #[test]
+    fn validity_needs_more_than_the_faulty_weight_and_the_faulty_seats() {
+        // Seven seats: f = 2 by count. Two heavy members are past f + 1 by
+        // weight but only f by seats; one more seat makes it valid.
+        let c = Committee::weighted(vec![1_000, 1_000, 1, 1, 1, 1, 1]).expect("7");
+        assert_eq!(c.count_validity(), 3);
+        assert!(c.weight_of([0, 1]) >= c.validity());
+        assert!(
+            !c.is_validity([0, 1]),
+            "two seats are within the faulty count"
+        );
+        assert!(c.is_validity([0, 1, 2]));
+        assert!(
+            !c.is_validity([2, 3, 4, 5, 6]),
+            "seats without weight are not valid"
+        );
+    }
+
+    #[test]
+    fn equal_weights_make_the_two_quorums_one() {
+        for n in 1..=200u16 {
+            let c = Committee::new(n);
+            assert_eq!(u128::from(c.count_quorum()), c.quorum(), "n = {n}");
+            assert_eq!(u128::from(c.count_validity()), c.validity(), "n = {n}");
+        }
     }
 
     #[test]
@@ -360,9 +481,13 @@ mod tests {
             let c = Committee::new(n);
             assert_eq!(u128::from(c.min_quorum_size()), c.quorum(), "n = {n}");
         }
-        // One heavy member is a quorum by itself.
+        // One heavy member reaches the weight by itself, but a quorum also
+        // needs n − f seats, so the floor is the seat quorum.
         let c = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]).expect("4");
-        assert_eq!(c.min_quorum_size(), 1);
+        assert_eq!(c.min_quorum_size(), 3);
+        // Three heavy members carry the weight; the seats still need five.
+        let c = Committee::weighted(vec![1_000, 1_000, 1_000, 1_000, 1, 1, 1]).expect("7");
+        assert_eq!((c.count_quorum(), c.min_quorum_size()), (5, 5));
     }
 
     #[test]

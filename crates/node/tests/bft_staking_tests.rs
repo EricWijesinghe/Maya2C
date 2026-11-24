@@ -586,11 +586,15 @@ fn absent_cheap_seats_halt_a_one_seat_one_vote_chain() {
 }
 
 #[test]
-fn absent_cheap_seats_cannot_halt_a_stake_weighted_chain() {
-    // ADR-040 part 2: the same attack against a genesis with stake_weighted.
-    // The four online validators hold 40,000 of 43,000 stake, a quorum by
-    // weight, so the chain goes on; the cheap seats only cost anchor
-    // timeouts until the epoch boundary jails them.
+fn absent_cheap_seats_past_a_third_of_the_seats_halt_a_weighted_chain_too() {
+    // ADR-040 amendment 2026-11-24, the dual quorum: the same attack
+    // against a genesis with stake_weighted. The four online validators
+    // hold 40,000 of 43,000 stake, a quorum by weight, but four of seven
+    // seats are short of the five a quorum also needs. The chain halts as
+    // the equal-weight one does, and the nodes still agree on every block
+    // they hold. Before the amendment this test was named
+    // `absent_cheap_seats_cannot_halt_a_stake_weighted_chain` and asserted
+    // the opposite; the trade is recorded in the ADR.
     let mut mesh = Mesh::with(true);
     register_absent_seats(&mut mesh);
     mesh.run_until(|m| m.all_in_epoch(1));
@@ -608,6 +612,25 @@ fn absent_cheap_seats_cannot_halt_a_stake_weighted_chain() {
         sorted,
         [1_000, 1_000, 1_000, 10_000, 10_000, 10_000, 10_000]
     );
+    let h = mesh.members[0].chain.height();
+    mesh.run_until(|m| m.members[0].chain.height() >= h + 3);
+    assert!(
+        mesh.members[0].chain.height() < h + 3,
+        "four seats of seven kept finalizing"
+    );
+    mesh.agree();
+}
+
+#[test]
+fn an_absent_cheap_seat_within_a_third_of_the_seats_cannot_halt_a_weighted_chain() {
+    // Normal finality under the dual quorum: one absent seat of five is
+    // within f = 1, so the four online validators carry both thresholds
+    // and the chain goes on.
+    let mut mesh = Mesh::with(true);
+    mesh.submit(&register(5, 1_000, 0));
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    assert_eq!(mesh.committee(0).len(), 5);
     let h = mesh.members[0].chain.height();
     mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));
     assert!(

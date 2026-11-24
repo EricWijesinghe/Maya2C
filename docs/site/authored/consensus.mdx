@@ -80,6 +80,13 @@ each cert    = vertex digest + signatures from ≥ n − f validators
 give `n − f`. Committees have been equal-weight so far. ADR-040 makes them
 stake-weighted from a new genesis, and maya-testnet-1 stays on equal weights.
 
+**A quorum is two thirds of the stake and two thirds of the seats** (CON-20).
+On a stake-weighted chain a certificate or a finality checkpoint needs both
+`W − f` of the weight and `n − f` of the validators. So a party that spreads
+its stake over a few addresses cannot finalize anything without two thirds
+of the seats, and seats bought without stake cannot finalize anything without
+two thirds of the stake. With equal weights the two numbers are the same.
+
 | n | f | quorum n − f | shared members, worst case | safe? |
 |---|---|---|---|---|
 | 4 | 1 | 3 | 2 | yes |
@@ -189,6 +196,14 @@ for every $n$. ADR-039 checks this exhaustively for $n$ from 1 to 1,000
 
 **Liveness.** Up to $f$ validators may never answer, so the honest set has
 $n - f = q$ members, enough to form a quorum alone.
+
+**Two measures at once (CON-20).** On a weighted committee a quorum needs
+$q_W = W - f_W$ of the weight and $q_n = n - f_n$ of the members. Each measure
+intersects on its own: $w(Q_1 \cap Q_2) \ge W - 2f_W \ge f_W + 1$ and
+$|Q_1 \cap Q_2| \ge n - 2f_n \ge f_n + 1$. So two quorums share an honest
+member whenever the faulty side holds at most $f_W$ of the weight **or** at
+most $f_n$ of the seats, and finality stays live while the honest side holds
+both $q_W$ and $q_n$ (ADR-040, amendment 2026-11-24).
 
 **Why the old rule was wrong.** The retired threshold $2f+1$ equals $q$ only when
 $n = 3f + 1$. At $n = 6$, $f = 1$, it gives $q = 3$ and $|Q_1 \cap Q_2| \ge 0$.

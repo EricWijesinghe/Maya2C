@@ -135,3 +135,15 @@ local clock, which shapes liveness, never safety.
 - Staking lands (committee from state at epoch boundaries), or
 - a measured throughput ceiling shows inline payload is the bottleneck, or
 - trustless historical sync is built.
+
+## Amendment 2026-11-24: the quorum is dual
+
+Eric 2026-11-24 (third round). Every DAG-BFT threshold this ADR's node counts (a certificate's
+votes, a round's authors, a vertex's parents, an anchor's support, a finality checkpoint's
+signatures) now needs two thirds of the stake weight **and** two thirds of the committee's
+members: `W − f_W` and `n − f_n` for a quorum, `f_W + 1` and `f_n + 1` for validity (CON-20).
+Two quorums then share more than a third of each measure, so the node stays safe while the
+faulty side holds at most a third of the weight *or* at most a third of the seats. The
+intersection argument, the trade it costs (absent seats past a third halt a weighted chain),
+and the tests are in ADR-040's amendment of the same date. With section 6's equal weights the
+two thresholds are the same number, so an equal-weight committee behaves as before.
