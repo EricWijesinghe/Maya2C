@@ -11,6 +11,7 @@ use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
 
+use custom_l1_node::rpc::server::MAX_INDICATOR_PAGE as INDICATOR_PAGE;
 use custom_l1_node::rpc::{PeerAddressInfo, ThreatIndicatorInfo};
 use maya_threat_intel::{Author, INDICATOR_BYTES, ThreatIndicator};
 
@@ -46,13 +47,43 @@ impl RpcSource {
             .await
             .map_err(|e| FirewallError::Rpc(format!("{} {method}: {e}", self.url)))
     }
+
+    /// Every indicator, a page at a time, in author order.
+    ///
+    /// Stops on a short page, or on a page that adds no author past the last
+    /// one held: a node from before paging ignores the parameters and returns
+    /// the whole set every time, which ends the loop after one repeat.
+    async fn all_indicators(&self) -> Result<Vec<ThreatIndicatorInfo>> {
+        let mut all: Vec<ThreatIndicatorInfo> = Vec::new();
+        loop {
+            let after = all.last().map(|i| i.author.clone());
+            let page: Vec<ThreatIndicatorInfo> = self
+                .client
+                .request(
+                    "threat_indicators",
+                    rpc_params![after.clone(), INDICATOR_PAGE],
+                )
+                .await
+                .map_err(|e| FirewallError::Rpc(format!("{} threat_indicators: {e}", self.url)))?;
+            let full = page.len() >= INDICATOR_PAGE;
+            let held = all.len();
+            // Authors are lowercase hex of one length: string order is key order.
+            all.extend(
+                page.into_iter()
+                    .filter(|i| after.as_ref().is_none_or(|a| i.author > *a)),
+            );
+            if !full || all.len() == held {
+                return Ok(all);
+            }
+        }
+    }
 }
 
 #[async_trait]
 impl ThreatSource for RpcSource {
     async fn observe(&self) -> Result<Observation> {
         let height: u64 = self.call("get_tip_height").await?;
-        let indicators: Vec<ThreatIndicatorInfo> = self.call("threat_indicators").await?;
+        let indicators = self.all_indicators().await?;
         let peers: Vec<PeerAddressInfo> = self.call("threat_peer_addresses").await?;
         Ok(Observation {
             height,

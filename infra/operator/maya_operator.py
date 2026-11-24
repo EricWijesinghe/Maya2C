@@ -69,7 +69,7 @@ def _statefulset(name: str, namespace: str, spec: dict) -> dict:
 ord="${{POD_NAME##*-}}"
 extra=""
 if [ "$ord" != "0" ]; then
-  extra="--bootnode /dns4/{first}/tcp/30333 --sync-from http://{first}:8545"
+  extra="--bootnode /dns4/{first}/tcp/30333 --allow-unpinned-bootnodes --sync-from http://{first}:8545"
   # Bootstrap from a snapshot only when replica 0 has one deep enough: on a
   # fresh install it has none and the node would refuse to start, so the
   # replica backfills from genesis instead. After a restore, it has one.
