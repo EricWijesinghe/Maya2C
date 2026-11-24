@@ -21,7 +21,7 @@ ledger
 
 ## Website / code
 
-<https://github.com/EricWijesinghe/Maya2C>
+<https://github.com/maya2c/Maya2C>
 
 ## Abstract
 
