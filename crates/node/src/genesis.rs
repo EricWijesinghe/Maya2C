@@ -1043,7 +1043,10 @@ impl GenesisConfig {
             state
                 .register(operator, id, to_amount(bond.bond), bond.commission_bps)
                 .map_err(|e| NodeError::Decode(format!("genesis bond refused: {e:?}")))?;
-            records.insert(key_record(&id), encoded.to_vec());
+            records.insert(
+                key_record(&id),
+                crate::state::staking::encode_key_value(&encoded),
+            );
             active.push(id);
         }
         state.active.clone_from(&active);

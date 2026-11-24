@@ -216,7 +216,9 @@ pub struct ContractCall {
     /// Gas ceiling.
     ///
     /// A halting bound, not a price: exceeding it traps the call and discards
-    /// its writes, but nothing is billed to the sender.
+    /// its writes, but nothing is billed to the sender. At most
+    /// `min(vm.max_tx_gas, vm.max_block_gas)`, and at most what the block has
+    /// left (ADR-142, `spec/10-vm-gas.md`).
     pub gas_limit: u64,
 }
 

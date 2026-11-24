@@ -84,6 +84,11 @@ pub enum ParameterKey {
     /// The signature suite new accounts are created under (ADR-007), as its
     /// registry byte. Read only once suite-tagged transactions activate.
     DefaultSignatureSuite,
+    /// Most gas one contract call may name as its `gas_limit` (ADR-142).
+    VmMaxTxGas,
+    /// Most contract gas one block may spend, calls and deployments together
+    /// (ADR-142).
+    VmMaxBlockGas,
 }
 
 /// Every key, in tag order.
@@ -101,7 +106,31 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::VmDefaultGasLimit,
     ParameterKey::GovernanceProposalDeposit,
     ParameterKey::DefaultSignatureSuite,
+    ParameterKey::VmMaxTxGas,
+    ParameterKey::VmMaxBlockGas,
 ];
+
+/// Blocks between a passed change to a block-validity rule executing and
+/// the rule binding: the same lead a scheduled protocol upgrade carries.
+///
+/// A validity rule decides which blocks every node accepts, so it gets the
+/// lead an upgrade gets: from execution the waiting value is on chain under
+/// `g:pending:`, readable by anyone reading state (no RPC lists it yet; see
+/// BACKLOG). Fixed rather than chosen by the proposal, so no vote shortens it
+/// (invariants 12 and 34, ADR-082 amendment 2026-11-15). Equal to the upgrade lead
+/// rather than shorter, so a validity change carried beside a schedule entry
+/// is in force no later than that entry's earliest activation.
+pub const VALIDITY_RULE_LEAD_BLOCKS: u64 = crate::limits::MIN_UPGRADE_LEAD_BLOCKS;
+
+/// Gas a call to a maximum-size module pays before it runs, compiled cold:
+/// `maya_vm::gas::call_fuel(MAX_MODULE_BYTES, false)`, restated here because
+/// this crate has no dependencies (invariant 12). The node asserts the two
+/// agree (`crates/node/tests/vm_gas_tests.rs`). No block cap may sit below it,
+/// or the largest deployable contract could never be called.
+const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * 512 * 1024;
+
+/// Most either contract gas cap may be voted to (ADR-142).
+const VM_GAS_CEILING: u64 = 300_000_000;
 
 /// The permitted range and starting value of one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,6 +166,10 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => 8,
             Self::GovernanceProposalDeposit => 9,
             Self::DefaultSignatureSuite => 10,
+            // 11-16 are allocated to the v4 umbrella (ADR-135); 17 and 18 are
+            // the next free tags (ADR-142).
+            Self::VmMaxTxGas => 17,
+            Self::VmMaxBlockGas => 18,
         }
     }
 
@@ -165,6 +198,8 @@ impl ParameterKey {
             8 => Ok(Self::VmDefaultGasLimit),
             9 => Ok(Self::GovernanceProposalDeposit),
             10 => Ok(Self::DefaultSignatureSuite),
+            17 => Ok(Self::VmMaxTxGas),
+            18 => Ok(Self::VmMaxBlockGas),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -265,6 +300,60 @@ impl ParameterKey {
                 max: Amount::from_u64(0x30),
                 default: Amount::from_u64(0x11),
             },
+            // ADR-142. Gas is priced at about 1 ns of measured native work
+            // per unit, so these are time bounds. The default lets one call
+            // use the whole block, as one call to the largest module needs
+            // ~236 M of it to compile. The floor keeps every deployable
+            // contract callable at all; the ceiling is the block's own. A
+            // call is capped at the smaller of this and the block cap.
+            Self::VmMaxTxGas => Bounds {
+                min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
+                max: Amount::from_u64(VM_GAS_CEILING),
+                default: Amount::from_u64(250_000_000),
+            },
+            // 250 M is ~250 ms of the slowest priced work on the measuring
+            // machine. A block spends at most the cap on plaintext calls and
+            // a quarter of it more on revealed sealed actions (GAS-2: 1.25 x
+            // the cap), and a producer's selection may also try up to the cap
+            // again of failed calls before it stages the block (3.25 x the
+            // cap in all). At the 300 M ceiling that is ~375 ms to validate
+            // and ~978 ms to produce at 1 ns a unit: inside the 1 s block
+            // time, only just (ADR-142 amendments 3 and 4).
+            Self::VmMaxBlockGas => Bounds {
+                min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
+                max: Amount::from_u64(VM_GAS_CEILING),
+                default: Amount::from_u64(250_000_000),
+            },
+        }
+    }
+
+    /// Whether this key is a block-validity rule: a bound that decides
+    /// whether a block or a transaction in it is accepted, or caps the work
+    /// a block makes every node do. Such a change takes effect
+    /// [`VALIDITY_RULE_LEAD_BLOCKS`] after its proposal executes. The other
+    /// keys move a price or choose a wallet default and apply at execution.
+    ///
+    /// No wildcard arm: a new key does not compile until somebody decides
+    /// which kind it is.
+    #[must_use]
+    pub const fn is_validity_rule(self) -> bool {
+        match self {
+            Self::DexMaxFillsPerBlock
+            | Self::DexMaxOrdersPerBook
+            | Self::OracleMaxFeedSubmissionsPerBlock
+            | Self::ShieldedMaxPerBlock
+            | Self::VmMaxMemoryPages
+            | Self::VmMaxModuleBytes
+            | Self::VmDefaultGasLimit
+            // ADR-142's caps refuse a call or a block outright (GAS-1, GAS-2).
+            | Self::VmMaxTxGas
+            | Self::VmMaxBlockGas => true,
+            // A rate and a deposit change what a valid transaction pays, not
+            // whether it is valid. The default suite chooses what wallets
+            // sign with; it does not decide what verifies (invariant 31).
+            Self::DexProtocolFeeBps
+            | Self::GovernanceProposalDeposit
+            | Self::DefaultSignatureSuite => false,
         }
     }
 
@@ -282,6 +371,8 @@ impl ParameterKey {
             Self::VmDefaultGasLimit => "vm.default_gas_limit",
             Self::GovernanceProposalDeposit => "governance.proposal_deposit",
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
+            Self::VmMaxTxGas => "vm.max_tx_gas",
+            Self::VmMaxBlockGas => "vm.max_block_gas",
         }
     }
 
@@ -359,7 +450,20 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 10);
+        assert_eq!(count, 12);
+    }
+
+    #[test]
+    fn the_gas_caps_cannot_be_voted_unbounded_or_below_the_largest_module() {
+        // ADR-142: before these keys a call named its own gas limit, up to
+        // u64::MAX, and nothing bounded a block's contract work.
+        for key in [ParameterKey::VmMaxTxGas, ParameterKey::VmMaxBlockGas] {
+            assert!(key.check(Amount::from_u64(u64::MAX)).is_err());
+            assert!(key.check(Amount::from_u64(VM_GAS_CEILING + 1)).is_err());
+            assert!(key.check(Amount::from_u64(VM_GAS_CEILING)).is_ok());
+            assert!(key.check(Amount::from_u64(MAX_MODULE_CALL_GAS)).is_err());
+            assert!(key.check(key.bounds().default).is_ok());
+        }
     }
 
     #[test]
@@ -395,6 +499,20 @@ mod tests {
                 key.label()
             );
         }
+    }
+
+    #[test]
+    fn only_the_rules_a_block_is_judged_by_wait_for_the_lead() {
+        let validity: Vec<u16> = ALL_KEYS
+            .iter()
+            .filter(|key| key.is_validity_rule())
+            .map(|key| key.tag())
+            .collect();
+        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18]);
+        assert_eq!(
+            VALIDITY_RULE_LEAD_BLOCKS,
+            crate::limits::MIN_UPGRADE_LEAD_BLOCKS
+        );
     }
 
     #[test]

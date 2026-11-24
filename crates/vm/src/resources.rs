@@ -206,6 +206,7 @@ impl Vm {
         let actor = state.actor();
         let mut slot = Some(state);
         let mut outcome: Option<Result<Outcome>> = None;
+        let mut gas_used = 0;
         let verdict = runtime.call(actor, "invoke", |rt| {
             let Some(mut state) = slot.take() else {
                 return Err(Fault::Aborted);
@@ -215,8 +216,14 @@ impl Vm {
             std::mem::swap(rt, state.resources());
             let (mut state, result) =
                 match self.run(wasm, contract, input, gas_limit, state, register::<S>) {
-                    Ok((state, out)) => (state, Ok(out)),
-                    Err((state, error)) => (state, Err(error)),
+                    Ok((state, out)) => {
+                        gas_used = out.gas_used;
+                        (state, Ok(out))
+                    }
+                    Err((state, error, used)) => {
+                        gas_used = used;
+                        (state, Err(error))
+                    }
                 };
             std::mem::swap(rt, state.resources());
             slot = Some(state);
@@ -236,6 +243,10 @@ impl Vm {
             (Ok(()), Some(Ok(out))) => Ok(out),
             (Ok(()), None) => Err(VmError::Resource(Fault::Aborted)),
         };
-        Execution { state, outcome }
+        Execution {
+            state,
+            outcome,
+            gas_used,
+        }
     }
 }
