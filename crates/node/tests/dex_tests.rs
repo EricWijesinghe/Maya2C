@@ -630,21 +630,17 @@ struct FloodResult {
 /// base->quote on one pair in one block, against a 10^13 / 10^13 pool. The
 /// honest swap asks for `honest_min_out`; the attacker's ask for one unit.
 fn split_flood(honest_min_out: U256) -> FloodResult {
-    // The 255 chunks are the most one pair accepts beside the honest swap:
-    // `StateDB::stage_swap` refuses the 257th intent with a block-level error,
-    // so 256 is the ceiling for the whole pair, honest swap included.
-    //
-    // apply_block does not enforce the mempool's per-sender cap of 64, so one
-    // attacker key is used. Through the mempool an attacker needs at least four
-    // senders; keys are free.
+    // The 255 chunks fill the pair beside the honest swap: 256 intents is the
+    // whole batch. One sender may hold only a sixteenth of it (ADR-154), so the
+    // flood is spread over sixteen attacker accounts, fifteen of them full.
     let maker = generate_signing_key().expect("key");
     let honest = generate_signing_key().expect("key");
-    let attacker = generate_signing_key().expect("key");
-    let harness = fixture(&[
-        (maker.address(), 1_000),
-        (honest.address(), 1_000),
-        (attacker.address(), 1_000),
-    ]);
+    let attackers: Vec<HybridSigningKey> = (0..16)
+        .map(|_| generate_signing_key().expect("key"))
+        .collect();
+    let mut funded = vec![(maker.address(), 1_000), (honest.address(), 1_000)];
+    funded.extend(attackers.iter().map(|a| (a.address(), 1_000)));
+    let harness = fixture(&funded);
     let (base, quote) = two_big_assets(&harness, &maker);
     let seed = U256::exp10(13);
     harness
@@ -669,15 +665,19 @@ fn split_flood(honest_min_out: U256) -> FloodResult {
             &maker,
         )
     };
+    // Chunks per attacker: sixteen each, the last one fifteen.
+    let chunks = |index: usize| if index == 15 { 15_u64 } else { 16 };
+    let mut funding = vec![fund(honest.address(), honest_amount, 3)];
+    funding.extend(attackers.iter().enumerate().map(|(index, a)| {
+        fund(
+            a.address(),
+            chunk * U256::from(chunks(index)),
+            4 + index as u64,
+        )
+    }));
     harness
         .db
-        .apply_block(
-            &block_of(vec![
-                fund(honest.address(), honest_amount, 3),
-                fund(attacker.address(), chunk * U256::from(255_u64), 4),
-            ]),
-            BlockContext::at_height(3),
-        )
+        .apply_block(&block_of(funding), BlockContext::at_height(3))
         .expect("funding");
     assert_eq!(
         harness
@@ -702,7 +702,9 @@ fn split_flood(honest_min_out: U256) -> FloodResult {
         )
     };
     let mut txs = vec![swap(&honest, honest_amount, honest_min_out, 0)];
-    txs.extend((0_u64..255).map(|nonce| swap(&attacker, chunk, U256::one(), nonce)));
+    for (index, attacker) in attackers.iter().enumerate() {
+        txs.extend((0..chunks(index)).map(|nonce| swap(attacker, chunk, U256::one(), nonce)));
+    }
     harness
         .db
         .apply_block(&block_of(txs), BlockContext::at_height(4))
@@ -714,11 +716,16 @@ fn split_flood(honest_min_out: U256) -> FloodResult {
             .asset_balance(asset, &who.address())
             .expect("balance")
     };
+    let flood = |asset: &_| {
+        attackers
+            .iter()
+            .fold(U256::zero(), |sum, a| sum + held(asset, a))
+    };
     FloodResult {
         honest_in: honest_amount,
         attacker_in: chunk * U256::from(255_u64),
         honest: (held(&base, &honest), held(&quote, &honest)),
-        attacker: (held(&base, &attacker), held(&quote, &attacker)),
+        attacker: (flood(&base), flood(&quote)),
     }
 }
 
@@ -1606,13 +1613,12 @@ fn a_route_that_does_not_clear_its_bound_leaves_no_trace() {
 }
 
 #[test]
-fn a_round_trip_through_one_pool_loses_money_rather_than_being_free() {
-    // A route may revisit a pool. If the second visit were priced against the
-    // pool as it stood before the first, the pair would be a free option.
+fn a_round_trip_through_one_pool_is_refused_rather_than_priced_twice() {
+    // A route used to be allowed to revisit a pool, the second visit priced
+    // against the first. Every pool now clears once per block (ADR-154), so a
+    // revisiting route could never execute, and it is refused as malformed.
     let mut market = market();
-    let before = market.native(&market.maker_address);
-
-    market
+    let error = market
         .apply(
             vec![TxKind::SwapRoute(SwapRoute {
                 legs: vec![
@@ -1631,11 +1637,16 @@ fn a_round_trip_through_one_pool_loses_money_rather_than_being_free() {
             })],
             2,
         )
-        .expect("route");
-
+        .unwrap_err();
     assert!(
-        market.native(&market.maker_address) < before,
-        "a round trip through one pool returned a profit"
+        matches!(
+            error,
+            NodeError::Trade {
+                operation: "route",
+                ..
+            }
+        ),
+        "{error:?}"
     );
 }
 

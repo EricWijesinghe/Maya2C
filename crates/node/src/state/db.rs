@@ -108,6 +108,12 @@ pub(crate) struct Overlay {
     /// commits or is refunded before it commits. There is nothing here for a
     /// later block to find.
     pub(crate) swaps: BTreeMap<PairId, Vec<SwapIntent>>,
+    /// Routes staged for the same end-of-block clearing, with their escrow
+    /// already taken (ADR-154). Block-local like `swaps`.
+    pub(crate) routes: Vec<crate::state::dex_exec::StagedRoute>,
+    /// The fee each staged swap's transaction paid, by intent id: the weight
+    /// a full batch evicts by (ADR-154). Block-local.
+    pub(crate) intent_fees: BTreeMap<[u8; 32], U256>,
     /// Pools whose book or batch this block touched, and which therefore need
     /// an end-of-block pass. Ordered, so the pass visits them identically on
     /// every node.

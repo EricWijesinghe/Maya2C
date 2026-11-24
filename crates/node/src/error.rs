@@ -599,9 +599,10 @@ pub enum NodeError {
         height: u64,
     },
 
-    /// More swaps were staged against one pool in one block than its batch may
-    /// clear.
-    #[error("pool {pair} already holds {limit} swaps for this block")]
+    /// One sender staged more of a pool's batch in one block than its share
+    /// cap allows (ADR-154). A full batch from many senders is not an error:
+    /// a better-paying intent evicts the cheapest, and a worse one is a no-op.
+    #[error("sender already holds {limit} of pool {pair}'s swaps for this block")]
     TooManySwaps {
         /// Pool involved.
         pair: String,

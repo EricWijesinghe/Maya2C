@@ -106,8 +106,15 @@ impl StateDB {
         // *address*, and under ML-DSA the address is a hash of the key rather
         // than the key itself, so this is a computation and not a field read.
         let sender = tx.sender();
+        // What the transaction paid the collector: the weight a full DEX
+        // batch evicts by (ADR-154). Saturating, as in `charge_fee`.
+        let fee = tx
+            .outputs
+            .iter()
+            .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
+            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
 
-        self.apply_kind_for(overlay, &sender, tx.nonce, &tx.kind, context)
+        self.apply_kind_for(overlay, &sender, tx.nonce, &tx.kind, context, fee)
     }
 
     /// Dispatches a payload on behalf of a sender that may not be a
@@ -126,6 +133,7 @@ impl StateDB {
         nonce: u64,
         kind: &TxKind,
         context: BlockContext,
+        fee: U256,
     ) -> Result<()> {
         let sender = *sender;
 
@@ -167,8 +175,14 @@ impl StateDB {
             }
             // Staged, not executed. It settles with the rest of its pool's
             // block in `settle_trading` — see `crate::state::dex_exec`.
-            TxKind::Swap(request) => self.stage_swap(overlay, &sender, nonce, request, context),
-            TxKind::SwapRoute(route) => self.execute_route(overlay, &sender, route, context),
+            TxKind::Swap(request) => {
+                self.stage_swap(overlay, &sender, nonce, request, context, fee)
+            }
+            // Staged too: a route clears in the same pass, each of its pools
+            // once, with every other trade on them (ADR-154).
+            TxKind::SwapRoute(route) => {
+                self.stage_route(overlay, &sender, nonce, route, context, fee)
+            }
             TxKind::PlaceOrder(placement) => {
                 self.place_order(overlay, &sender, nonce, placement, context)
             }

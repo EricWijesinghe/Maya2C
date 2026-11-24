@@ -8,19 +8,14 @@
 //! width means the decoder cannot be told to allocate, and it means a
 //! transaction's size is a function of what it does rather than of who sent it.
 //!
-//! ## Two paths, priced differently
+//! ## One path, priced once per pool
 //!
-//! [`SwapRequest`] does **not** execute where it appears in the block. It joins
-//! that pair's batch and settles at the batch's single clearing price once
-//! every transaction has been staged — see [`maya_dex::batch`] for why.
-//!
-//! [`SwapRoute`] does execute in place, leg after leg, because its legs depend
-//! on each other and there is nothing to net a multi-hop path against. The
-//! asymmetry is deliberate. A route is the arbitrage primitive: whoever sends
-//! one is competing on speed and accepts that ordering matters. A plain swap is
-//! the ordinary user's, and they are the ones being protected.
-//!
-//! Routes are not batched and carry no batch protection; see docs/dex.md.
+//! Neither [`SwapRequest`] nor [`SwapRoute`] executes where it appears in the
+//! block. A swap joins its pair's batch; a route joins the batch of every pool
+//! it crosses, one leg per pool, and every pool clears exactly once at one
+//! price once every transaction has been staged — see [`maya_dex::batch`] and
+//! [`maya_dex::clearing`] for why. Position in the block is not a variable for
+//! either, so no trade can be placed in front of a route (ADR-154).
 
 use maya_dex::types::PairId;
 
@@ -35,7 +30,7 @@ use crate::state::asset::{AssetId, SYMBOL_LEN};
 /// is another pool a validator must load and rewrite, and another dimension in
 /// the search space of routes a miner could grind through looking for one that
 /// pays.
-pub const MAX_ROUTE_LEGS: usize = 4;
+pub const MAX_ROUTE_LEGS: usize = maya_dex::clearing::MAX_ROUTE_HOPS;
 
 /// Encoded size of one [`RouteLeg`].
 pub const ROUTE_LEG_SIZE: usize = 32 + 1;
