@@ -812,6 +812,7 @@
     {
       "id": "builder-a-failing-call-at-the-cap-then-honest-calls-all-included",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -848,17 +849,17 @@
         ]
       },
       "expect": {
-        "result": "ok",
+        "result": "error",
+        "error": "PassedOver",
         "kept": [
-          "1",
-          "2",
-          "3"
+          "0"
         ]
       }
     },
     {
       "id": "builder-two-failing-senders-leave-exactly-the-slack",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -889,15 +890,17 @@
         ]
       },
       "expect": {
-        "result": "ok",
+        "result": "error",
+        "error": "PassedOver",
         "kept": [
-          "2"
+          "0"
         ]
       }
     },
     {
       "id": "builder-two-failing-senders-exhaust-the-budget",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -930,12 +933,15 @@
       "expect": {
         "result": "error",
         "error": "PassedOver",
-        "kept": []
+        "kept": [
+          "0"
+        ]
       }
     },
     {
       "id": "builder-a-failed-sender-second-contract-tx-passed-over",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -969,7 +975,7 @@
         "result": "error",
         "error": "PassedOver",
         "kept": [
-          "2"
+          "0"
         ]
       }
     }
