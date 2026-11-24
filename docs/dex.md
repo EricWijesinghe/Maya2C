@@ -173,7 +173,21 @@ is asserted not to. A test that only checked the batch would prove nothing.
   implemented.
 - **Censorship.** A miner who drops a transaction rather than reordering it is
   unaffected by any of this.
-- **Routes.** They execute in place — see below.
+
+Routes are not a gap: every leg of every route clears in its pool's one batch,
+beside the plain swaps there — see below.
+
+### A full batch stays open to a better bid
+
+A pair's batch holds 256 plain swaps. When it is full, a new swap that paid
+more than the cheapest one staged (fee to the collector, then the reverse of
+its identifier) takes that one's place, and the evicted swap's input goes
+straight back. A swap that paid less is a no-op: nothing taken, nonce spent. No
+sender holds more than 16 of a pair's batch, so filling a pair takes sixteen
+funded accounts, each paying for every slot it holds, and a plaintext trader
+who pays more still gets in unless the batch is full of sealed reveals. A
+sealed reveal ranks above every plaintext swap, because it was ordered blocks
+ago and cannot rebid. ADR-154.
 
 ---
 
@@ -201,11 +215,14 @@ dropped, and the alternative is taking the assets anyway.
 
 ## Routes, and what "flash swap" does and does not mean
 
-`TxKind::SwapRoute` is an atomic multi-hop swap. Every leg executes or none
-does; the whole path is computed against copies and nothing is written until the
-final bound is met. A route may revisit a pool, and the second visit is priced
-against the first — which is what makes a two-leg round trip lose money rather
-than being a free option.
+`TxKind::SwapRoute` is an atomic multi-hop swap. Every leg settles or none
+does: a route that misses its final bound, or crosses a pool that cannot price
+it, is refunded whole and leaves no trace: routes join the block's clearing one
+at a time in fee order, each only if the whole set still settles, so the block
+clears exactly the routes that joined and a refunded route cannot have moved a
+pool another route settled against or kept another route out. A
+route visits each pool at most once; a revisiting route is refused, because a
+pool clears once per block and the second visit could never execute.
 
 That is the arbitrage instrument, and it is what `dex_tests.rs` exercises as the
 flash-arbitrage case: two pools at different fee rates seeded at different
@@ -216,9 +233,31 @@ from their own balance. Lending the first leg against a repayment check requires
 re-entry into the borrower's code, which means the contract host ABI in
 `crates/vm/src/host.rs`. That is a larger change than this one and is not pretended at.
 
-Routes execute in place and are not batched, so they carry no batch protection:
-a route's price depends on where it sits in the block. A plain swap is the
-batched, protected path.
+### Nobody can trade in front of a route
+
+Routes are staged like swaps — input into escrow, nothing priced — and settle
+in the end-of-block clearing (`maya_dex::clearing`). Every pool clears exactly
+once per block, and a pool's one batch holds its plain swaps and one leg of
+every route that crosses it, all at one price. There is no "in front of": a
+sandwich needs two executions on one pool with the victim between them, and a
+pool has one. `crates/node/tests/dex_fairness_tests.rs` replays the attack with
+a route and with a plain swap as the back leg, and asserts no riskless profit
+and one price for front-runner and victim.
+
+A route's later leg needs its earlier leg's output, so pools clear in a
+topological order of the routes' paths, smallest pair identifier first among
+the ready ones — a property of the set of intents, never of the block's order,
+so the state root does not depend on where a route sat. Two routes that need
+opposite orders cannot both be served while each pool clears once. Routes join
+heaviest first (the fee paid, then the smaller identifier; a sealed reveal
+first of all), and one that would close a cycle with routes already in is a
+no-op that keeps its input. Only a route ahead of it that settles can keep a
+route out: a cheaper route, or one that fails, cannot, and a ground identifier
+wins only a tie between equal fees. Opposite flows through a hub pair
+(`X->N->Y` beside `Y->N->X`) conflict this way, so one of them waits a block.
+A block carries at most 64 routes and one sender at most 4; a
+full set evicts its cheapest route for a better-paying one, as for swaps.
+ADR-154.
 
 ---
 
@@ -246,7 +285,9 @@ bound the *count*, which is what every node pays for in storage. Hence
 
 | Constant | Value | What it stops | Measured cost at the bound |
 |---|---|---|---|
-| `MAX_BATCH_INTENTS` | 256 | The clearing loop is quadratic in the worst case | 4.1 µs normally; **30.6 µs** when every intent misses its bound and the loop removes one per round |
+| `MAX_BATCH_INTENTS` | 256 plain swaps per pair; 16 per sender | The clearing loop is quadratic in the worst case | 4.1 µs normally; **30.6 µs** when every intent misses its bound and the loop removes one per round |
+| `MAX_BLOCK_ROUTES` | 64 per block; 4 per sender | Each route can cost one recomputation of every route-carrying pool | NOT MEASURED |
+| `MAX_CLEARING_INTENTS` | 320 (256 + one leg per route) | One pool's batch, routes included | NOT MEASURED at 320 |
 | `MAX_FILLS_PER_BLOCK` | 1024 | One deep book crossed by one order is work every node redoes | ~0.75 µs per fill, so **~0.8 ms** for a full block |
 | `MAX_ORDERS_PER_BOOK` | 4096 | Storage and book reconstruction cost | 117 µs to rebuild 1024 orders |
 | `MAX_ROUTE_LEGS` | 4 | Pools loaded per transaction, and the search space a miner could grind | 22.6 ns per curve evaluation |

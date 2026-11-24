@@ -18,8 +18,8 @@
 //! Position within the block stops existing as a variable. An attacker who
 //! front-runs is in the same batch as the victim and receives the same price
 //! they engineered; the sandwich costs them the fee and returns nothing.
-//! This covers plain swaps. Routes execute in place and are not batched
-//! (docs/dex.md).
+//! Routes are batched too: every leg of every route meets the plain swaps on
+//! its pool in that pool's one batch ([`crate::clearing`]).
 //!
 //! The price is found by netting first. Buyers and sellers in the same batch
 //! cross against each other, and only the imbalance reaches the curve. The
@@ -33,7 +33,8 @@
 //!   latency for every trade; it is not implemented here.
 //! - **Censorship.** A miner who drops a transaction rather than reordering it
 //!   is unaffected by anything in this module.
-//! - **Cross-pair routing.** Two pools are two batches.
+//! - **Cross-pair routing.** Two pools are two batches. A route across them
+//!   is settled by [`crate::clearing`], which clears each pool once.
 //!
 //! # Coincidence of wants is free
 //!
@@ -69,6 +70,11 @@ use crate::types::{Direction, PRICE_SCALE};
 /// verification. At an unbounded count it is a denial of service that costs an
 /// attacker one transaction fee per intent.
 pub const MAX_BATCH_INTENTS: usize = 256;
+
+/// Most intents one pool's batch may clear: its plain swaps plus one leg of
+/// every route in the block, since a route visits a pool at most once
+/// ([`crate::clearing`]).
+pub const MAX_CLEARING_INTENTS: usize = MAX_BATCH_INTENTS + crate::clearing::MAX_BLOCK_ROUTES;
 
 /// A request to swap, as it enters the batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -140,7 +146,7 @@ pub struct BatchOutcome {
 /// # Errors
 ///
 /// - [`DexError::EmptyPool`] if the pool is unfunded.
-/// - [`DexError::WorkLimitReached`] if more than [`MAX_BATCH_INTENTS`] intents
+/// - [`DexError::WorkLimitReached`] if more than [`MAX_CLEARING_INTENTS`] intents
 ///   are supplied.
 /// - [`DexError::ZeroAmount`] if any intent supplies nothing.
 /// - [`DexError::InvariantViolation`] if the settled amounts would leave the
@@ -149,7 +155,7 @@ pub struct BatchOutcome {
 ///   batch rather than write a pool that is short.
 /// - [`DexError::Overflow`] if the arithmetic leaves 256 bits.
 pub fn clear_batch(pool: &Pool, intents: &[SwapIntent]) -> Result<BatchOutcome> {
-    if intents.len() > MAX_BATCH_INTENTS {
+    if intents.len() > MAX_CLEARING_INTENTS {
         return Err(DexError::WorkLimitReached);
     }
     if !pool.is_funded() {

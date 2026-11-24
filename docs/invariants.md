@@ -41,6 +41,12 @@ phase that did it.
    nothing moves. A failing transaction fails its whole block here, so making
    any of these an error hands every trader a way to void a block. See
    `docs/dex.md`; `crates/node/tests/dex_tests.rs` pins it.
+   *Amended 2026-11-24 (ADR-154):* losing a slot in a full batch to a better
+   bid, and a route whose path conflicts with a route that joined the clearing
+   ahead of it in fee order, are losses of this kind;
+   `crates/node/tests/dex_fairness_tests.rs` pins both. A refunded route is in
+   no clearing pass, so it cannot turn another route's success into a loss
+   (`a_doomed_route_cannot_void_an_honest_route_on_a_pool_it_skewed`).
 8. **Every trading record's prior value goes in the undo journal.** A reorg that
    left a pool holding the abandoned chain's reserves is not a detectable
    corruption — it is two plausible numbers that go on quoting a price. The same

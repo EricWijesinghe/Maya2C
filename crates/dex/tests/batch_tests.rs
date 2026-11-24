@@ -4,7 +4,7 @@
 
 use maya_amount::Amount;
 use maya_dex::amm::Pool;
-use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};
+use maya_dex::batch::{MAX_CLEARING_INTENTS, SwapIntent, clear_batch};
 use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;
 use maya_dex::types::{Direction, PRICE_SCALE};
@@ -339,13 +339,20 @@ fn shares_are_untouched_by_trading() {
     assert!(outcome.pool.k() > pool.k());
 }
 
+/// A distinct identifier per index, past 255 too.
+fn id_of(i: usize) -> [u8; 32] {
+    let mut id = [0u8; 32];
+    id[..8].copy_from_slice(&(i as u64).to_le_bytes());
+    id
+}
+
 #[test]
 fn a_batch_larger_than_the_ceiling_is_refused() {
     let pool = seeded(1_000_000_000, 1_000_000_000, FREE);
-    let intents: Vec<SwapIntent> = (0..=MAX_BATCH_INTENTS)
+    let intents: Vec<SwapIntent> = (0..=MAX_CLEARING_INTENTS)
         .map(|i| SwapIntent {
-            id: [i as u8; 32],
-            trader: [i as u8; 32],
+            id: id_of(i),
+            trader: id_of(i),
             direction: Direction::BaseToQuote,
             amount_in: a(1_000),
             min_out: Amount::ZERO,

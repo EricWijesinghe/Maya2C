@@ -27,6 +27,9 @@ core design.
    The attacker's sandwich profit goes from growing with size to a loss of a
    rounding unit. `exploit_replays.rs::a_sandwich_around_a_batch_clears_at_one_price`
    pins it on the real apply path.
+   *Amended 2026-11-24 (ADR-154):* routes now settle in the same batches, one
+   clearing per pool per block, so the same holds for a sandwich built from
+   routes; `dex_fairness_tests.rs::a_route_cannot_be_sandwiched_*` pins it.
 2. **The sealed (threshold-encrypted) mempool** (`crates/mev`,
    `state::sealed_exec`). The producer who includes an envelope at height *h*
    cannot read it until `reveal_height > h`. It is **optional per network**:

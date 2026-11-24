@@ -395,7 +395,17 @@ impl StateDB {
                 .try_into()
                 .expect("a 32-byte identifier has eight leading bytes"),
         );
-        self.apply_kind_for(overlay, sender, nonce, kind, context)
+        // A sealed trade was ordered blocks ago and cannot rebid, so a full
+        // DEX batch never evicts it for a plaintext one (ADR-154); the
+        // per-sender share cap still bounds how many one sender holds.
+        self.apply_kind_for(
+            overlay,
+            sender,
+            nonce,
+            kind,
+            context,
+            primitive_types::U256::MAX,
+        )
     }
 }
 

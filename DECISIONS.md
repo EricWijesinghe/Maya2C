@@ -919,3 +919,13 @@ Eric pre-approved Claude's recommendation (2026-11-17) to move PR #584 into re-f
 - **FEE-7 vectors** now include refused cases (`share_fee`, `FeeTooLow`) replayed against the node's `required_fee`; the rule is no longer tagged positive-only. A fee-free share's auth bytes stay bounded by `MAX_SIGNERS` and the share and block caps, not by the fee (recorded in ADR-144).
 - **Confidential-AI** participants refuse a second share set and a second masked input per instance (RESEARCH crate, not consensus).
 - **Dropped from #584 as duplicates or conflicts:** the settlement range recheck is carried by #575; the work-claim schedule refusal conflicts with #570/#506, which make unimplemented bits halt at activation rather than refuse at construction.
+
+## 2026-11-24 — DEX: one clearing per pool per block, and a batch open to a better bid (Eric 2026-11-24)
+
+Eric 2026-11-24 chose the recommended option for both DEX items (second round, decisions 9 and 10). Recorded in [ADR-154](docs/adr/ADR-154-dex-one-clearing-per-pool.md); spec DEX-1 to DEX-4.
+
+- **SwapRoute sandwich (decision 9):** routes are staged like swaps and every pool clears exactly once per block, routes' legs in the same uniform-price batch as plain swaps, pools in a topological order of the routes' paths. Nobody can trade in front of a route. A route that would need a pool to clear twice (a cycle with a route that already joined) is a no-op; a route naming one pool twice is refused. At most 64 routes per block.
+- **Routes join in fee order, one at a time (review of #699, within decisions 9 and 10, Eric 2026-11-24):** a route joins the clearing only if the whole set, itself included, still settles; otherwise it is refunded and is in no pass. A refunded route therefore leaves no trace, and only a better-paying route that settles can keep a route out. Replaces identifier-order admission decided once and removing every failing route per pass, which let a route doomed to a refund void an honest one. Removing only the route that fails at the latest pool was rejected: a victim whose last leg comes after the attacker's failing pool is removed first.
+- **256-intent cap (decision 10):** a full batch evicts its cheapest intent (fee paid to the collector, then reverse identifier) for a better-paying one and refunds it; a lower bid is a no-op, never a block error. One sender holds at most 16 of a pair's batch and 4 of a block's routes.
+- **Sealed reveals rank above plaintext intents** for eviction (Claude's choice inside decision 10: a sealed trade cannot rebid). Eric may override.
+- **Consensus change, pre-genesis re-freeze:** state roots differ for any block with a route; the testnet needs a re-genesis to carry it.

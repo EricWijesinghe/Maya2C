@@ -30,15 +30,18 @@
 //! price per pool. See [`maya_dex::batch`] for what that buys and what it does
 //! not.
 //!
-//! Routes are the exception and execute in place — they are the arbitrage path,
-//! and there is nothing to net a multi-hop trade against.
+//! Routes are staged the same way. Every leg of every route clears in its
+//! pool's one batch, beside the plain swaps there, so no trade in a block can
+//! sit in front of a route ([`maya_dex::clearing`], ADR-154).
 
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use maya_dex::Amount;
 use maya_dex::amm::Pool;
-use maya_dex::batch::{MAX_BATCH_INTENTS, SwapIntent, clear_batch};
+use maya_dex::batch::{BatchOutcome, MAX_BATCH_INTENTS, SwapIntent};
 use maya_dex::book::{Book, Order, OrderId, Side, quote_for_base};
+use maya_dex::clearing::{MAX_BLOCK_ROUTES, RouteHop, RouteIntent, clear_block};
 use maya_dex::error::DexError;
 use maya_dex::fees::FeeSchedule;
 use maya_dex::matching::{MatchLimits, match_book};
@@ -109,6 +112,29 @@ pub const MAX_ORDERS_PER_BOOK: u64 = 4_096;
 ///
 /// Governed by [`ParameterKey::DexMaxFillsPerBlock`]; this is its default.
 pub const MAX_FILLS_PER_BLOCK: usize = 1_024;
+
+/// Most of one pair's batch a single sender may hold in one block: a
+/// sixteenth, so filling a pair takes at least sixteen funded accounts, each
+/// of which a better-paying trader can still evict (ADR-154).
+pub const MAX_INTENTS_PER_SENDER: usize = MAX_BATCH_INTENTS / 16;
+
+/// Most of the block's routes a single sender may hold: a sixteenth of
+/// [`MAX_BLOCK_ROUTES`], for the same reason (ADR-154).
+pub const MAX_ROUTES_PER_SENDER: usize = MAX_BLOCK_ROUTES / 16;
+
+/// A route waiting for the block's clearing, with what the node needs to pay
+/// it out or refund it.
+#[derive(Clone, Debug)]
+pub(crate) struct StagedRoute {
+    /// The engine's view of it.
+    pub(crate) intent: RouteIntent,
+    /// Asset taken into escrow, and refunded if the route does not settle.
+    pub(crate) input: AssetId,
+    /// Asset paid out if it does.
+    pub(crate) output: AssetId,
+    /// What its transaction paid: the eviction weight.
+    pub(crate) fee: primitive_types::U256,
+}
 
 /// Stored width of a dex counter: a little-endian `u64`, unchanged by ADR-046
 /// because a sequence number or order count is not a monetary amount.
@@ -652,6 +678,14 @@ impl StateDB {
     /// [`StateDB::settle_trading`], after every transaction in the block has
     /// been staged, at one price for everyone — which is the whole reason a
     /// swap does not execute where it sits.
+    ///
+    /// A full batch stays open to a better bid (ADR-154). The new intent takes
+    /// the place of the cheapest staged one — lowest `fee`, ties to the larger
+    /// identifier — when it ranks above it, and the evicted intent's input goes
+    /// straight back. An intent that ranks below is a no-op that moves nothing:
+    /// it lost a race, not a block (invariant 7). One sender holds at most
+    /// [`MAX_INTENTS_PER_SENDER`] of a pair's batch, so a pair cannot be filled
+    /// from one account.
     pub(crate) fn stage_swap(
         &self,
         overlay: &mut Overlay,
@@ -659,6 +693,7 @@ impl StateDB {
         nonce: u64,
         request: &SwapRequest,
         context: BlockContext,
+        fee: U256,
     ) -> Result<()> {
         Self::check_deadline(request.deadline, context)?;
 
@@ -673,21 +708,57 @@ impl StateDB {
         }
 
         let record = self.require_pool(overlay, &request.pair)?;
-        let staged = overlay.swaps.entry(request.pair).or_default();
-        if staged.len() >= MAX_BATCH_INTENTS {
+        let id = derive_intent_id(sender, nonce);
+        let staged = overlay
+            .swaps
+            .get(&request.pair)
+            .map_or(&[][..], Vec::as_slice);
+        let held = staged
+            .iter()
+            .filter(|intent| intent.trader == *sender)
+            .count();
+        if held >= MAX_INTENTS_PER_SENDER {
             return Err(NodeError::TooManySwaps {
                 pair: hex::encode(request.pair),
-                limit: MAX_BATCH_INTENTS,
+                limit: MAX_INTENTS_PER_SENDER,
             });
         }
+        if staged.len() >= MAX_BATCH_INTENTS {
+            let weight = |intent: &SwapIntent| {
+                let paid = overlay
+                    .intent_fees
+                    .get(&intent.id)
+                    .copied()
+                    .unwrap_or_default();
+                (paid, Reverse(intent.id))
+            };
+            let Some(cheapest) = staged.iter().copied().min_by_key(|intent| weight(intent)) else {
+                return Ok(());
+            };
+            if (fee, Reverse(id)) <= weight(&cheapest) {
+                // Outbid: a no-op. Nothing was taken, so nothing goes back.
+                return Ok(());
+            }
+            if let Some(batch) = overlay.swaps.get_mut(&request.pair) {
+                batch.retain(|intent| intent.id != cheapest.id);
+            }
+            overlay.intent_fees.remove(&cheapest.id);
+            let refund = input_asset(&record, cheapest.direction);
+            self.credit_asset(overlay, &refund, &cheapest.trader, cheapest.amount_in)?;
+        }
 
-        staged.push(SwapIntent {
-            id: derive_intent_id(sender, nonce),
-            trader: *sender,
-            direction,
-            amount_in: to_amount(request.amount_in),
-            min_out: to_amount(request.min_out),
-        });
+        overlay
+            .swaps
+            .entry(request.pair)
+            .or_default()
+            .push(SwapIntent {
+                id,
+                trader: *sender,
+                direction,
+                amount_in: to_amount(request.amount_in),
+                min_out: to_amount(request.min_out),
+            });
+        overlay.intent_fees.insert(id, fee);
         overlay.touched_pairs.insert(request.pair);
 
         // The input leaves the trader now and is held by the batch. Taking it
@@ -697,18 +768,26 @@ impl StateDB {
         self.debit_asset(overlay, &input, sender, request.amount_in)
     }
 
-    /// Executes an atomic multi-hop swap.
+    /// Takes a route's input into escrow and stages it for the block's
+    /// clearing (ADR-154).
     ///
-    /// Every leg is computed before anything is written, so a route that misses
-    /// its bound leaves no trace at all. It is a no-op rather than an error for
-    /// the reason at the top of this module: two arbitrageurs racing one
-    /// opportunity is normal, and the loser must not invalidate the block.
-    pub(crate) fn execute_route(
+    /// Nothing is priced here either. Every leg settles in
+    /// [`StateDB::settle_trading`], in the one batch its pool clears in, beside
+    /// every plain swap and every other route on that pool — so no trade in
+    /// the block can sit in front of a route. All legs settle or the route is
+    /// refunded whole; a route that misses its bound is a no-op (invariant 7).
+    ///
+    /// Wrong, and therefore an error: an unknown direction, a pool that does
+    /// not exist, legs that do not join up, or a pool visited twice — each pool
+    /// clears once per block, so a revisiting route could never execute.
+    pub(crate) fn stage_route(
         &self,
         overlay: &mut Overlay,
         sender: &Address,
+        nonce: u64,
         route: &SwapRoute,
         context: BlockContext,
+        fee: U256,
     ) -> Result<()> {
         Self::check_deadline(route.deadline, context)?;
         if route.amount_in.is_zero() {
@@ -718,106 +797,101 @@ impl StateDB {
             });
         }
 
-        // Computed against copies. Nothing below writes until every leg has
-        // succeeded and the bound has been met.
-        let mut pools: Vec<(PairId, PoolRecord)> = Vec::with_capacity(route.legs.len());
-        let mut fees: Vec<(AssetId, Amount)> = Vec::new();
-        // What the route ends up holding after the leg just executed, and what
-        // it started from. The second is not derivable from the first once the
-        // path has moved on, and the sender is debited in it.
-        let mut current_asset: Option<AssetId> = None;
-        let mut route_input: Option<AssetId> = None;
-        let mut amount = to_amount(route.amount_in);
+        let (hops, input, output) = self.route_path(overlay, route)?;
 
+        let held = overlay
+            .routes
+            .iter()
+            .filter(|staged| staged.intent.trader == *sender)
+            .count();
+        if held >= MAX_ROUTES_PER_SENDER {
+            return Err(NodeError::Trade {
+                operation: "route",
+                reason: format!(
+                    "sender already holds {MAX_ROUTES_PER_SENDER} routes in this block"
+                ),
+            });
+        }
+        let id = derive_intent_id(sender, nonce);
+        if overlay.routes.len() >= MAX_BLOCK_ROUTES {
+            let Some(index) = overlay
+                .routes
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, staged)| (staged.fee, Reverse(staged.intent.id)))
+                .map(|(index, _)| index)
+            else {
+                return Ok(());
+            };
+            let cheapest = &overlay.routes[index];
+            if (fee, Reverse(id)) <= (cheapest.fee, Reverse(cheapest.intent.id)) {
+                // Outbid: a no-op, as for a swap.
+                return Ok(());
+            }
+            let evicted = overlay.routes.remove(index);
+            self.credit_asset(
+                overlay,
+                &evicted.input,
+                &evicted.intent.trader,
+                evicted.intent.amount_in,
+            )?;
+        }
+
+        overlay.routes.push(StagedRoute {
+            intent: RouteIntent {
+                id,
+                trader: *sender,
+                hops,
+                amount_in: to_amount(route.amount_in),
+                min_out: to_amount(route.min_out),
+                weight: to_amount(fee),
+            },
+            input,
+            output,
+            fee,
+        });
+        self.debit_asset(overlay, &input, sender, route.amount_in)
+    }
+
+    /// A route's hops and the assets it starts and ends in, or why it is
+    /// malformed.
+    fn route_path(
+        &self,
+        overlay: &Overlay,
+        route: &SwapRoute,
+    ) -> Result<(Vec<RouteHop>, AssetId, AssetId)> {
+        let mut hops: Vec<RouteHop> = Vec::with_capacity(route.legs.len());
+        let mut first: Option<AssetId> = None;
+        let mut current: Option<AssetId> = None;
         for (index, leg) in route.legs.iter().enumerate() {
             let direction = Direction::from_tag(leg.direction).ok_or_else(|| {
                 NodeError::Decode(format!("unknown swap direction {}", leg.direction))
             })?;
-
-            // A leg may hit a pool an earlier leg already moved — a route that
-            // revisits a pool is legal and prices the second visit against the
-            // first, which is what makes a two-leg round trip lose money
-            // rather than being free.
-            let mut record =
-                if let Some((_, record)) = pools.iter().find(|(pair, _)| *pair == leg.pair) {
-                    *record
-                } else {
-                    let stored = self.require_pool(overlay, &leg.pair)?;
-                    // A pool that cannot carry the governed rate is a route
-                    // that does not pay, like an unpriceable leg: no write.
-                    let Some(priced) = self.priced(overlay, &stored)? else {
-                        return Ok(());
-                    };
-                    priced
-                };
-
+            let record = self.require_pool(overlay, &leg.pair)?;
             let input = input_asset(&record, direction);
-            match current_asset {
-                None => route_input = Some(input),
+            match current {
+                None => first = Some(input),
                 Some(expected) if expected == input => {}
                 Some(_) => return Err(NodeError::RouteDiscontinuity { leg: index }),
             }
-
-            let outcome = match record.pool.swap_exact_in(direction, amount) {
-                Ok(outcome) => outcome,
-                // A leg the curve cannot price is a route that does not pay,
-                // not a malformed transaction.
-                Err(_) => return Ok(()),
-            };
-
-            if !outcome.protocol_fee.is_zero() {
-                fees.push((input, outcome.protocol_fee));
+            if hops.iter().any(|hop| hop.pair == leg.pair) {
+                return Err(NodeError::Trade {
+                    operation: "route",
+                    reason: "a route visits each pool at most once".to_string(),
+                });
             }
-            record.pool = outcome.pool;
-            amount = outcome.amount_out;
-            current_asset = Some(output_asset(&record, direction));
-
-            match pools.iter_mut().find(|(pair, _)| *pair == leg.pair) {
-                Some(slot) => slot.1 = record,
-                None => pools.push((leg.pair, record)),
-            }
+            current = Some(output_asset(&record, direction));
+            hops.push(RouteHop {
+                pair: leg.pair,
+                direction,
+            });
         }
-
-        if amount < to_amount(route.min_out) {
-            // Lost the race. Nothing has been written, and nothing will be.
-            return Ok(());
-        }
-
         // Both are set by the first leg, and the decoder rejects a route with
         // no legs, so neither can be absent here.
-        let (Some(final_asset), Some(first_asset)) = (current_asset, route_input) else {
-            return Err(NodeError::RouteDiscontinuity { leg: 0 });
-        };
-
-        // An earlier transaction in this block can push a pool to the edge, so
-        // this is a route that does not pay, like an unpriceable leg: no write.
-        if !pools
-            .iter()
-            .all(|(_, record)| has_usable_price(&record.pool))
-        {
-            return Ok(());
+        match (first, current) {
+            (Some(input), Some(output)) => Ok((hops, input, output)),
+            _ => Err(NodeError::RouteDiscontinuity { leg: 0 }),
         }
-
-        self.debit_asset(overlay, &first_asset, sender, route.amount_in)?;
-        self.credit_asset(overlay, &final_asset, sender, amount)?;
-        for (asset, fee) in &fees {
-            self.credit_asset(overlay, asset, &FEE_SINK, *fee)?;
-        }
-        for (pair, record) in &pools {
-            // The chain's protocol rate is never written into a stored pool:
-            // it belongs to the parameter table, and a copy in each record
-            // would outlive the decision that set it.
-            let stored = PoolRecord {
-                pool: Pool {
-                    fees: FeeSchedule::new(record.pool.fees.lp_bps, DEFAULT_PROTOCOL_FEE_BPS)
-                        .map_err(|error| trade_error("pool pricing", error))?,
-                    ..record.pool
-                },
-                ..*record
-            };
-            Self::store_pool(overlay, pair, &stored);
-        }
-        Ok(())
     }
 
     // -------------------------------------------------------------- orders
@@ -971,19 +1045,20 @@ impl StateDB {
 
     // ------------------------------------------------------- end of block
 
-    /// Settles every pool the block touched: batches first, then books.
+    /// Settles every trade the block staged, then every book it touched.
     ///
-    /// Pools are visited in identifier order, which is a property of the set
-    /// and not of the block, so no arrangement of transactions changes the
-    /// order this runs in.
+    /// Each pool clears exactly once, plain swaps and route legs together, in
+    /// an order fixed by the set of intents rather than by the block
+    /// ([`maya_dex::clearing`], ADR-154). Books follow in identifier order;
+    /// they never touch a pool's reserves, so they need not interleave.
     pub(crate) fn settle_trading(
         &self,
         overlay: &mut Overlay,
         context: BlockContext,
     ) -> Result<()> {
+        self.clear_trades(overlay)?;
         let pairs: Vec<PairId> = overlay.touched_pairs.iter().copied().collect();
         for pair in pairs {
-            self.settle_batch(overlay, &pair)?;
             self.settle_book(overlay, &pair, context)?;
         }
         Ok(())
@@ -1003,39 +1078,91 @@ impl StateDB {
         Ok(())
     }
 
-    /// Clears one pool's swaps at a single price.
-    fn settle_batch(&self, overlay: &mut Overlay, pair: &PairId) -> Result<()> {
-        let Some(intents) = overlay.swaps.remove(pair) else {
-            return Ok(());
-        };
-        if intents.is_empty() {
+    /// Runs the block's one clearing and writes what it settled.
+    fn clear_trades(&self, overlay: &mut Overlay) -> Result<()> {
+        let swaps = std::mem::take(&mut overlay.swaps);
+        let routes = std::mem::take(&mut overlay.routes);
+        overlay.intent_fees.clear();
+        if swaps.is_empty() && routes.is_empty() {
             return Ok(());
         }
 
-        let mut record = self.require_pool(overlay, pair)?;
+        // Every pool an intent names, as stored and as priced with the chain's
+        // current protocol rate, which the stored record deliberately does not
+        // carry. A pool that cannot carry the governed rate is left out of the
+        // priced set: its batch is refunded and a route through it is a no-op,
+        // rather than one pool's fee schedule halting the chain. Storage
+        // errors are not that case and still fail the block.
+        let named = swaps.keys().copied().chain(
+            routes
+                .iter()
+                .flat_map(|staged| staged.intent.hops.iter().map(|hop| hop.pair)),
+        );
+        let mut stored: BTreeMap<PairId, PoolRecord> = BTreeMap::new();
+        let mut priced: BTreeMap<PairId, Pool> = BTreeMap::new();
+        for pair in named {
+            if stored.contains_key(&pair) {
+                continue;
+            }
+            let record = self.require_pool(overlay, &pair)?;
+            if let Some(carried) = self.priced(overlay, &record)? {
+                priced.insert(pair, carried.pool);
+            }
+            stored.insert(pair, record);
+        }
 
-        // Priced with the chain's current protocol rate, which the stored
-        // record deliberately does not carry. A governed rate the pool cannot
-        // carry refunds the batch: halting the block would let one pool's
-        // fee schedule stop every transaction in the chain. Storage errors
-        // are not that case and still fail the block.
-        let Some(priced) = self.priced(overlay, &record)? else {
-            return self.refund_batch(overlay, &record, &intents);
-        };
-        // A batch that would leave the pool with no usable price is refused the
-        // same way: the pair would otherwise refund every later batch for good.
-        let cleared = clear_batch(&priced.pool, &intents)
-            .ok()
-            .filter(|outcome| has_usable_price(&outcome.pool));
-        let outcome = match cleared {
-            Some(outcome) => outcome,
-            // The pool cannot price this batch at all — it has been drained of
-            // liquidity, most likely by a withdrawal in the same block. Every
-            // trader gets their input back. Refusing the block instead would
-            // let a withdrawal invalidate everybody else's transactions.
-            None => return self.refund_batch(overlay, &record, &intents),
-        };
+        let intents: Vec<RouteIntent> = routes.iter().map(|staged| staged.intent.clone()).collect();
+        let clearing = clear_block(&priced, &swaps, &intents)
+            .map_err(|error| trade_error("block clearing", error))?;
 
+        for cleared in &clearing.pools {
+            let Some(record) = stored.get(&cleared.pair).copied() else {
+                continue;
+            };
+            let staged = swaps.get(&cleared.pair).map_or(&[][..], Vec::as_slice);
+            match &cleared.outcome {
+                // The pool cannot price this batch at all — drained, most
+                // likely by a withdrawal in the same block. Every trader gets
+                // their input back; refusing the block instead would let a
+                // withdrawal invalidate everybody else's transactions.
+                None => self.refund_batch(overlay, &record, staged)?,
+                Some(outcome) => {
+                    self.write_cleared_batch(overlay, &cleared.pair, record, staged, outcome)?;
+                }
+            }
+        }
+
+        for settled in &clearing.routes {
+            let Some(staged) = routes.iter().find(|staged| staged.intent.id == settled.id) else {
+                continue;
+            };
+            match settled.amount_out {
+                Some(amount) => {
+                    self.credit_asset(overlay, &staged.output, &staged.intent.trader, amount)?;
+                }
+                // Refunded whole: a bound missed, a leg unpriceable, or an
+                // order another route had already fixed. A no-op either way.
+                None => self.credit_asset(
+                    overlay,
+                    &staged.input,
+                    &staged.intent.trader,
+                    staged.intent.amount_in,
+                )?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Writes one pool's cleared batch: payouts, refunds, the protocol's cut,
+    /// and the new reserves.
+    fn write_cleared_batch(
+        &self,
+        overlay: &mut Overlay,
+        pair: &PairId,
+        mut record: PoolRecord,
+        intents: &[SwapIntent],
+        outcome: &BatchOutcome,
+    ) -> Result<()> {
         for trade in &outcome.cleared {
             let asset = output_asset(&record, trade.direction);
             self.credit_asset(overlay, &asset, &trade.trader, trade.amount_out)?;
@@ -1249,15 +1376,12 @@ fn output_asset(record: &PoolRecord, direction: Direction) -> AssetId {
     }
 }
 
-/// Whether `pool` is empty or keeps a price batches can clear at: nonzero and
-/// within 256 bits. A funded pool past either edge refunds every batch on its
-/// pair for good, and the pair id cannot be reused (#279 review, DECISIONS
-/// 2026-11-01), so no state transition may leave one behind.
-fn has_usable_price(pool: &Pool) -> bool {
-    !pool.is_funded() || pool.spot_price().is_ok_and(|price| !price.is_zero())
-}
-
-/// [`has_usable_price`] as a refusal, for transactions that execute in place.
+/// Refuses a funded pool left without a price batches can clear at: nonzero
+/// and within 256 bits. Such a pool refunds every batch on its pair for good,
+/// and the pair id cannot be reused (#279 review, DECISIONS 2026-11-01), so no
+/// state transition may leave one behind. For transactions that execute in
+/// place; the end-of-block clearing applies the same test
+/// (`maya_dex::clearing`).
 fn ensure_priced(pool: &Pool, operation: &'static str) -> Result<()> {
     if !pool.is_funded() {
         return Ok(());
