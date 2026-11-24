@@ -5,13 +5,15 @@ use std::collections::BTreeMap;
 use crate::Address;
 use crate::stf::Account;
 
-/// ROOT-1: `blake3(0x00 ‖ address ‖ balance_le256 ‖ nonce_le64)`.
+/// ROOT-1: `blake3(0x00 ‖ address ‖ balance_le256 ‖ nonce_le64 ‖ auth_kind)`,
+/// `auth_kind` 0 for every account a transfer touches (ADR-155, P7).
 #[must_use]
 pub fn account_leaf(address: &Address, account: &Account) -> [u8; 32] {
     let mut bytes = vec![0x00];
     bytes.extend_from_slice(address);
     bytes.extend_from_slice(&account.balance.to_le_bytes());
     bytes.extend_from_slice(&account.nonce.to_le_bytes());
+    bytes.push(0x00);
     *blake3::hash(&bytes).as_bytes()
 }
 

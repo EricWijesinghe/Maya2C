@@ -15,6 +15,7 @@
 //! are specified by FIPS 204/205 and checked by their own KATs.
 
 pub mod balance;
+pub mod bft;
 pub mod consensus;
 pub mod fees;
 pub mod header;

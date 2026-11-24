@@ -90,7 +90,7 @@ fn write_chain(file: &mut impl Write) -> [u8; 32] {
             )
         })
         .collect();
-    let leaves = |state: &BTreeMap<Key, AccountState>| -> Vec<([u8; 32], [u8; 40])> {
+    let leaves = |state: &BTreeMap<Key, AccountState>| -> Vec<([u8; 32], [u8; 41])> {
         state.iter().map(|(k, v)| (*k, v.encode())).collect()
     };
     let genesis = sparse::root(&Blake3, &leaves(&state)).expect("root");

@@ -924,6 +924,16 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
 
+## 2026-11-24 — Format room before genesis: evidence at any block size, versioned certificates, account auth kind, proof version (Eric 2026-11-24)
+
+Eric 2026-11-24: every ceiling another network might one day need is closed before genesis, and each fix is a guarantee the chain makes from block 0. ADR-155.
+
+- **Double-signing is provable at any block size (NEW-1).** The vertex digest hashes a parents root and a batch root (CON-18), so equivocation evidence is two signed vertex headers, at most 8,293 bytes each. Before, two full-batch proposals made an 8,415,023-byte report against the 4 MiB transaction cap: the offence could not be filed.
+- **Certificates name their format; ids fit any committee (C2, NEW-7).** A certificate record starts with version byte 1; every validator id on the BFT wire is four bytes, and the digest hashes the author as four. This build's index stays 16-bit and refuses a wider id at decode (CON-19). Broadcast and no-sender are `0xFFFFFFFF` on the wire, never an id at any width, so `0x0000FFFF` stays validator 65,535 after the widening (PR #696 review). Gossip frame version 2.
+- **Accounts carry an auth kind (P7).** The record is 41 bytes, the last byte 0 (the address's own key) and refused otherwise; the byte is in every state leaf (ROOT-1). The stateless leaf value follows (41 bytes).
+- **STARK proofs carry a version byte (P3).** Byte 1 before the Plonky3 encoding; another version is refused before decoding.
+- **Takes effect at the re-genesis.** Block ids, state roots, the genesis id and certificate bytes change; the testnet re-genesises with the rest of the re-freeze.
+- **Not changed here:** the block attestation frame still carries a two-byte validator index (attestation evidence is #680/#686's).
 ## 2026-11-24 — An unnamed shielded pool is off; the fee spec states the node's burn-all split (Eric 2026-11-24, P4 and FEE-1)
 
 - **P4 (guarantee: the pool runs only where a genesis turns it on by name).** `GenesisConfig::shielded_activation()` reads an absent `shielded_activation_height` as `SHIELDED_NEVER`, not block zero. The genesis id rule is unchanged (absent folds nothing). The ceremony now always names the field (`u64::MAX` for an unaudited value-bearing chain, `0` otherwise). Red first: `genesis_tests::a_genesis_that_names_no_shielded_activation_keeps_the_pool_off` failed on master with `left: 0, right: 18446744073709551615`. ADR-037 amendment 2026-11-24. A testnet genesis without the field now runs the pool off; the testnet re-genesis (CT-05) uses a ceremony file that names `0`.

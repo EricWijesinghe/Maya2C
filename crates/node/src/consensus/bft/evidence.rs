@@ -10,31 +10,20 @@
 //! the usual evidence age limit (Cosmos ties it to the unbonding period
 //! too), so file promptly. The file must outlive a restart.
 
-use maya_dag_bft::{Equivocation, Message};
+use maya_dag_bft::Equivocation;
 
-use super::wire::{BROADCAST, Envelope};
+use super::wire::encode_signed_header;
 use crate::core::staking_payload::StakingAction;
 use crate::error::{NodeError, Result};
 
-fn frame(vertex: &maya_dag_bft::Vertex, signature: &[u8]) -> Vec<u8> {
-    Envelope {
-        epoch: vertex.epoch,
-        from: vertex.author,
-        to: BROADCAST,
-        message: Message::Propose {
-            vertex: vertex.clone(),
-            signature: signature.to_vec(),
-        },
-    }
-    .encode()
-}
-
-/// The two conflicting proposals as the staking module expects them.
+/// The two conflicting proposals as the staking module expects them: each a
+/// signed vertex header, so the report is a few kilobytes at any block size
+/// (NEW-1, ADR-155).
 #[must_use]
 pub fn report(evidence: &Equivocation) -> StakingAction {
     StakingAction::ReportEquivocation {
-        first: frame(&evidence.first, &evidence.first_signature),
-        second: frame(&evidence.second, &evidence.second_signature),
+        first: encode_signed_header(&evidence.first, &evidence.first_signature),
+        second: encode_signed_header(&evidence.second, &evidence.second_signature),
     }
 }
 
@@ -100,9 +89,9 @@ mod tests {
 
     fn pair() -> Equivocation {
         Equivocation {
-            first: vertex(7, 1),
+            first: vertex(7, 1).header(),
             first_signature: vec![9; 4],
-            second: vertex(7, 2),
+            second: vertex(7, 2).header(),
             second_signature: vec![8; 4],
         }
     }
@@ -115,11 +104,13 @@ mod tests {
         let StakingAction::ReportEquivocation { first, second } = action else {
             panic!("wrong action");
         };
-        for (bytes, want) in [(first, &e.first), (second, &e.second)] {
-            match Envelope::decode(&bytes).unwrap().message {
-                Message::Propose { vertex, .. } => assert_eq!(&vertex, want),
-                _ => panic!("not a proposal"),
-            }
+        for (bytes, want, sig) in [
+            (first, &e.first, &e.first_signature),
+            (second, &e.second, &e.second_signature),
+        ] {
+            let (header, signature) = super::super::wire::decode_signed_header(&bytes).unwrap();
+            assert_eq!(&header, want);
+            assert_eq!(&signature, sig);
         }
         assert_eq!(file_name(&e), "equivocation-e2-r7-v3.hex");
     }

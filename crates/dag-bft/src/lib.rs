@@ -41,4 +41,7 @@ pub use nakamoto::{ForkChoice, GENESIS, WorkBlock};
 pub use validator::{
     BUFFER_ROUNDS, Dest, GC_DEPTH, LONE_PAYLOAD_BYTES, Message, Output, Params, Validator,
 };
-pub use vertex::{Certificate, Committee, Digest, Payload, ValidatorId, Vertex};
+pub use vertex::{
+    Certificate, Committee, Digest, Payload, ValidatorId, Vertex, VertexHeader, batch_root,
+    parents_root,
+};

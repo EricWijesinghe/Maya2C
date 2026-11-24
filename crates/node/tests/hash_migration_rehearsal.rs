@@ -70,6 +70,8 @@ fn leaf(hash: Hash, addr: &Address, a: &Account) -> [u8; 32] {
             b
         },
         &a.nonce.to_le_bytes(),
+        // ROOT-1's auth kind (ADR-155): 0, the address's own key.
+        &[custom_l1_node::state::AUTH_KIND_KEY],
     ])
 }
 

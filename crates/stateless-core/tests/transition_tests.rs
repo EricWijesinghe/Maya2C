@@ -44,11 +44,13 @@ fn the_account_encoding_is_balance_then_nonce_little_endian() {
         nonce: 2,
     }
     .encode();
-    // ADR-046: a 32-byte little-endian U256 balance, then the u64 nonce.
+    // ADR-046: a 32-byte little-endian U256 balance, then the u64 nonce;
+    // ADR-155: then auth kind 0.
     let mut one = [0u8; 32];
     one[0] = 1;
     assert_eq!(encoded[..32], one);
-    assert_eq!(encoded[32..], 2u64.to_le_bytes());
+    assert_eq!(encoded[32..40], 2u64.to_le_bytes());
+    assert_eq!(encoded[40..], [0]);
     assert_eq!(
         AccountState::decode(&encoded),
         AccountState {

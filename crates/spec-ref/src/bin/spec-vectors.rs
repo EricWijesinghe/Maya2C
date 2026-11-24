@@ -679,6 +679,80 @@ fn verification_cases() -> Vec<Value> {
     .collect()
 }
 
+/// CON-18 (vertex digest over parents and batch roots) and CON-19 (the
+/// versioned certificate record with four-byte ids), ADR-155.
+fn bft_format_cases() -> Vec<Value> {
+    use maya_spec_ref::bft::{self, Vertex};
+    let parents = [[1u8; 32], [2; 32], [4; 32]];
+    let batch = vec![vec![0xaa; 10], vec![], vec![0xbb; 3]];
+    let full = Vertex {
+        epoch: 5,
+        round: 3,
+        author: 2,
+        timestamp_ms: 11,
+        parents: &parents,
+        batch: &batch,
+    };
+    let empty = Vertex {
+        epoch: 0,
+        round: 0,
+        author: 0,
+        timestamp_ms: 0,
+        parents: &[],
+        batch: &[],
+    };
+    let vertex_json = |v: &Vertex<'_>| {
+        json!({
+            "epoch": v.epoch.to_string(),
+            "round": v.round.to_string(),
+            "author": v.author.to_string(),
+            "timestamp_ms": v.timestamp_ms.to_string(),
+            "parents": v.parents.iter().map(|p| hex(p)).collect::<Vec<_>>(),
+            "batch": v.batch.iter().map(|t| hex(t)).collect::<Vec<_>>(),
+        })
+    };
+    let digest = |id: &str, v: &Vertex<'_>| {
+        json!({"id": id, "rules": ["CON-18"], "fn": "vertex_digest", "vertex": vertex_json(v),
+            "expect": {"result": "ok", "parents_root": hex(&bft::parents_root(v.parents)),
+                "batch_root": hex(&bft::batch_root(v.batch)), "digest": hex(&bft::vertex_digest(v))}})
+    };
+    let votes = vec![(0u32, vec![1u8; 5]), (1, vec![2; 5]), (3, vec![3; 5])];
+    let record = bft::certificate_record(&full, &votes);
+    let mut unknown_version = record.clone();
+    unknown_version[0] = 2;
+    // The author follows the version byte, epoch and round.
+    let mut wide_author = record.clone();
+    wide_author[17..21].copy_from_slice(&0x0001_0000u32.to_le_bytes());
+    // All ones is the wire's broadcast / no-sender value, never a validator.
+    let mut all_ones_author = record.clone();
+    all_ones_author[17..21].copy_from_slice(&u32::MAX.to_le_bytes());
+    // 0x0000FFFF is the ordinary id 65,535, not the broadcast value.
+    let votes_65535 = vec![(0xFFFFu32, vec![4u8; 5])];
+    let record_65535 = bft::certificate_record(&full, &votes_65535);
+    let bad = |id: &str, bytes: &[u8]| {
+        json!({"id": id, "rules": ["CON-19"], "fn": "certificate_record", "bytes": hex(bytes),
+            "expect": {"result": "error", "error": "Decode"}})
+    };
+    vec![
+        digest("vertex-digest-genesis", &empty),
+        digest("vertex-digest-with-parents-and-batch", &full),
+        json!({"id": "certificate-record-v1", "rules": ["CON-19"], "fn": "certificate_record",
+            "vertex": vertex_json(&full),
+            "votes": votes.iter().map(|(v, s)| json!({"voter": v.to_string(), "signature": hex(s)})).collect::<Vec<_>>(),
+            "bytes": hex(&record), "expect": {"result": "ok"}}),
+        bad("certificate-record-unknown-version", &unknown_version),
+        bad("certificate-record-id-wider-than-u16", &wide_author),
+        bad(
+            "certificate-record-author-all-ones-is-not-an-id",
+            &all_ones_author,
+        ),
+        json!({"id": "certificate-record-voter-0x0000ffff-is-ordinary", "rules": ["CON-19"],
+            "fn": "certificate_record", "vertex": vertex_json(&full),
+            "votes": votes_65535.iter().map(|(v, s)| json!({"voter": v.to_string(), "signature": hex(s)})).collect::<Vec<_>>(),
+            "bytes": hex(&record_65535), "expect": {"result": "ok"}}),
+    ]
+}
+
 fn consensus_vectors() -> Value {
     let cases: Vec<Value> = [
         retarget_cases(),
@@ -691,6 +765,7 @@ fn consensus_vectors() -> Value {
         verification_cases(),
         block_size_cases(),
         decode_fair_cases(),
+        bft_format_cases(),
     ]
     .into_iter()
     .flatten()

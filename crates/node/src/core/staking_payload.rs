@@ -6,7 +6,7 @@
 //!        | 2 id[32] amount:u256                                    unbond
 //!        | 3 id[32] amount:u256                                    delegate
 //!        | 4 id[32] amount:u256                                    undelegate
-//!        | 5 len:u64 frame len:u64 frame                          equivocation
+//!        | 5 len:u64 header len:u64 header                        equivocation
 //! ```
 //!
 //! A registration carries the validator's ML-DSA-87 key and a *proof of
@@ -14,8 +14,10 @@
 //! anyone could register someone else's key, and the real holder's votes would
 //! then count toward a validator they do not control.
 //!
-//! Equivocation evidence is two DAG-BFT `Propose` frames exactly as they were
-//! gossiped (`consensus::bft::wire`): the state machine re-verifies both
+//! Equivocation evidence is two signed DAG-BFT vertex headers
+//! (`consensus::bft::wire::encode_signed_header`): the parents and the batch
+//! folded into roots, so a report is a few kilobytes however large the two
+//! vertices were (NEW-1, ADR-155). The state machine re-verifies both
 //! signatures against the committee of the epoch they name.
 
 use crate::core::codec::ByteReader;
@@ -25,9 +27,9 @@ use crate::error::{NodeError, Result};
 /// Domain of the proof-of-possession signature.
 pub const POSSESSION_DOMAIN: &[u8] = b"maya2c/staking/possession/v1";
 
-/// Most bytes one evidence frame may claim. A proposal can carry up to
-/// `max_batch_bytes` of payload (4 MiB) plus its signature.
-const MAX_EVIDENCE_FRAME: usize = 5 * 1024 * 1024;
+/// Most bytes one evidence header may claim: a signed vertex header, which
+/// does not grow with the vertex's batch.
+const MAX_EVIDENCE_FRAME: usize = crate::consensus::bft::wire::MAX_SIGNED_HEADER_BYTES;
 
 const REGISTER: u8 = 0;
 const BOND_MORE: u8 = 1;
@@ -80,7 +82,7 @@ pub enum StakingAction {
     },
     /// Two conflicting signed proposals by one validator. Anyone may submit.
     ReportEquivocation {
-        /// The first `Propose` frame.
+        /// The first signed vertex header.
         first: Vec<u8>,
         /// The second.
         second: Vec<u8>,

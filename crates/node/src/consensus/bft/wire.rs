@@ -6,29 +6,66 @@
 //! hostile input, and one value has exactly one encoding.
 //!
 //! ```text
-//! frame     = version:u8 epoch:u64 from:u16 to:u16 body
-//! body      = 0 vertex sig | 1 digest round:u64 voter:u16 sig
+//! frame     = version:u8 epoch:u64 from:id to:id body
+//! body      = 0 vertex sig | 1 digest round:u64 voter:id sig
 //!           | 2 certificate | 3 digest
-//! vertex    = epoch:u64 round:u64 author:u16 timestamp_ms:u64
+//! vertex    = epoch:u64 round:u64 author:id timestamp_ms:u64
 //!             n:u64 digest*n  m:u64 (len:u64 bytes)*m
-//! cert      = vertex k:u64 (voter:u16 sig)*k
+//! cert      = cert_version:u8 vertex k:u64 (voter:id sig)*k
+//! header    = header_version:u8 epoch:u64 round:u64 author:id
+//!             timestamp_ms:u64 parents_root:32 batch_root:32 sig
+//! id        = u32 little-endian; 0xFFFFFFFF = broadcast / no sender (from, to only)
 //! sig       = len:u64 bytes
 //! ```
 //!
 //! `to` is [`BROADCAST`] for a message every validator should read; a vote is
 //! addressed to one author and ignored by the rest. Gossip carries both — the
 //! mesh has no unicast — so `to` only saves the other validators the work.
+//!
+//! Format room (ADR-155). Every validator id is four bytes on the wire, so a
+//! committee wider than today's `u16` index never needs a new encoding; this
+//! build refuses an id above `u16::MAX` cleanly at decode (NEW-7). Broadcast
+//! and no-sender travel as `0xFFFFFFFF`, which is never an id, so the
+//! widening moves no sentinel either. A
+//! certificate record names its own version in its first byte, because it is
+//! stored and served on its own, outside any frame (C2). A signed vertex
+//! header is the equivocation-evidence form (NEW-1): a fixed size, however
+//! large the vertex's batch.
 
-use maya_dag_bft::{Certificate, Digest, Message, Payload, ValidatorId, Vertex};
+use maya_dag_bft::{Certificate, Digest, Message, Payload, ValidatorId, Vertex, VertexHeader};
 
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
 
-/// Frame format version. A frame of any other version is refused.
-pub const WIRE_VERSION: u8 = 1;
+/// Frame format version. A frame of any other version is refused. Version 2
+/// (ADR-155) widened every validator id to four bytes and versioned the
+/// certificate.
+pub const WIRE_VERSION: u8 = 2;
 
-/// `to` for a broadcast.
-pub const BROADCAST: u16 = u16::MAX;
+/// Certificate record format version, the first byte of every encoded
+/// certificate. Any other value is refused, never guessed at.
+pub const CERT_VERSION: u8 = 1;
+
+/// Signed vertex header format version, the first byte of each half of an
+/// equivocation report.
+pub const HEADER_VERSION: u8 = 1;
+
+/// Encoded size of a signed vertex header without its signature bytes:
+/// version, epoch, round, author, time, two roots, signature length.
+pub const SIGNED_HEADER_FIXED_BYTES: usize = 1 + 8 + 8 + 4 + 8 + 32 + 32 + 8;
+
+/// Most bytes one signed vertex header may take: what an equivocation report
+/// carries per proposal, at any block size.
+pub const MAX_SIGNED_HEADER_BYTES: usize = SIGNED_HEADER_FIXED_BYTES + MAX_SIGNATURE_BYTES;
+
+/// `to` for a broadcast, and `from` for an observer, in memory. On the wire
+/// both are [`WIRE_BROADCAST`], so the in-memory value can follow the index
+/// width while the bytes never change.
+pub const BROADCAST: ValidatorId = ValidatorId::MAX;
+
+/// Broadcast / no-sender on the wire: all ones, never a validator id at any
+/// committee width. `0x0000FFFF` is the ordinary id 65,535 (NEW-7).
+pub const WIRE_BROADCAST: u32 = u32::MAX;
 
 /// Most bytes one signature may claim. An ML-DSA-87 validator signature is 4,627; the bound only
 /// has to stop a length prefix from asking for gigabytes.
@@ -53,7 +90,7 @@ pub struct Envelope {
     /// answer a `Fetch`.
     pub from: ValidatorId,
     /// Addressee, or [`BROADCAST`].
-    pub to: u16,
+    pub to: ValidatorId,
     /// The engine message.
     pub message: Message,
 }
@@ -65,8 +102,8 @@ impl Envelope {
         let mut out = Vec::with_capacity(256);
         out.push(WIRE_VERSION);
         out.extend_from_slice(&self.epoch.to_le_bytes());
-        out.extend_from_slice(&self.from.to_le_bytes());
-        out.extend_from_slice(&self.to.to_le_bytes());
+        put_addr(&mut out, self.from);
+        put_addr(&mut out, self.to);
         match &self.message {
             Message::Propose { vertex, signature } => {
                 out.push(TAG_PROPOSE);
@@ -82,7 +119,7 @@ impl Envelope {
                 out.push(TAG_VOTE);
                 out.extend_from_slice(digest);
                 out.extend_from_slice(&round.to_le_bytes());
-                out.extend_from_slice(&voter.to_le_bytes());
+                put_id(&mut out, *voter);
                 put_bytes(&mut out, signature);
             }
             Message::Cert(c) => {
@@ -112,8 +149,8 @@ impl Envelope {
             )));
         }
         let epoch = r.read_u64()?;
-        let from = read_u16(&mut r)?;
-        let to = read_u16(&mut r)?;
+        let from = read_addr(&mut r)?;
+        let to = read_addr(&mut r)?;
         let message = match r.read_u8()? {
             TAG_PROPOSE => Message::Propose {
                 vertex: read_vertex(&mut r)?,
@@ -122,7 +159,7 @@ impl Envelope {
             TAG_VOTE => Message::Vote {
                 digest: r.read_array()?,
                 round: r.read_u64()?,
-                voter: read_u16(&mut r)?,
+                voter: read_id(&mut r)?,
                 signature: read_bytes(&mut r, MAX_SIGNATURE_BYTES)?,
             },
             TAG_CERT => Message::Cert(read_certificate(&mut r)?),
@@ -167,7 +204,7 @@ fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
 fn put_vertex(out: &mut Vec<u8>, v: &Vertex) {
     out.extend_from_slice(&v.epoch.to_le_bytes());
     out.extend_from_slice(&v.round.to_le_bytes());
-    out.extend_from_slice(&v.author.to_le_bytes());
+    put_id(out, v.author);
     out.extend_from_slice(&v.timestamp_ms.to_le_bytes());
     out.extend_from_slice(&(v.parents.len() as u64).to_le_bytes());
     for p in &v.parents {
@@ -180,16 +217,97 @@ fn put_vertex(out: &mut Vec<u8>, v: &Vertex) {
 }
 
 fn put_certificate(out: &mut Vec<u8>, c: &Certificate) {
+    out.push(CERT_VERSION);
     put_vertex(out, &c.vertex);
     out.extend_from_slice(&(c.votes.len() as u64).to_le_bytes());
     for (voter, sig) in c.votes.iter().zip(&c.signatures) {
-        out.extend_from_slice(&voter.to_le_bytes());
+        put_id(out, *voter);
         put_bytes(out, sig);
     }
 }
 
-fn read_u16(r: &mut ByteReader<'_>) -> Result<u16> {
-    Ok(u16::from_le_bytes(r.read_array()?))
+/// A validator id as four bytes (NEW-7).
+fn put_id(out: &mut Vec<u8>, id: ValidatorId) {
+    out.extend_from_slice(&u32::from(id).to_le_bytes());
+}
+
+/// A frame's sender or addressee: [`BROADCAST`] travels as [`WIRE_BROADCAST`].
+fn put_addr(out: &mut Vec<u8>, id: ValidatorId) {
+    if id == BROADCAST {
+        out.extend_from_slice(&WIRE_BROADCAST.to_le_bytes());
+    } else {
+        put_id(out, id);
+    }
+}
+
+/// A frame's sender or addressee: [`WIRE_BROADCAST`] is [`BROADCAST`], any
+/// other value an ordinary id.
+fn read_addr(r: &mut ByteReader<'_>) -> Result<ValidatorId> {
+    let id = u32::from_le_bytes(r.read_array()?);
+    if id == WIRE_BROADCAST {
+        return Ok(BROADCAST);
+    }
+    narrow_id(id)
+}
+
+/// A four-byte validator id, refused when it is all ones (never an id) or
+/// wider than this build's committee index can hold.
+fn read_id(r: &mut ByteReader<'_>) -> Result<ValidatorId> {
+    let id = u32::from_le_bytes(r.read_array()?);
+    if id == WIRE_BROADCAST {
+        return Err(NodeError::Decode(
+            "validator id 0xFFFFFFFF is reserved".into(),
+        ));
+    }
+    narrow_id(id)
+}
+
+fn narrow_id(id: u32) -> Result<ValidatorId> {
+    ValidatorId::try_from(id)
+        .map_err(|_| NodeError::Decode(format!("validator id {id} wider than this build's index")))
+}
+
+/// Encodes a vertex header and its author's signature: one half of an
+/// equivocation report (NEW-1).
+#[must_use]
+pub fn encode_signed_header(header: &VertexHeader, signature: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(SIGNED_HEADER_FIXED_BYTES + signature.len());
+    out.push(HEADER_VERSION);
+    out.extend_from_slice(&header.epoch.to_le_bytes());
+    out.extend_from_slice(&header.round.to_le_bytes());
+    put_id(&mut out, header.author);
+    out.extend_from_slice(&header.timestamp_ms.to_le_bytes());
+    out.extend_from_slice(&header.parents_root);
+    out.extend_from_slice(&header.batch_root);
+    put_bytes(&mut out, signature);
+    out
+}
+
+/// Decodes what [`encode_signed_header`] wrote, refusing trailing bytes.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for another version, an id too wide, a signature
+/// over its bound, truncation or trailing bytes.
+pub fn decode_signed_header(bytes: &[u8]) -> Result<(VertexHeader, Vec<u8>)> {
+    let mut r = ByteReader::new(bytes);
+    let version = r.read_u8()?;
+    if version != HEADER_VERSION {
+        return Err(NodeError::Decode(format!(
+            "vertex header version {version}, expected {HEADER_VERSION}"
+        )));
+    }
+    let header = VertexHeader {
+        epoch: r.read_u64()?,
+        round: r.read_u64()?,
+        author: read_id(&mut r)?,
+        timestamp_ms: r.read_u64()?,
+        parents_root: r.read_array()?,
+        batch_root: r.read_array()?,
+    };
+    let signature = read_bytes(&mut r, MAX_SIGNATURE_BYTES)?;
+    r.finish()?;
+    Ok((header, signature))
 }
 
 fn read_bytes(r: &mut ByteReader<'_>, max: usize) -> Result<Vec<u8>> {
@@ -204,7 +322,7 @@ fn read_bytes(r: &mut ByteReader<'_>, max: usize) -> Result<Vec<u8>> {
 fn read_vertex(r: &mut ByteReader<'_>) -> Result<Vertex> {
     let epoch = r.read_u64()?;
     let round = r.read_u64()?;
-    let author = read_u16(r)?;
+    let author = read_id(r)?;
     let timestamp_ms = r.read_u64()?;
     let n = r.read_collection_len(32)?;
     let parents = (0..n)
@@ -225,12 +343,19 @@ fn read_vertex(r: &mut ByteReader<'_>) -> Result<Vertex> {
 }
 
 fn read_certificate(r: &mut ByteReader<'_>) -> Result<Certificate> {
+    let version = r.read_u8()?;
+    if version != CERT_VERSION {
+        return Err(NodeError::Decode(format!(
+            "certificate version {version}, expected {CERT_VERSION}"
+        )));
+    }
     let vertex = read_vertex(r)?;
-    let k = r.read_collection_len(10)?;
+    // Smallest vote entry: a four-byte id and an empty signature's length.
+    let k = r.read_collection_len(4 + 8)?;
     let mut votes = Vec::with_capacity(k);
     let mut signatures = Vec::with_capacity(k);
     for _ in 0..k {
-        votes.push(read_u16(r)?);
+        votes.push(read_id(r)?);
         signatures.push(read_bytes(r, MAX_SIGNATURE_BYTES)?);
     }
     Ok(Certificate {
@@ -367,6 +492,28 @@ mod tests {
         let at = bytes.len() - 8;
         bytes[at..].copy_from_slice(&u64::MAX.to_le_bytes());
         assert!(Envelope::decode(&bytes).is_err());
+    }
+
+    #[test]
+    fn a_signed_header_round_trips_and_refuses_another_version_or_trailing_bytes() {
+        let header = vertex().header();
+        let bytes = encode_signed_header(&header, &[5; 3309]);
+        assert_eq!(bytes.len(), SIGNED_HEADER_FIXED_BYTES + 3309);
+        assert_eq!(
+            decode_signed_header(&bytes).unwrap(),
+            (header.clone(), vec![5; 3309])
+        );
+        assert_eq!(
+            header.digest(),
+            vertex().digest(),
+            "the header proves the digest"
+        );
+        let mut other = bytes.clone();
+        other[0] = HEADER_VERSION + 1;
+        assert!(decode_signed_header(&other).is_err());
+        let mut long = bytes;
+        long.push(0);
+        assert!(decode_signed_header(&long).is_err());
     }
 
     #[test]

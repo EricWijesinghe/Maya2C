@@ -189,29 +189,92 @@ impl Vertex {
         }
     }
 
-    /// Content digest; what votes and parent links refer to.
+    /// Content digest; what votes and parent links refer to. The digest of
+    /// [`Vertex::header`], so a header alone proves what was signed.
     pub fn digest(&self) -> Digest {
-        let mut h = blake3::Hasher::new();
-        h.update(b"maya2c/dag-bft/vertex/v2");
-        h.update(&self.epoch.to_le_bytes());
-        h.update(&self.round.to_le_bytes());
-        h.update(&self.author.to_le_bytes());
-        h.update(&self.timestamp_ms.to_le_bytes());
-        h.update(&(self.parents.len() as u64).to_le_bytes());
-        for p in &self.parents {
-            h.update(p);
+        self.header().digest()
+    }
+
+    /// The fixed-size summary the signature covers: every field, with the
+    /// parents and the batch replaced by their roots.
+    pub fn header(&self) -> VertexHeader {
+        VertexHeader {
+            epoch: self.epoch,
+            round: self.round,
+            author: self.author,
+            timestamp_ms: self.timestamp_ms,
+            parents_root: parents_root(&self.parents),
+            batch_root: batch_root(&self.batch),
         }
-        h.update(&(self.batch.len() as u64).to_le_bytes());
-        for tx in &self.batch {
-            h.update(&(tx.len() as u64).to_le_bytes());
-            h.update(tx);
-        }
-        *h.finalize().as_bytes()
     }
 
     /// Bytes of payload carried.
     pub fn payload_bytes(&self) -> usize {
         self.batch.iter().map(Vec::len).sum()
+    }
+}
+
+/// Commitment to a vertex's parent list: `H(domain ‖ n:u64 ‖ digest*n)`.
+#[must_use]
+pub fn parents_root(parents: &[Digest]) -> Digest {
+    let mut h = blake3::Hasher::new_derive_key("maya2c dag-bft vertex parents v1");
+    h.update(&(parents.len() as u64).to_le_bytes());
+    for p in parents {
+        h.update(p);
+    }
+    *h.finalize().as_bytes()
+}
+
+/// Commitment to a vertex's batch: `H(domain ‖ m:u64 ‖ BLAKE3(tx)*m)`.
+///
+/// Each item is hashed on its own, so the root is a fixed 32 bytes whatever
+/// the batch carries, and equivocation evidence (two signed headers) stays a
+/// few kilobytes at any block size (NEW-1). Item hashes are fixed-width, so
+/// moving a byte between two items changes the root.
+#[must_use]
+pub fn batch_root(batch: &[Payload]) -> Digest {
+    let mut h = blake3::Hasher::new_derive_key("maya2c dag-bft vertex batch v1");
+    h.update(&(batch.len() as u64).to_le_bytes());
+    for tx in batch {
+        h.update(blake3::hash(tx).as_bytes());
+    }
+    *h.finalize().as_bytes()
+}
+
+/// A vertex with its parents and batch folded into roots: exactly what a
+/// proposal signature covers, and all that equivocation evidence carries.
+///
+/// The author is hashed as a `u32` although [`ValidatorId`] is a `u16` in
+/// memory today, so widening the committee later changes no digest (NEW-7).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VertexHeader {
+    /// Committee epoch.
+    pub epoch: u64,
+    /// DAG round.
+    pub round: u64,
+    /// Proposer.
+    pub author: ValidatorId,
+    /// The author's clock, milliseconds.
+    pub timestamp_ms: u64,
+    /// [`parents_root`] of the vertex's parents.
+    pub parents_root: Digest,
+    /// [`batch_root`] of the vertex's batch.
+    pub batch_root: Digest,
+}
+
+impl VertexHeader {
+    /// The vertex digest.
+    #[must_use]
+    pub fn digest(&self) -> Digest {
+        let mut h = blake3::Hasher::new();
+        h.update(b"maya2c/dag-bft/vertex/v3");
+        h.update(&self.epoch.to_le_bytes());
+        h.update(&self.round.to_le_bytes());
+        h.update(&u32::from(self.author).to_le_bytes());
+        h.update(&self.timestamp_ms.to_le_bytes());
+        h.update(&self.parents_root);
+        h.update(&self.batch_root);
+        *h.finalize().as_bytes()
     }
 }
 

@@ -15,7 +15,7 @@ fn key(index: u64) -> Key {
 }
 
 fn value(index: u64) -> Value {
-    let mut out: Value = [0u8; 40]; // ADR-046: 32-byte balance + 8-byte nonce
+    let mut out: Value = [0u8; 41]; // ADR-046, ADR-155: 32-byte balance + 8-byte nonce + auth kind
     out[..8].copy_from_slice(&index.to_le_bytes());
     out
 }
@@ -164,7 +164,7 @@ fn malformed_and_non_canonical_encodings_are_refused() {
 
     // A split holding one leaf beside nothing: the leaf, spelled a second way.
     let mut uncollapsed = vec![TAG_INTERNAL, TAG_LEAF];
-    uncollapsed.extend_from_slice(&[0; 72]); // key 32 + value 40 (ADR-046)
+    uncollapsed.extend_from_slice(&[0; 73]); // key 32 + value 41 (ADR-046, ADR-155)
     uncollapsed.push(0);
     assert_eq!(
         decode(&uncollapsed),
@@ -237,8 +237,8 @@ fn the_ring_sis_backend_builds_the_same_trees() {
 #[test]
 fn a_ring_sis_leaf_is_never_the_empty_digest_and_digests_are_canonical() {
     let ring = RingSis::new();
-    assert_ne!(ring.leaf(&[0; 32], &[0; 40]), ring.empty());
-    assert_ne!(ring.leaf(&[0; 32], &[0; 40]), ring.leaf(&[0; 32], &[1; 40]));
+    assert_ne!(ring.leaf(&[0; 32], &[0; 41]), ring.empty());
+    assert_ne!(ring.leaf(&[0; 32], &[0; 41]), ring.leaf(&[0; 32], &[1; 41]));
 
     // 0x3FFF in the first 14 bits is 16383, which is not below q.
     let mut digest = [0u8; 448];

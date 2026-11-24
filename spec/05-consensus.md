@@ -30,12 +30,14 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Admitted payloads are emitted in commit order, so execution order is the commit order restricted to the admitted set.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
+- **CON-18** A DAG-BFT vertex's digest, the value every proposal signature, vote and parent link refers to, is `blake3("maya2c/dag-bft/vertex/v3" ‖ epoch_u64 ‖ round_u64 ‖ author_u32 ‖ timestamp_ms_u64 ‖ parents_root ‖ batch_root)`, where `parents_root = blake3_derive_key("maya2c dag-bft vertex parents v1", n_u64 ‖ parent*n)` and `batch_root = blake3_derive_key("maya2c dag-bft vertex batch v1", m_u64 ‖ blake3(tx)*m)`, all integers little-endian. Equivocation evidence (`ReportEquivocation`) is two signed vertex headers, `0x01 ‖ epoch ‖ round ‖ author_u32 ‖ timestamp_ms ‖ parents_root ‖ batch_root ‖ sig_len_u64 ‖ sig`, so a report is the same size whatever the two vertices carried: double-signing stays provable on chain at any block size (ADR-155, NEW-1). A header of another version is refused. *(positive only: defines a value; the refusal is a decode error)*
+- **CON-19** A certificate record is `0x01 ‖ vertex ‖ k_u64 ‖ (voter_u32 ‖ sig_len_u64 ‖ sig)*k`, with `vertex = epoch ‖ round ‖ author_u32 ‖ timestamp_ms ‖ n_u64 ‖ parent*n ‖ m_u64 ‖ (len_u64 ‖ tx)*m`. The first byte is the record's format version; a record of any other version is refused, never read as version 1. Every validator id on the DAG-BFT wire (frame sender and addressee, vertex author, voter) is four bytes; this build's committee index is 16 bits, so an id above 65,535 is refused at decode, and a wider committee later changes no encoding (ADR-155, C2, NEW-7). The value `0xFFFFFFFF` is reserved: in a frame's sender it means "no sender" (an observer) and in its addressee "every validator"; it is never a validator id, so a vertex author or voter of `0xFFFFFFFF` is refused at any committee width. `0x0000FFFF` is the ordinary id 65,535. The gossip frame version is 2.
 
 ## Vectors and gaps
 
 CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
-not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
+not) and CON-5 to CON-8, CON-10, CON-11, CON-12, CON-18 and CON-19 in `consensus.json`. CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
 (`argonblake-pow`) has no language-neutral vector.
 

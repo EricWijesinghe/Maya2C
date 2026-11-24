@@ -264,3 +264,23 @@ fn a_proof_does_not_survive_one_flipped_byte() {
     let tampered = maya_zk_stark::Proof::from_bytes(bytes);
     assert!(key::verify(&tampered, &pk, &d(40)).is_err());
 }
+
+/// P3 (ADR-155): a proof names its envelope version in its first byte, so a
+/// later circuit or field can be told apart by the bytes alone, and a version
+/// this build does not know is refused before anything is decoded.
+#[test]
+fn a_proof_names_its_version_and_an_unknown_one_is_refused() {
+    let sk = SecretDigest::from_words([9; 8]);
+    let (proof, pk) = key::prove(&sk, &d(40)).expect("prove");
+    assert_eq!(proof.as_bytes()[0], 1, "proof envelope version");
+    for other in [0u8, 2, 0xff] {
+        let mut bytes = proof.as_bytes().to_vec();
+        bytes[0] = other;
+        let renamed = maya_zk_stark::Proof::from_bytes(bytes);
+        let refused = key::verify(&renamed, &pk, &d(40));
+        assert!(
+            matches!(&refused, Err(maya_zk_stark::ZkError::Malformed(m)) if m.contains("version")),
+            "version {other}: {refused:?}"
+        );
+    }
+}

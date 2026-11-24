@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
+use custom_l1_node::consensus::bft::evidence;
 use custom_l1_node::consensus::bft::{BROADCAST, BftDriver, BftSetup, Envelope, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
 use custom_l1_node::core::payload::TxKind;
@@ -269,14 +270,16 @@ fn register(i: usize, bond: u64, nonce: u64) -> Transaction {
 
 fn double_proposal(i: usize, committee: &Arc<[VerifyingKey]>, tag: ChainTag) -> StakingAction {
     let auth = MlDsaAuthenticator::validator(validator_key(i), Arc::clone(committee), tag);
-    let frame = |stamp: u64| {
+    // Each vertex carries a full batch (`Params::max_batch_bytes`, 4 MiB):
+    // the report must still fit one transaction and still slash (NEW-1).
+    let signed = |stamp: u64| {
         let vertex = Vertex {
             epoch: 0,
             round: 7,
             author: u16::try_from(i).unwrap(),
             timestamp_ms: stamp,
             parents: vec![],
-            batch: vec![],
+            batch: vec![vec![u8::try_from(stamp).unwrap(); 1024 * 1024 - 64]; 4],
         };
         let signature = auth.sign(
             maya_dag_bft::SignContext {
@@ -286,18 +289,15 @@ fn double_proposal(i: usize, committee: &Arc<[VerifyingKey]>, tag: ChainTag) -> 
             },
             &vertex.digest(),
         );
-        Envelope {
-            epoch: 0,
-            from: u16::try_from(i).unwrap(),
-            to: BROADCAST,
-            message: Message::Propose { vertex, signature },
-        }
-        .encode()
+        (vertex.header(), signature)
     };
-    StakingAction::ReportEquivocation {
-        first: frame(1),
-        second: frame(2),
-    }
+    let ((first, first_signature), (second, second_signature)) = (signed(1), signed(2));
+    evidence::report(&maya_dag_bft::Equivocation {
+        first,
+        first_signature,
+        second,
+        second_signature,
+    })
 }
 
 #[test]
