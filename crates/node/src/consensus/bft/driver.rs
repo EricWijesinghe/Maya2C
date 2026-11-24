@@ -99,6 +99,9 @@ pub struct Step {
     pub build_time: std::time::Duration,
     /// Equivocations this node witnessed, for the staking module.
     pub equivocations: Vec<Equivocation>,
+    /// Attestation double-signs this node witnessed, kept as evidence. The
+    /// chain does not accept them as slashing evidence yet (audit CON-05).
+    pub attestation_equivocations: Vec<(Attestation, Attestation)>,
     /// Housekeeping that failed without touching safety — an old epoch's
     /// logs that could not be removed. The node reports them; they cost
     /// disk, never a vote.
@@ -372,7 +375,7 @@ impl BftDriver {
             dir,
             committee: Arc::clone(committee),
             weights,
-            attestations: Collector::default(),
+            attestations: Collector::for_epoch(epoch),
             follower: false,
             resumed_at: 0,
             // The anchor the tip was built for, so a block that later
@@ -644,9 +647,11 @@ impl BftDriver {
                 closing.weights.as_deref(),
             ) {
                 step.notices.push(format!(
-                    "validator {} attested two blocks at height {} of epoch {} — evidence held",
+                    "validator {} attested two blocks at height {} of epoch {} — evidence \
+                     saved; attestation double-signs are not slashable on chain yet",
                     pair.1.validator, pair.1.height, pair.1.epoch
                 ));
+                step.attestation_equivocations.push(*pair);
             }
         }
     }
@@ -659,9 +664,11 @@ impl BftDriver {
                 .add(attestation, tag, &self.committee, self.weights.as_deref())
         {
             step.notices.push(format!(
-                "validator {} attested two blocks at height {} — evidence held",
+                "validator {} attested two blocks at height {} — evidence saved; \
+                 attestation double-signs are not slashable on chain yet",
                 pair.1.validator, pair.1.height
             ));
+            step.attestation_equivocations.push(*pair);
         }
     }
 

@@ -67,6 +67,7 @@ mod guard;
 mod links;
 mod relay;
 mod threat;
+mod txcheck;
 
 pub use links::{PeerLink, Transport};
 
@@ -493,9 +494,10 @@ impl Node {
             mempool: self.mempool.clone(),
         };
 
+        let pool = self.mempool;
         let driver = NodeDriver {
             swarm: self.swarm,
-            mempool: self.mempool,
+            tx_checks: txcheck::TxChecks::new(Arc::new(move |data| pool.insert_encoded(data))),
             events: bus,
             epoch: self.epoch,
             rotation_check: self.rotation_check,
@@ -520,7 +522,8 @@ impl Node {
 /// Owns the swarm and pumps it. Lives on exactly one task.
 struct NodeDriver {
     swarm: Swarm<NodeBehaviour>,
-    mempool: Mempool,
+    /// Gossiped transactions being checked off this task (`node::txcheck`).
+    tx_checks: txcheck::TxChecks,
     events: super::bus::Bus,
     /// Drives post-quantum session rotation.
     epoch: EpochClock,
@@ -577,6 +580,7 @@ impl NodeDriver {
                     None => return,
                 },
                 event = self.swarm.select_next_some() => self.handle_swarm_event(event),
+                Some(done) = self.tx_checks.finished() => self.finish_tx_check(done),
                 _ = rotation.tick() => self.rotate_stale_sessions(),
                 _ = guard.tick() => self.release_expired(),
                 inbound = relay::next_inbound(&mut self.relay) => self.handle_relay_inbound(inbound),

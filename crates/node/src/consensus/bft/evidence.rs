@@ -10,8 +10,12 @@
 //! the usual evidence age limit (Cosmos ties it to the unbonding period
 //! too), so file promptly. The file must outlive a restart.
 
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
+
 use maya_dag_bft::{Equivocation, Message};
 
+use super::attest::Attestation;
 use super::wire::{BROADCAST, Envelope};
 use crate::core::staking_payload::StakingAction;
 use crate::error::{NodeError, Result};
@@ -57,6 +61,61 @@ pub fn to_text(evidence: &Equivocation) -> String {
         }
         _ => unreachable!("report builds a ReportEquivocation"),
     }
+}
+
+/// File name for an attestation double-sign: who and which epoch. Not the
+/// height: one pair per validator and epoch is all a report needs.
+#[must_use]
+pub fn attestation_file_name(first: &Attestation) -> String {
+    format!("attestation-e{}-v{}.hex", first.epoch, first.validator)
+}
+
+/// Keeps the pair in `dir` unless this validator already has one on file for
+/// this epoch. Returns the path written, or `None` when one was already kept.
+///
+/// Nothing deters a double-sign yet (CON-05), so a file per height let one
+/// Byzantine member grow every node's disk for as long as the chain ran.
+/// `create_new` keeps the first pair; a later one never overwrites it.
+///
+/// # Errors
+///
+/// The directory or the file could not be created or written.
+pub fn save_attestation(
+    dir: &Path,
+    first: &Attestation,
+    second: &Attestation,
+) -> std::io::Result<Option<PathBuf>> {
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(attestation_file_name(first));
+    let opened = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path);
+    let mut file = match opened {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if let Err(error) = file.write_all(attestation_to_text(first, second).as_bytes()) {
+        drop(file);
+        // A partial file would keep the whole pair from ever being written.
+        // The write error is the one reported; a failed removal adds nothing.
+        let _ = std::fs::remove_file(&path);
+        return Err(error);
+    }
+    Ok(Some(path))
+}
+
+/// Two lines of hex, one attestation frame each. Not a `ReportEquivocation`:
+/// the chain does not accept attestation evidence yet (audit CON-05), so this
+/// is kept for when it does, and for the operator.
+#[must_use]
+pub fn attestation_to_text(first: &Attestation, second: &Attestation) -> String {
+    format!(
+        "{}\n{}\n",
+        hex::encode(first.encode()),
+        hex::encode(second.encode())
+    )
 }
 
 /// Reads what [`to_text`] wrote.

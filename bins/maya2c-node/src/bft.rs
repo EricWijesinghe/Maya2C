@@ -1029,6 +1029,18 @@ async fn act(
             ),
         }
     }
+    for (first, second) in &step.attestation_equivocations {
+        // Kept for when the chain accepts attestation evidence (audit CON-05):
+        // the first pair per validator and epoch, so repeats cost no disk.
+        let saved =
+            custom_l1_node::consensus::bft::evidence::save_attestation(evidence_dir, first, second);
+        if let Err(error) = saved {
+            eprintln!(
+                "bft: attestation double-sign by validator {} NOT saved: {error}",
+                first.validator
+            );
+        }
+    }
 }
 
 /// Runs DAG-BFT until the process stops.

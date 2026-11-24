@@ -4,7 +4,8 @@
 //! `<data-dir>/bft/epoch-N/safety.log` before sending it, and replays the log
 //! on start so it never signs a round twice. A validator restarted onto a
 //! fresh or restored data directory has no log: it could sign again a round it
-//! already signed, which is equivocation, and equivocation is slashed.
+//! already signed, which is equivocation; a double proposal is slashed, and a
+//! double attestation is kept as evidence (not yet slashable, audit CON-05).
 //!
 //! A remote signer (`--remote-signer`) is not checked: `maya2c-signer` keeps
 //! its own fsynced slashing-protection database on the signer host (one record
@@ -22,29 +23,27 @@ use std::sync::Mutex;
 
 use custom_l1_node::consensus::Chain;
 use custom_l1_node::consensus::bft::remote::ValidatorKey;
+use custom_l1_node::consensus::bft::store::SAFETY_LOG;
 use custom_l1_node::consensus::bft::{BftDriver, BftSetup};
 
 use super::bft::BFT_DIR;
 use super::{lock_chain, rejoin};
 
-/// Whether `bft_dir` holds any epoch's safety log directory.
-fn holds_safety_log(bft_dir: &Path) -> std::io::Result<bool> {
-    let entries = match std::fs::read_dir(bft_dir) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(e) => return Err(e),
-    };
-    for entry in entries {
-        let entry = entry?;
-        let epoch = entry
-            .file_name()
-            .to_str()
-            .is_some_and(|n| n.starts_with("epoch-"));
-        if epoch && entry.path().is_dir() {
-            return Ok(true);
-        }
+/// Whether `bft_dir` holds the safety log of `epoch`, the epoch the driver
+/// will run.
+///
+/// Another epoch's log says nothing about this one's rounds: the engine signs
+/// each epoch's rounds afresh and replays only that epoch's log, and the
+/// previous epoch's directory is kept after a new one starts, so it outlives
+/// the loss of the current one. A bare directory does not count either: a
+/// deleted log leaves an empty or certs-only directory behind.
+fn holds_safety_log(bft_dir: &Path, epoch: u64) -> std::io::Result<bool> {
+    let path = bft_dir.join(format!("epoch-{epoch}")).join(SAFETY_LOG);
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
     }
-    Ok(false)
 }
 
 /// What the decision needs, read from the node.
@@ -70,10 +69,11 @@ fn decide(f: Facts, bft_dir: &Path) -> Result<(), String> {
         "refusing to start this validator: its BFT safety log ({}) is missing, and its chain \
          (height {}) is recent. The log is how a restarted validator knows which rounds it \
          already signed. Without it this node can sign a round a second time: that is \
-         equivocation, the network records it as evidence, and the stake is slashed. \
+         equivocation, the network records it as evidence, and a double proposal is slashed. \
          Restore the old <data-dir>/bft directory if you have it (never delete bft/). If this \
-         key has signed nothing in the current epoch (a new validator, or one down since an \
-         earlier epoch), start again with --i-know-this-validator-never-signed",
+         key has signed nothing in the current epoch (a new validator, one down since an \
+         earlier epoch, or one stopped at an epoch boundary before it signed in the new \
+         epoch), start again with --i-know-this-validator-never-signed",
         bft_dir.display(),
         f.height
     ))
@@ -95,8 +95,13 @@ pub(super) fn check(
         return Ok(());
     };
     let bft_dir = data_dir.join(BFT_DIR);
-    let (local_member, height, recent) = {
+    let (local_member, height, recent, epoch) = {
         let c = lock_chain(chain);
+        // The epoch the engine will run, chosen as `BftDriver::open` does.
+        let epoch = c
+            .state()
+            .committed_staking()?
+            .map_or(setup.epoch, |record| record.staking.epoch);
         let committee = BftDriver::staked_committee(&c)?
             .map_or_else(|| std::sync::Arc::clone(&setup.committee), |(keys, _)| keys);
         let me = key.verifying_key();
@@ -104,11 +109,11 @@ pub(super) fn check(
             Some(local) => !rejoin::time_old(local, rejoin::clock_now()),
             None => true,
         };
-        (committee.contains(&me), c.height(), recent)
+        (committee.contains(&me), c.height(), recent, epoch)
     };
     let facts = Facts {
         local_member,
-        holds_log: holds_safety_log(&bft_dir)?,
+        holds_log: holds_safety_log(&bft_dir, epoch)?,
         height,
         recent,
         never_signed,
@@ -162,14 +167,27 @@ mod tests {
     }
 
     #[test]
-    fn only_an_epoch_directory_counts_as_a_safety_log() {
+    fn only_the_current_epochs_safety_log_counts() {
         let root = tempfile::TempDir::new().unwrap();
         let bft = root.path().join(BFT_DIR);
-        assert!(!holds_safety_log(&bft).unwrap(), "missing");
+        assert!(!holds_safety_log(&bft, 3).unwrap(), "missing");
         std::fs::create_dir_all(&bft).unwrap();
         std::fs::write(bft.join("notes.txt"), b"x").unwrap();
-        assert!(!holds_safety_log(&bft).unwrap(), "no epoch directory");
+        assert!(!holds_safety_log(&bft, 3).unwrap(), "no epoch directory");
+        // The previous epoch's log is kept after the current one starts, so it
+        // survives the current one's loss and must not count for it.
+        std::fs::create_dir_all(bft.join("epoch-2")).unwrap();
+        std::fs::write(bft.join("epoch-2").join(SAFETY_LOG), b"x").unwrap();
+        assert!(!holds_safety_log(&bft, 3).unwrap(), "only an older epoch");
         std::fs::create_dir_all(bft.join("epoch-3")).unwrap();
-        assert!(holds_safety_log(&bft).unwrap());
+        assert!(!holds_safety_log(&bft, 3).unwrap(), "empty epoch directory");
+        std::fs::write(bft.join("epoch-3").join("certs.log"), b"x").unwrap();
+        assert!(
+            !holds_safety_log(&bft, 3).unwrap(),
+            "certs log is not a safety log"
+        );
+        std::fs::write(bft.join("epoch-3").join(SAFETY_LOG), b"x").unwrap();
+        assert!(holds_safety_log(&bft, 3).unwrap());
+        assert!(holds_safety_log(&bft, 2).unwrap(), "each epoch's own log");
     }
 }

@@ -1052,3 +1052,87 @@ fn a_block_that_is_neither_held_nor_an_extension_still_fails_the_import() {
     orphan.header.nonce = 1;
     assert!(import(&mut chain, vec![orphan]).is_err());
 }
+
+#[test]
+fn an_attestation_double_sign_is_kept_as_evidence() {
+    // Audit CON-05: two attestations by one member for one height were
+    // reported as "evidence held" and then dropped, so nothing could be filed.
+    let mut mesh = Mesh::new(0);
+    mesh.run_to(2);
+    let now = mesh.now;
+    let (keys, _) = signers();
+    let m = &mut mesh.members[0];
+    let tag = custom_l1_node::core::ChainTag::from_genesis(m.chain.genesis());
+    let driver = m.driver.as_mut().unwrap();
+    let (epoch, height) = (driver.epoch(), m.chain.height() + 1);
+    let first = Attestation::sign(&keys[1], 1, &tag, epoch, height, [0xa1; 32]).unwrap();
+    let second = Attestation::sign(&keys[1], 1, &tag, epoch, height, [0xb2; 32]).unwrap();
+    driver.on_frame(&mut m.chain, now, &first.encode()).unwrap();
+    let step = driver
+        .on_frame(&mut m.chain, now, &second.encode())
+        .unwrap();
+
+    assert_eq!(
+        step.attestation_equivocations.len(),
+        1,
+        "the pair was dropped"
+    );
+    let (a, b) = &step.attestation_equivocations[0];
+    assert_eq!((a.block, b.block), ([0xa1; 32], [0xb2; 32]));
+    let text = custom_l1_node::consensus::bft::evidence::attestation_to_text(a, b);
+    assert_eq!(
+        text,
+        format!("{}\n{}\n", hex::encode(a.encode()), hex::encode(b.encode()))
+    );
+    assert_eq!(
+        custom_l1_node::consensus::bft::evidence::attestation_file_name(a),
+        format!("attestation-e{epoch}-v1.hex")
+    );
+    assert!(
+        step.notices.iter().all(|n| !n.contains("evidence held")),
+        "the notice still claims the evidence is held: {:?}",
+        step.notices
+    );
+}
+
+#[test]
+fn a_validator_that_double_signs_at_every_height_leaves_one_evidence_file() {
+    // One file per height let a Byzantine member grow every node's evidence
+    // directory for as long as the chain ran; double attestations are not
+    // slashable yet, so nothing deterred it.
+    use custom_l1_node::consensus::bft::evidence::save_attestation;
+
+    let root = TempDir::new().unwrap();
+    let dir = root.path().join("evidence");
+    let (keys, _) = signers();
+    let tag = custom_l1_node::core::ChainTag::from_genesis([7; 32]);
+    let pair = |height: u64| {
+        let first = Attestation::sign(&keys[1], 1, &tag, 0, height, [0xa1; 32]).unwrap();
+        let second = Attestation::sign(&keys[1], 1, &tag, 0, height, [0xb2; 32]).unwrap();
+        (first, second)
+    };
+    let (first, second) = pair(5);
+    let kept = save_attestation(&dir, &first, &second).unwrap();
+    assert!(kept.is_some(), "the first pair was not written");
+    let text = std::fs::read_to_string(kept.unwrap()).unwrap();
+
+    for height in 6..40 {
+        let (a, b) = pair(height);
+        assert_eq!(
+            save_attestation(&dir, &a, &b).unwrap(),
+            None,
+            "a later double-sign by the same validator wrote a file"
+        );
+    }
+    assert_eq!(
+        std::fs::read_dir(&dir).unwrap().count(),
+        1,
+        "files piled up"
+    );
+    let path = dir.join(custom_l1_node::consensus::bft::evidence::attestation_file_name(&first));
+    assert_eq!(
+        std::fs::read_to_string(path).unwrap(),
+        text,
+        "a later pair overwrote the first"
+    );
+}

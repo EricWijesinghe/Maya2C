@@ -38,6 +38,7 @@ use crate::network::relay_key::{
 };
 use crate::network::sync::{
     BLOCK_SYNC_PROTOCOL, BlockRequest, BlockResponse, MAX_REQUEST_BYTES, MAX_RESPONSE_BYTES,
+    MAX_SYNC_STREAMS_PER_CONNECTION,
 };
 
 /// Connections one peer may hold to this node. One carries everything; the
@@ -155,7 +156,9 @@ impl NodeBehaviour {
                 .set_request_size_maximum(MAX_REQUEST_BYTES)
                 .set_response_size_maximum(MAX_RESPONSE_BYTES),
             [(BLOCK_SYNC_PROTOCOL, ProtocolSupport::Full)],
-            request_response::Config::default().with_request_timeout(SYNC_REQUEST_TIMEOUT),
+            request_response::Config::default()
+                .with_request_timeout(SYNC_REQUEST_TIMEOUT)
+                .with_max_concurrent_streams(MAX_SYNC_STREAMS_PER_CONNECTION),
         );
 
         let relay_key = request_response::Behaviour::with_codec(
