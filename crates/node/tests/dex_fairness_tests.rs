@@ -24,8 +24,8 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::state::fees::{FEE_COLLECTOR, FEE_KEY, FeeRecord};
 use custom_l1_node::state::{
-    Account, AssetId, BlockContext, Direction, NATIVE_ASSET, StateDB, derive_asset_id,
-    derive_pair_id,
+    Account, AssetId, BlockContext, Direction, NATIVE_ASSET, StateDB, canonical_pair,
+    derive_asset_id, derive_pair_id,
 };
 use maya_dex::Amount;
 use primitive_types::U256;
@@ -423,4 +423,197 @@ fn a_full_pair_turns_away_a_lower_bid_as_a_no_op_not_a_failed_block() {
         (0, 0),
         "outbid: nothing taken, nothing paid"
     );
+}
+
+// ---------------------------------------------------------------------------
+// a refused route leaves no trace
+// ---------------------------------------------------------------------------
+
+/// Fee every transaction in the trading block pays, unless a test outbids it.
+const FEE: u64 = 50_000;
+
+/// Adds a USD/EUR pool beside the world's native/USD one, gives each of
+/// `eur_holders` one EUR, and turns fees on. `nonce` is the maker's next.
+fn add_eur_pool(
+    world: &World,
+    maker: &HybridSigningKey,
+    nonce: u64,
+    eur_holders: &[&HybridSigningKey],
+) -> (AssetId, [u8; 32]) {
+    let mut symbol = [0u8; 8];
+    symbol[..3].copy_from_slice(b"EUR");
+    let eur = derive_asset_id(&maker.address(), nonce, &symbol);
+    let (base, quote) = canonical_pair(&world.asset, &eur).expect("distinct");
+    let pair = derive_pair_id(&base, &quote, LP_FEE_BPS);
+    let mut txs = vec![
+        tx(
+            TxKind::RegisterAsset(AssetRegistration {
+                symbol,
+                total_supply: U256::exp10(18),
+            }),
+            nonce,
+            maker,
+            None,
+        ),
+        tx(
+            TxKind::CreatePool(PoolCreation {
+                asset_a: world.asset,
+                asset_b: eur,
+                lp_fee_bps: LP_FEE_BPS,
+                amount_a: U256::from(POOL_SIDE),
+                amount_b: U256::from(POOL_SIDE),
+            }),
+            nonce + 1,
+            maker,
+            None,
+        ),
+    ];
+    for (offset, holder) in eur_holders.iter().enumerate() {
+        txs.push(tx(
+            TxKind::TransferAsset(AssetTransfer {
+                asset: eur,
+                recipient: holder.address(),
+                amount: U256::one(),
+            }),
+            nonce + 2 + offset as u64,
+            maker,
+            None,
+        ));
+    }
+    world
+        .db
+        .apply_block(&block_of(txs), BlockContext::at_height(2))
+        .expect("second pool");
+    world.turn_fees_on();
+    (eur, pair)
+}
+
+/// The direction through `pair` that takes `input`.
+fn taking(world: &World, pair: &[u8; 32], input: &AssetId) -> Direction {
+    let record = world.db.get_pool(pair).expect("read").expect("pool");
+    if record.base_asset == *input {
+        Direction::BaseToQuote
+    } else {
+        Direction::QuoteToBase
+    }
+}
+
+/// A route through `path`, each leg named by the pool and the asset it takes.
+fn route_through(
+    world: &World,
+    path: &[([u8; 32], AssetId)],
+    amount_in: u64,
+    min_out: U256,
+) -> TxKind {
+    TxKind::SwapRoute(SwapRoute {
+        legs: path
+            .iter()
+            .map(|(pair, input)| RouteLeg {
+                pair: *pair,
+                direction: taking(world, pair, input).tag(),
+            })
+            .collect(),
+        amount_in: U256::from(amount_in),
+        min_out,
+        deadline: 0,
+    })
+}
+
+/// A route's intent id, as the node derives it from sender and nonce.
+fn intent_id(key: &HybridSigningKey, nonce: u64) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new_derive_key("maya-dex swap intent id v1");
+    hasher.update(&key.address());
+    hasher.update(&nonce.to_le_bytes());
+    *hasher.finalize().as_bytes()
+}
+
+/// Runs a trading block at height 3 and returns `who`'s change in `asset`.
+fn gain(world: &World, txs: Vec<Transaction>, asset: &AssetId, who: &HybridSigningKey) -> i128 {
+    let before = world.balance(asset, who);
+    world
+        .db
+        .apply_block(&block_of(txs), BlockContext::at_height(3))
+        .expect("block");
+    world.balance(asset, who) - before
+}
+
+#[test]
+fn a_doomed_route_cannot_void_an_honest_route_on_a_pool_it_skewed() {
+    // The attacker's first leg moves the native/USD pool against the victim,
+    // and its last leg asks for more than exists, so it is refunded. It pays
+    // the higher fee, so it is weighed first.
+    let (maker, victim, attacker) = (key(), key(), key());
+    let size = POOL_SIDE / 100;
+    let run = |min_out: U256, with_attacker: bool| {
+        let world = world(&maker, &[&victim, &attacker], &[], 0);
+        let (_, usd_eur) = add_eur_pool(&world, &maker, 2, &[]);
+        let mut txs = vec![tx(
+            route_through(&world, &[(world.pair, NATIVE_ASSET)], size, min_out),
+            0,
+            &victim,
+            Some(FEE),
+        )];
+        if with_attacker {
+            let doomed = route_through(
+                &world,
+                &[(world.pair, NATIVE_ASSET), (usd_eur, world.asset)],
+                size * 10,
+                U256::MAX,
+            );
+            txs.push(tx(doomed, 0, &attacker, Some(FEE + 1)));
+        }
+        let asset = world.asset;
+        gain(&world, txs, &asset, &victim)
+    };
+    let fair = run(U256::one(), false);
+    assert!(fair > 0, "the victim settles alone");
+    let tight = U256::from(u128::try_from(fair).expect("positive"));
+    assert_eq!(
+        run(tight, false),
+        fair,
+        "its bound is exactly its fair output"
+    );
+    assert_eq!(
+        run(tight, true),
+        fair,
+        "a route refunded whole must not take another route with it"
+    );
+}
+
+#[test]
+fn a_failing_reverse_route_with_a_smaller_id_cannot_void_a_route() {
+    // Equal fees, so the identifier decides who is weighed first, and the
+    // blocker's is ground to be the smaller. One EUR in through two pools
+    // pays nothing, so the blocker fails, and must then fix no order.
+    let (maker, victim) = (key(), key());
+    let blocker = loop {
+        let candidate = key();
+        if intent_id(&candidate, 0) < intent_id(&victim, 0) {
+            break candidate;
+        }
+    };
+    let run = |with_blocker: bool| {
+        let world = world(&maker, &[&victim, &blocker], &[], 0);
+        let (eur, usd_eur) = add_eur_pool(&world, &maker, 2, &[&blocker]);
+        let forward = [(world.pair, NATIVE_ASSET), (usd_eur, world.asset)];
+        let mut txs = vec![tx(
+            route_through(&world, &forward, POOL_SIDE / 100, U256::one()),
+            0,
+            &victim,
+            Some(FEE),
+        )];
+        if with_blocker {
+            let reverse = [(usd_eur, eur), (world.pair, world.asset)];
+            txs.push(tx(
+                route_through(&world, &reverse, 1, U256::zero()),
+                0,
+                &blocker,
+                Some(FEE),
+            ));
+        }
+        gain(&world, txs, &eur, &victim)
+    };
+    let alone = run(false);
+    assert!(alone > 0, "the victim settles alone");
+    assert_eq!(run(true), alone, "a refunded blocker fixes no pool order");
 }

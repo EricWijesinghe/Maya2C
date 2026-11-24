@@ -844,6 +844,7 @@ impl StateDB {
                 hops,
                 amount_in: to_amount(route.amount_in),
                 min_out: to_amount(route.min_out),
+                weight: to_amount(fee),
             },
             input,
             output,

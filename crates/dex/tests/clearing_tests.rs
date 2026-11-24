@@ -47,6 +47,7 @@ fn route(id: u8, hops: &[(PairId, Direction)], amount_in: u64, min_out: u64) -> 
             .collect(),
         amount_in: a(amount_in),
         min_out: a(min_out),
+        weight: Amount::ZERO,
     }
 }
 
@@ -199,7 +200,8 @@ fn the_order_routes_arrive_in_does_not_change_the_outcome() {
 
 #[test]
 fn a_route_that_would_need_a_pool_to_clear_twice_is_refunded() {
-    // 1 fixes P before Q; 2 asks for Q before P. Admitted in identifier order.
+    // 1 fixes P before Q; 2 asks for Q before P. Equal fees: the smaller
+    // identifier joins first.
     let routes = [
         route(
             1,
@@ -252,12 +254,134 @@ fn a_route_that_misses_its_bound_leaves_every_pool_as_if_it_never_came() {
             .and_then(|p| p.outcome.as_ref().map(|o| o.pool))
     };
     assert_eq!(q(&with), q(&without));
-    let p = with.pools.iter().find(|p| p.pair == P).expect("P listed");
-    assert_eq!(
-        p.outcome.as_ref().map(|o| o.pool),
-        Some(pools()[&P]),
-        "P untouched"
+    assert!(
+        with.pools.iter().all(|p| p.pair != P),
+        "P untouched: the refused route is in no pass"
     );
+}
+
+// ---------------------------------------------------------------------------
+// a refused route leaves no trace, and only a better-paying settler outranks
+// ---------------------------------------------------------------------------
+
+/// A doomed route: a large first leg on `P` that skews it, then a bound no
+/// pool can meet, so it is refunded whole.
+fn doomed(id: u8, last: PairId) -> RouteIntent {
+    route(
+        id,
+        &[(P, Direction::BaseToQuote), (last, Direction::BaseToQuote)],
+        100_000,
+        u64::MAX,
+    )
+}
+
+fn weighted(mut intent: RouteIntent, weight: u64) -> RouteIntent {
+    intent.weight = a(weight);
+    intent
+}
+
+#[test]
+fn a_doomed_route_cannot_void_an_honest_route_on_a_pool_it_skewed() {
+    let alone = clear_block(
+        &pools(),
+        &BTreeMap::new(),
+        &[route(1, &[(P, Direction::BaseToQuote)], 10_000, 1)],
+    )
+    .expect("clear");
+    let fair = paid(&alone, 1).expect("settles alone");
+    let victim = route(
+        1,
+        &[(P, Direction::BaseToQuote)],
+        10_000,
+        fair.to_u64().expect("small"),
+    );
+
+    // Whichever pays more, the doomed route goes and the victim stays.
+    for (victim_fee, attacker_fee) in [(0, 0), (1, 9), (9, 1)] {
+        let clearing = clear_block(
+            &pools(),
+            &BTreeMap::new(),
+            &[
+                weighted(victim.clone(), victim_fee),
+                weighted(doomed(2, Q), attacker_fee),
+            ],
+        )
+        .expect("clear");
+        assert_eq!(
+            paid(&clearing, 1),
+            Some(fair),
+            "fees {victim_fee}/{attacker_fee}"
+        );
+        assert_eq!(paid(&clearing, 2), None);
+    }
+}
+
+#[test]
+fn a_doomed_route_cannot_void_an_honest_route_that_ends_after_it() {
+    // The victim fails, if at all, at R, after the doomed route's failure at
+    // Q. Removing the route that fails latest would remove the victim.
+    let r: PairId = [3; 32];
+    let mut with_r = pools();
+    with_r.insert(r, seeded(1_000_000, 1_000_000));
+    let path = [(P, Direction::BaseToQuote), (r, Direction::BaseToQuote)];
+    let alone =
+        clear_block(&with_r, &BTreeMap::new(), &[route(1, &path, 10_000, 1)]).expect("clear");
+    let fair = paid(&alone, 1).expect("settles alone");
+    let victim = route(1, &path, 10_000, fair.to_u64().expect("small"));
+
+    let clearing = clear_block(&with_r, &BTreeMap::new(), &[victim, doomed(2, Q)]).expect("clear");
+    assert_eq!(paid(&clearing, 1), Some(fair));
+    assert_eq!(paid(&clearing, 2), None);
+}
+
+#[test]
+fn a_failing_reverse_route_with_a_smaller_id_cannot_void_a_route() {
+    // One unit through Q then P: the leg pays nothing, so the blocker fails.
+    let victim_path = [(P, Direction::BaseToQuote), (Q, Direction::BaseToQuote)];
+    let alone = clear_block(
+        &pools(),
+        &BTreeMap::new(),
+        &[route(9, &victim_path, 10_000, 1)],
+    )
+    .expect("clear");
+    let fair = paid(&alone, 9).expect("settles alone");
+    let blocker = route(
+        1,
+        &[(Q, Direction::QuoteToBase), (P, Direction::QuoteToBase)],
+        1,
+        0,
+    );
+
+    for blocker_fee in [0, 9] {
+        let clearing = clear_block(
+            &pools(),
+            &BTreeMap::new(),
+            &[
+                route(9, &victim_path, 10_000, 1),
+                weighted(blocker.clone(), blocker_fee),
+            ],
+        )
+        .expect("clear");
+        assert_eq!(paid(&clearing, 9), Some(fair), "blocker fee {blocker_fee}");
+        assert_eq!(paid(&clearing, 1), None);
+    }
+}
+
+#[test]
+fn a_higher_fee_wins_an_order_conflict_over_a_smaller_id() {
+    let forward = [(P, Direction::BaseToQuote), (Q, Direction::BaseToQuote)];
+    let reverse = [(Q, Direction::QuoteToBase), (P, Direction::QuoteToBase)];
+    let clearing = clear_block(
+        &pools(),
+        &BTreeMap::new(),
+        &[
+            weighted(route(9, &forward, 10_000, 1), 5),
+            weighted(route(1, &reverse, 10_000, 1), 4),
+        ],
+    )
+    .expect("clear");
+    assert!(paid(&clearing, 9).is_some(), "the better payer clears");
+    assert_eq!(paid(&clearing, 1), None, "a ground id wins only a tie");
 }
 
 #[test]

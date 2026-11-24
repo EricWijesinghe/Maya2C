@@ -19,21 +19,33 @@
 //! intents and never of where a transaction sat in the block.
 //!
 //! Two routes can ask for opposite orders (`P -> Q` and `Q -> P`). Both cannot
-//! be honoured while each pool clears once, so routes are admitted in
-//! identifier order and one whose edges would close a cycle is a **no-op**: its
-//! input is returned and nothing moves (invariant 7). A route that visits one
-//! pool twice closes a cycle with itself; the node refuses it at staging,
-//! because it could never execute.
+//! be honoured while each pool clears once, so the later of the two in
+//! priority order (below) is a **no-op**: its input is returned and nothing
+//! moves (invariant 7). A route that visits one pool twice closes a cycle with
+//! itself; the node refuses it at staging, because it could never execute.
 //!
-//! # All or nothing, across pools
+//! # All or nothing, across pools, in fee order
 //!
 //! A route is atomic: either every leg settles and its final output meets
-//! `min_out`, or the route is refunded whole. The clearing therefore runs to a
-//! fixed point. Each pass clears every route-carrying pool in order; a route
-//! that missed its bound, or whose leg a pool could not price, is removed, and
-//! the pass is recomputed from the original pools without it. Every pass but
-//! the last removes at least one route, so there are at most
-//! `routes + 1` passes, each bounded by [`MAX_BLOCK_ROUTES`] and
+//! `min_out`, or the route is refunded whole. Routes join the clearing one at
+//! a time in priority order: the fee their transaction paid, highest first,
+//! then the smaller identifier, the same weight a full batch evicts by
+//! ([`RouteIntent::weight`]). A route joins only if its path keeps the pool
+//! order acyclic and the whole set, itself included, then settles in a
+//! clearing recomputed from the original pools. Otherwise it is refunded and
+//! the set stays as it was.
+//!
+//! Two guarantees follow:
+//!
+//! - **A refunded route leaves no trace.** The block clears exactly the set
+//!   that joined, so a route that misses its bound, on purpose or not, cannot
+//!   have moved a pool another route settled against, and cannot have kept
+//!   another route out.
+//! - **Only a route ahead of it that settles can keep a route out.** A route
+//!   that pays less, or one that fails, never displaces it. A ground
+//!   identifier wins only a tie between equal fees.
+//!
+//! There are at most `routes` passes, each bounded by [`MAX_BLOCK_ROUTES`] and
 //! [`crate::batch::MAX_CLEARING_INTENTS`].
 //!
 //! Pools no route touches cannot be affected by a route's removal and are
@@ -87,6 +99,9 @@ pub struct RouteIntent {
     pub amount_in: Amount,
     /// Least the route will accept from its last hop.
     pub min_out: Amount,
+    /// Priority: the fee its transaction paid. Higher joins the clearing
+    /// first; equal weights fall back to the smaller identifier.
+    pub weight: Amount,
 }
 
 /// What one pool's clearing produced, route legs removed.
@@ -142,7 +157,8 @@ fn clear_one(
 ///
 /// `pools` are the priced pools the caller can trade against; an intent on a
 /// pool absent from it cannot clear. The result does not depend on the order
-/// of `routes` or of the intents within `swaps`.
+/// of `routes` or of the intents within `swaps`. Routes join in weight order,
+/// each only if the whole set still settles (module documentation).
 ///
 /// # Errors
 ///
@@ -168,27 +184,33 @@ pub fn clear_block(
     }
 
     let mut order: Vec<&RouteIntent> = routes.iter().collect();
-    order.sort_by_key(|route| route.id);
+    order.sort_by(|x, y| y.weight.cmp(&x.weight).then(x.id.cmp(&y.id)));
 
-    let (graph, admitted) = admit(pools, &order);
-    let route_pools: BTreeSet<PairId> = order
-        .iter()
-        .zip(&admitted)
-        .filter(|(_, admitted)| **admitted)
-        .flat_map(|(route, _)| route.hops.iter().map(|hop| hop.pair))
-        .collect();
-    let schedule = topological(&graph, &route_pools);
-
-    let mut live = admitted;
-    let (mut cleared, amounts) = loop {
-        let pass = run_pass(pools, swaps, &order, &live, &schedule);
-        if pass.failed.is_empty() {
-            break (pass.pools, pass.amounts);
-        }
-        for index in pass.failed {
-            live[index] = false;
-        }
+    // Routes join one at a time, in priority order, and stay only if the
+    // whole set still settles. A refused route is out of every later pass,
+    // so it can neither move a pool nor fix an order (ADR-154).
+    let mut live = alloc::vec![false; order.len()];
+    let mut settled = Pass {
+        pools: Vec::new(),
+        amounts: Vec::new(),
     };
+    for index in 0..order.len() {
+        if !well_formed(pools, order[index]) {
+            continue;
+        }
+        live[index] = true;
+        let pass = schedule(&order, &live)
+            .and_then(|schedule| run_pass(pools, swaps, &order, &live, &schedule));
+        match pass {
+            Some(pass) => settled = pass,
+            None => live[index] = false,
+        }
+    }
+    let route_pools = pools_of(&order, &live);
+    let Pass {
+        pools: mut cleared,
+        amounts,
+    } = settled;
 
     // Pools no route touches, once. Their order among themselves is pair order.
     for (pair, intents) in swaps {
@@ -200,66 +222,57 @@ pub fn clear_block(
         }
     }
 
-    let routes = order
+    let mut routes: Vec<RouteSettlement> = order
         .iter()
         .enumerate()
         .map(|(index, route)| RouteSettlement {
             id: route.id,
             trader: route.trader,
-            amount_out: if live[index] {
-                Some(amounts[index])
-            } else {
-                None
-            },
+            amount_out: live[index].then(|| amounts[index]),
         })
         .collect();
+    routes.sort_by_key(|settled| settled.id);
     Ok(BlockClearing {
         pools: cleared,
         routes,
     })
 }
 
-/// Admits routes in identifier order while the precedence graph stays acyclic.
-fn admit(
-    pools: &BTreeMap<PairId, Pool>,
-    order: &[&RouteIntent],
-) -> (BTreeMap<PairId, BTreeSet<PairId>>, Vec<bool>) {
+/// A route every pool of which the caller can price, visiting each once.
+fn well_formed(pools: &BTreeMap<PairId, Pool>, route: &RouteIntent) -> bool {
+    let distinct: BTreeSet<PairId> = route.hops.iter().map(|hop| hop.pair).collect();
+    distinct.len() == route.hops.len() && route.hops.iter().all(|hop| pools.contains_key(&hop.pair))
+}
+
+/// Every pool a live route crosses.
+fn pools_of(order: &[&RouteIntent], live: &[bool]) -> BTreeSet<PairId> {
+    order
+        .iter()
+        .zip(live)
+        .filter(|(_, live)| **live)
+        .flat_map(|(route, _)| route.hops.iter().map(|hop| hop.pair))
+        .collect()
+}
+
+/// The order the live routes' pools clear in, or `None` if their paths
+/// ask for a cycle.
+fn schedule(order: &[&RouteIntent], live: &[bool]) -> Option<Vec<PairId>> {
     let mut graph: BTreeMap<PairId, BTreeSet<PairId>> = BTreeMap::new();
-    let mut admitted = Vec::with_capacity(order.len());
-    for route in order {
-        let distinct: BTreeSet<PairId> = route.hops.iter().map(|hop| hop.pair).collect();
-        let known = route.hops.iter().all(|hop| pools.contains_key(&hop.pair));
-        if distinct.len() != route.hops.len() || !known {
-            admitted.push(false);
-            continue;
-        }
-        let mut candidate = graph.clone();
+    for (route, _) in order.iter().zip(live).filter(|(_, live)| **live) {
         for window in route.hops.windows(2) {
-            candidate
+            graph
                 .entry(window[0].pair)
                 .or_default()
                 .insert(window[1].pair);
         }
-        let nodes = distinct_nodes(&candidate);
-        let acyclic = topological(&candidate, &nodes).len() == nodes.len();
-        if acyclic {
-            graph = candidate;
-        }
-        admitted.push(acyclic);
     }
-    (graph, admitted)
-}
-
-/// Every node the graph names, as a source or a target.
-fn distinct_nodes(graph: &BTreeMap<PairId, BTreeSet<PairId>>) -> BTreeSet<PairId> {
-    graph
-        .iter()
-        .flat_map(|(from, to)| core::iter::once(*from).chain(to.iter().copied()))
-        .collect()
+    let nodes = pools_of(order, live);
+    let sorted = topological(&graph, &nodes);
+    (sorted.len() == nodes.len()).then_some(sorted)
 }
 
 /// Kahn's algorithm over `nodes`, smallest ready identifier first. A cycle
-/// leaves its nodes out, which is how [`admit`] detects one.
+/// leaves its nodes out, which is how [`schedule`] detects one.
 fn topological(
     graph: &BTreeMap<PairId, BTreeSet<PairId>>,
     nodes: &BTreeSet<PairId>,
@@ -292,26 +305,25 @@ fn topological(
     out
 }
 
-/// One pass over the route-carrying pools.
+/// One pass over the route-carrying pools in which every live route settled.
 struct Pass {
     pools: Vec<PoolClearing>,
-    /// Each route's amount after the last hop it completed.
+    /// Each route's amount after its last hop, by index into the priority
+    /// order. Only live routes' entries are meaningful.
     amounts: Vec<Amount>,
-    /// Routes that failed this pass, by index into the identifier order.
-    failed: Vec<usize>,
 }
 
+/// Clears the live routes' pools in `schedule` order, or `None` as soon as
+/// one live route fails a leg.
 fn run_pass(
     pools: &BTreeMap<PairId, Pool>,
     swaps: &BTreeMap<PairId, Vec<SwapIntent>>,
     order: &[&RouteIntent],
     live: &[bool],
     schedule: &[PairId],
-) -> Pass {
+) -> Option<Pass> {
     let mut amounts: Vec<Amount> = order.iter().map(|route| route.amount_in).collect();
     let mut next = alloc::vec![0_usize; order.len()];
-    let mut alive: Vec<bool> = live.to_vec();
-    let mut failed = Vec::new();
     let mut cleared = Vec::with_capacity(schedule.len());
 
     for pair in schedule {
@@ -321,7 +333,7 @@ fn run_pass(
             let Some(hop) = route.hops.get(next[index]) else {
                 continue;
             };
-            if !alive[index] || hop.pair != *pair {
+            if !live[index] || hop.pair != *pair {
                 continue;
             }
             let last = next[index] + 1 == route.hops.len();
@@ -345,14 +357,9 @@ fn run_pass(
                     .iter()
                     .find(|trade| trade.id == order[index].id)
                     .map(|trade| trade.amount_out)
-            });
-            if let Some(amount) = paid {
-                amounts[index] = amount;
-                next[index] += 1;
-            } else {
-                alive[index] = false;
-                failed.push(index);
-            }
+            })?;
+            amounts[index] = paid;
+            next[index] += 1;
         }
         cleared.push(PoolClearing {
             pair: *pair,
@@ -360,11 +367,10 @@ fn run_pass(
         });
     }
 
-    Pass {
+    Some(Pass {
         pools: cleared,
         amounts,
-        failed,
-    }
+    })
 }
 
 /// Removes route legs from a pool's outcome, so it lists plain swaps only.

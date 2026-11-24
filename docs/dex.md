@@ -184,9 +184,10 @@ more than the cheapest one staged (fee to the collector, then the reverse of
 its identifier) takes that one's place, and the evicted swap's input goes
 straight back. A swap that paid less is a no-op: nothing taken, nonce spent. No
 sender holds more than 16 of a pair's batch, so filling a pair takes sixteen
-funded accounts, each paying for every slot it holds, and any trader who pays
-more still gets in. A sealed reveal ranks above every plaintext swap, because it
-was ordered blocks ago and cannot rebid. ADR-154.
+funded accounts, each paying for every slot it holds, and a plaintext trader
+who pays more still gets in unless the batch is full of sealed reveals. A
+sealed reveal ranks above every plaintext swap, because it was ordered blocks
+ago and cannot rebid. ADR-154.
 
 ---
 
@@ -216,7 +217,10 @@ dropped, and the alternative is taking the assets anyway.
 
 `TxKind::SwapRoute` is an atomic multi-hop swap. Every leg settles or none
 does: a route that misses its final bound, or crosses a pool that cannot price
-it, is refunded whole and the pools it touched clear as if it had never come. A
+it, is refunded whole and leaves no trace: routes join the block's clearing one
+at a time in fee order, each only if the whole set still settles, so the block
+clears exactly the routes that joined and a refunded route cannot have moved a
+pool another route settled against or kept another route out. A
 route visits each pool at most once; a revisiting route is refused, because a
 pool clears once per block and the second visit could never execute.
 
@@ -244,9 +248,14 @@ A route's later leg needs its earlier leg's output, so pools clear in a
 topological order of the routes' paths, smallest pair identifier first among
 the ready ones — a property of the set of intents, never of the block's order,
 so the state root does not depend on where a route sat. Two routes that need
-opposite orders cannot both be served while each pool clears once; routes are
-admitted in identifier order, and one that would close a cycle is a no-op that
-keeps its input. A block carries at most 64 routes and one sender at most 4; a
+opposite orders cannot both be served while each pool clears once. Routes join
+heaviest first (the fee paid, then the smaller identifier; a sealed reveal
+first of all), and one that would close a cycle with routes already in is a
+no-op that keeps its input. Only a route ahead of it that settles can keep a
+route out: a cheaper route, or one that fails, cannot, and a ground identifier
+wins only a tie between equal fees. Opposite flows through a hub pair
+(`X->N->Y` beside `Y->N->X`) conflict this way, so one of them waits a block.
+A block carries at most 64 routes and one sender at most 4; a
 full set evicts its cheapest route for a better-paying one, as for swaps.
 ADR-154.
 
