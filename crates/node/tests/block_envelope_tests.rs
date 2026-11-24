@@ -41,11 +41,13 @@ fn block_bytes_and_transaction_count_are_governed_under_compiled_ceilings() {
     assert_eq!(bytes.bounds().default, Amount::from_u64(MAX_BLOCK_BYTES));
     assert_eq!(bytes.bounds().max, Amount::from_u64(BLOCK_BYTES_CEILING));
     assert_eq!(count.bounds().max, Amount::from_u64(BLOCK_TXS_CEILING));
-    assert!(
-        BLOCK_BYTES_CEILING > MAX_BLOCK_BYTES,
-        "room above today's cap"
-    );
-    assert!(BLOCK_TXS_CEILING > 65_536, "room above the old decoder cap");
+    const {
+        assert!(
+            BLOCK_BYTES_CEILING > MAX_BLOCK_BYTES,
+            "room above today's cap"
+        );
+        assert!(BLOCK_TXS_CEILING > 65_536, "room above the old decoder cap");
+    }
     // Both decide which blocks are valid, so both wait for the validity lead.
     assert!(bytes.is_validity_rule() && count.is_validity_rule());
     // The governance crate restates the ceilings (it has no dependencies);

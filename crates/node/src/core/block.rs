@@ -25,7 +25,7 @@ const DECODE_RESERVE_TXS: usize = 4_096;
 const _: () = assert!(MAX_BLOCK_BYTES >= BLOCK_OVERHEAD + 8 + MAX_TX_BYTES as u64);
 // The decoder's per-entry floor really is a floor: a length prefix and at
 // least a version byte (ADR-155).
-const _: () = assert!(MIN_TX_ENTRY_BYTES >= 8 + 1);
+const _: () = assert!(MIN_TX_ENTRY_BYTES > 8);
 
 /// Wire bytes one transaction of `encoded_len` bytes adds to a block: its
 /// length prefix and its encoding.

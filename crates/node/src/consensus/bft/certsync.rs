@@ -204,6 +204,8 @@ fn page_end(offset: u64, records: &[Vec<u8>]) -> u64 {
 /// [`NodeError::Decode`] for a refused certificate, a page that does not add
 /// up, a peer that makes no progress, or a ceiling exceeded; and
 /// [`NodeError::Storage`] for local I/O.
+// Each argument is an independent input of the one fetch; a struct would only rename them.
+#[allow(clippy::too_many_arguments)]
 pub fn fetch_epoch(
     source: &impl CertSource,
     epoch: u64,
