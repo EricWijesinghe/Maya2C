@@ -189,12 +189,15 @@ const TAG_MINING_SHARE: u8 = 53;
 /// are read.
 pub const MAX_JOINSPLIT_PROOF: usize = maya_zk_stark::pool::MAX_PROOF_BYTES;
 
-/// Largest contract module a deployment may carry.
+/// Largest contract module a deployment's encoding may carry.
 ///
-/// Mirrors the VM''s own module ceiling. Code is stored on chain verbatim and
-/// every node keeps it forever, so the limit is a storage decision as much as a
-/// validation one.
-pub const MAX_CONTRACT_CODE: usize = 512 * 1024;
+/// The top of the governed `vm.max_module_bytes` range (2 MiB), not the value
+/// in force (ADR-155, B9). The decoder is not keyed by height, so it reads
+/// every size a passed vote could allow; before, at 512 KiB, a vote inside
+/// the range could set a size every decoder refused. What applies is the
+/// value in force and the VM's own cap, checked at execution, and a module
+/// past either is a failed deployment that pays for its length.
+pub const MAX_CONTRACT_CODE: usize = 2 * 1024 * 1024;
 
 /// Largest input a contract call may carry.
 pub const MAX_CALL_INPUT: usize = 64 * 1024;

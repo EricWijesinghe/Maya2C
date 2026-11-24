@@ -411,10 +411,11 @@ fn a_pruned_node_refuses_imported_headers_at_or_below_its_horizon() {
 
 #[test]
 fn a_state_of_large_code_values_snapshots_into_serveable_chunks() {
-    // 40 maximal contracts: 20 MiB of code. Cut by entry count alone this was
-    // one chunk, 40 MiB as hex, over the 32 MiB RPC response cap — a snapshot
-    // no new node could ever download.
-    const CONTRACTS: u8 = 40;
+    // Ten maximal contracts (2 MiB each since ADR-155 aligned the decoder with
+    // the governed module range): 20 MiB of code. Cut by entry count alone this
+    // was one chunk, 40 MiB as hex, over the 32 MiB RPC response cap — a
+    // snapshot no new node could ever download.
+    const CONTRACTS: u8 = 10;
     let mut archive = ArchiveNode::new(generate_signing_key().expect("key"));
     let code = vec![0xc0; MAX_CONTRACT_CODE];
     for i in 0..CONTRACTS {

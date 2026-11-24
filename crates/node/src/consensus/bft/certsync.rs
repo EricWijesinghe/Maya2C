@@ -39,12 +39,49 @@ pub const PAGE_ENCODED_BYTES: usize = 4 * 1024 * 1024;
 /// Hard ceilings on one epoch's fetch, against a peer that never ends a
 /// history. A mainnet epoch of 3,600 blocks holds about 30,000 certificates at
 /// n = 4 and 50,000 at n = 7 (ADR-052 measurements): the records cap is 80 times
-/// that, the bytes cap about 4 times the n = 7 log.
+/// that. The bytes bound is [`max_epoch_bytes`], derived from the epoch length.
 pub const MAX_EPOCH_PAGES: u64 = 1 << 16;
 /// See [`MAX_EPOCH_PAGES`].
 pub const MAX_EPOCH_RECORDS: u64 = 1 << 22;
-/// See [`MAX_EPOCH_PAGES`].
-pub const MAX_EPOCH_BYTES: u64 = 4 << 30;
+/// DAG rounds one block can take: anchors sit on even rounds, so two, and
+/// twice that again for an anchor that times out and the one after it.
+const ROUNDS_PER_BLOCK: u64 = 4;
+
+/// Most bytes one round's certificates can hold at the compiled ceilings: the
+/// builder's decode budget at the block-byte ceiling, plus every member's
+/// certificate carrying a full quorum of the largest signatures the wire reads.
+const ROUND_BYTES: u64 =
+    crate::consensus::bft::builder::decode_budget(maya_fee_market::limits::BLOCK_BYTES_CEILING)
+        + (super::store::MAX_COMMITTEE as u64)
+            * (super::store::MAX_COMMITTEE as u64)
+            * (4 + 8 + super::wire::MAX_SIGNATURE_BYTES as u64);
+
+/// Most bytes one epoch of `epoch_blocks` blocks can log, at the compiled
+/// ceilings (ADR-155). Derived, not fixed: a 4 GiB constant was refuted by
+/// the 5 MiB block cap alone (3,600 x 5 MiB = 17.58 GiB per mainnet epoch),
+/// and any later raise of the cap would have refuted it again. Every record is
+/// still a certificate with a verified quorum for a slot not yet held, so the
+/// bound limits what a Byzantine quorum could make a node store, not what an
+/// honest peer can serve.
+#[must_use]
+pub const fn max_epoch_bytes(epoch_blocks: u64) -> u64 {
+    epoch_blocks
+        .saturating_mul(ROUNDS_PER_BLOCK)
+        .saturating_mul(ROUND_BYTES)
+}
+
+/// [`max_epoch_bytes`] for `chain`'s epoch length. A chain without staking
+/// has one epoch for its whole life, so only the record count bounds it.
+///
+/// # Errors
+///
+/// A damaged staking record.
+pub fn epoch_byte_bound(chain: &Chain) -> Result<u64> {
+    Ok(chain
+        .state()
+        .committed_staking()?
+        .map_or(u64::MAX, |r| max_epoch_bytes(r.epoch_blocks)))
+}
 
 /// How big one page may be: a record count and a JSON byte budget. The
 /// production values are [`PAGE`]; tests pass tiny ones so paging runs.
@@ -174,6 +211,7 @@ pub fn fetch_epoch(
     weights: Option<&[u64]>,
     dir: &Path,
     limits: PageLimits,
+    max_bytes: u64,
     tag: ChainTag,
 ) -> Result<Fetched> {
     // Each logged slot with the digest of its encoded bytes: a peer's copy of
@@ -219,7 +257,7 @@ pub fn fetch_epoch(
         }
         records += u64::try_from(page.records.len()).unwrap_or(u64::MAX);
         bytes += end - offset;
-        if records > MAX_EPOCH_RECORDS || bytes > MAX_EPOCH_BYTES {
+        if records > MAX_EPOCH_RECORDS || bytes > max_bytes {
             return Err(refuse("the epoch is larger than allowed"));
         }
         for record in &page.records {
@@ -432,6 +470,7 @@ pub fn sync(
                 weights.as_deref(),
                 dir,
                 limits,
+                epoch_byte_bound(chain)?,
                 ChainTag::from_genesis(chain.genesis()),
             )?;
             skipped += fetched.skipped;
@@ -499,11 +538,26 @@ mod tests {
             None,
             dir.path(),
             PAGE,
+            max_epoch_bytes(3_600),
             ChainTag([0; 32]),
         )
         .err()
         .unwrap();
         assert!(err.to_string().contains("byte budget"), "{err}");
+    }
+
+    #[test]
+    fn an_epoch_at_the_ceilings_fits_the_derived_bound() {
+        // Before ADR-155 the bound was a fixed 4 GiB; a mainnet epoch at the
+        // starting 5 MiB cap alone is 17.58 GiB.
+        let epoch = 3_600;
+        assert!(max_epoch_bytes(epoch) >= epoch * maya_fee_market::limits::BLOCK_BYTES_CEILING);
+        assert_eq!(max_epoch_bytes(0), 0);
+        assert_eq!(
+            max_epoch_bytes(u64::MAX),
+            u64::MAX,
+            "saturates, never wraps"
+        );
     }
 
     #[test]

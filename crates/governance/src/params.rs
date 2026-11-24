@@ -89,6 +89,10 @@ pub enum ParameterKey {
     /// Most contract gas one block may spend, calls and deployments together
     /// (ADR-142).
     VmMaxBlockGas,
+    /// Most wire bytes one block may take (ADR-155, B1; ADR-072's cap).
+    BlockMaxBytes,
+    /// Most transactions one block may carry (ADR-155, NEW-4).
+    BlockMaxTransactions,
 }
 
 /// Every key, in tag order.
@@ -108,6 +112,8 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::DefaultSignatureSuite,
     ParameterKey::VmMaxTxGas,
     ParameterKey::VmMaxBlockGas,
+    ParameterKey::BlockMaxBytes,
+    ParameterKey::BlockMaxTransactions,
 ];
 
 /// Blocks between a passed change to a block-validity rule executing and
@@ -131,6 +137,33 @@ const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * 512 * 1024;
 
 /// Most either contract gas cap may be voted to (ADR-142).
 const VM_GAS_CEILING: u64 = 300_000_000;
+
+/// `maya_fee_market::limits::BLOCK_BYTES_CEILING`, restated because this
+/// crate has no dependencies (invariant 12); the node asserts the two agree
+/// (`crates/node/tests/block_envelope_tests.rs`).
+pub const BLOCK_BYTES_CEILING: u64 = 7 * 1024 * 1024;
+
+/// `maya_fee_market::limits::MAX_BLOCK_BYTES`, the cap a chain starts with.
+const DEFAULT_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
+
+/// The smallest block any vote may set: one largest transaction (4 MiB,
+/// `MAX_TX_BYTES`) plus the block's framing must still fit alone, or a valid
+/// transaction could never be included (ADR-072). 64 KiB of framing is more
+/// than a header, a count and one length prefix take; the node asserts it.
+const MIN_BLOCK_BYTES: u64 = 4 * 1024 * 1024 + 64 * 1024;
+
+/// `maya_fee_market::limits::BLOCK_TXS_CEILING`: the byte ceiling at nine
+/// bytes an entry (an 8-byte length prefix and a version byte).
+const BLOCK_TXS_CEILING: u64 = BLOCK_BYTES_CEILING / 9;
+
+/// `maya_fee_market::limits::DEFAULT_BLOCK_TXS`.
+const DEFAULT_BLOCK_TXS: u64 = 65_536;
+
+/// The fewest transactions any vote may allow in a block: more than the
+/// smallest byte cap holds of today's smallest transaction (a hybrid-signed
+/// transfer, about 11.5 KB: 4.06 MiB / 11.5 KB is about 370), so at today's
+/// transaction sizes a vote can never make the count bind before the bytes.
+const MIN_BLOCK_TXS: u64 = 1_024;
 
 /// The permitted range and starting value of one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,6 +203,9 @@ impl ParameterKey {
             // the next free tags (ADR-142).
             Self::VmMaxTxGas => 17,
             Self::VmMaxBlockGas => 18,
+            // 19 and 20 are claimed by the contract-state caps (#644).
+            Self::BlockMaxBytes => 21,
+            Self::BlockMaxTransactions => 22,
         }
     }
 
@@ -200,6 +236,8 @@ impl ParameterKey {
             10 => Ok(Self::DefaultSignatureSuite),
             17 => Ok(Self::VmMaxTxGas),
             18 => Ok(Self::VmMaxBlockGas),
+            21 => Ok(Self::BlockMaxBytes),
+            22 => Ok(Self::BlockMaxTransactions),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -324,6 +362,20 @@ impl ParameterKey {
                 max: Amount::from_u64(VM_GAS_CEILING),
                 default: Amount::from_u64(250_000_000),
             },
+            // ADR-155: today's cap to start, up to what every transport of
+            // the build carries whole; never below one largest transaction.
+            Self::BlockMaxBytes => Bounds {
+                min: Amount::from_u64(MIN_BLOCK_BYTES),
+                max: Amount::from_u64(BLOCK_BYTES_CEILING),
+                default: Amount::from_u64(DEFAULT_BLOCK_BYTES),
+            },
+            // Room for smaller transactions later; never the bound that
+            // binds first at today's sizes.
+            Self::BlockMaxTransactions => Bounds {
+                min: Amount::from_u64(MIN_BLOCK_TXS),
+                max: Amount::from_u64(BLOCK_TXS_CEILING),
+                default: Amount::from_u64(DEFAULT_BLOCK_TXS),
+            },
         }
     }
 
@@ -347,7 +399,10 @@ impl ParameterKey {
             | Self::VmDefaultGasLimit
             // ADR-142's caps refuse a call or a block outright (GAS-1, GAS-2).
             | Self::VmMaxTxGas
-            | Self::VmMaxBlockGas => true,
+            | Self::VmMaxBlockGas
+            // ADR-155: a block over either is invalid.
+            | Self::BlockMaxBytes
+            | Self::BlockMaxTransactions => true,
             // A rate and a deposit change what a valid transaction pays, not
             // whether it is valid. The default suite chooses what wallets
             // sign with; it does not decide what verifies (invariant 31).
@@ -373,6 +428,8 @@ impl ParameterKey {
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
             Self::VmMaxTxGas => "vm.max_tx_gas",
             Self::VmMaxBlockGas => "vm.max_block_gas",
+            Self::BlockMaxBytes => "block.max_bytes",
+            Self::BlockMaxTransactions => "block.max_transactions",
         }
     }
 
@@ -450,7 +507,7 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 12);
+        assert_eq!(count, 14);
     }
 
     #[test]
@@ -508,7 +565,7 @@ mod tests {
             .filter(|key| key.is_validity_rule())
             .map(|key| key.tag())
             .collect();
-        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18]);
+        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18, 21, 22]);
         assert_eq!(
             VALIDITY_RULE_LEAD_BLOCKS,
             crate::limits::MIN_UPGRADE_LEAD_BLOCKS

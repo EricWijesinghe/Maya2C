@@ -545,8 +545,12 @@ impl Chain {
         // than waved through as a block already held. Hashing the body is far
         // cheaper than the Argon2 pass below.
         block.check_tx_root()?;
-        // ADR-072: a block over the cap is invalid whoever built it.
-        block.check_size()?;
+        // ADR-072: a block over the cap is invalid whoever built it. The caps
+        // in force at the tip (ADR-155): a block over them is refused before
+        // it can wait in the orphan pool. Staging checks again against the
+        // state the block extends.
+        let (max_bytes, max_txs) = self.state.block_caps()?;
+        block.check_size_within(max_bytes, max_txs)?;
 
         let id = block.header.id();
         // A record without a body is a header validated ahead of it, as a

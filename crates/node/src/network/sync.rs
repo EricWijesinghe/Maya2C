@@ -42,6 +42,10 @@ pub const MAX_REQUEST_BYTES: u64 = 4 * 1024;
 /// Block bytes a response stops adding at.
 pub const MAX_RESPONSE_PAYLOAD: usize = 24 * 1024 * 1024;
 
+// A block at the block-byte ceiling (ADR-155) always fits a response, so no
+// block a vote can allow is one this build cannot sync.
+const _: () = assert!(maya_fee_market::limits::BLOCK_BYTES_CEILING <= MAX_RESPONSE_PAYLOAD as u64);
+
 /// Largest response on the wire. Above the payload cap by one gossip-sized
 /// block, so a response that stopped at the cap still fits.
 pub const MAX_RESPONSE_BYTES: u64 = 32 * 1024 * 1024;

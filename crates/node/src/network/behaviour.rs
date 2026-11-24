@@ -70,6 +70,16 @@ const GOSSIP_HEARTBEAT: Duration = Duration::from_millis(200);
 /// 200-byte transactions, and an ML-DSA-65 transfer is 5.3 KB.
 pub(crate) const MAX_GOSSIP_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
 
+/// Room a gossiped block leaves in its frame for the gossip envelope.
+const GOSSIP_FRAMING_BYTES: u64 = 1024 * 1024;
+
+// A block at the highest cap a vote can set still travels in one frame
+// (ADR-155): the ceiling is bound to the transport, not only to a default.
+const _: () = assert!(
+    maya_fee_market::limits::BLOCK_BYTES_CEILING + GOSSIP_FRAMING_BYTES
+        <= MAX_GOSSIP_MESSAGE_BYTES as u64
+);
+
 /// Combined behaviour driving the node.
 #[derive(NetworkBehaviour)]
 pub struct NodeBehaviour {

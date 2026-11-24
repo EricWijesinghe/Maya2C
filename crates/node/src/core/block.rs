@@ -11,6 +11,7 @@ use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::fees::MAX_BLOCK_BYTES;
 use crate::state::merkle::{PathStep, merkle_path, merkle_root};
+use maya_fee_market::limits::{BLOCK_TXS_CEILING, MIN_TX_ENTRY_BYTES};
 
 /// Wire bytes a block takes before its first transaction: the header and the
 /// transaction count, as [`Block::to_bytes`] writes them.
@@ -18,6 +19,9 @@ const BLOCK_OVERHEAD: u64 = HEADER_LEN as u64 + 8;
 
 // A maximal transaction must fit a block alone (ADR-072), or it blocks the queue.
 const _: () = assert!(MAX_BLOCK_BYTES >= BLOCK_OVERHEAD + 8 + MAX_TX_BYTES as u64);
+// The decoder's per-entry floor really is a floor: a length prefix and at
+// least a version byte (ADR-155).
+const _: () = assert!(MIN_TX_ENTRY_BYTES >= 8 + 1);
 
 /// Wire bytes one transaction of `encoded_len` bytes adds to a block: its
 /// length prefix and its encoding.
@@ -471,17 +475,27 @@ impl Block {
         Ok(())
     }
 
-    /// Refuses a block whose wire form is over [`MAX_BLOCK_BYTES`] (ADR-072).
+    /// Refuses a block whose wire form is over `max_bytes` (ADR-072, the
+    /// governed `block.max_bytes`) or which carries more than `max_txs`
+    /// transactions (`block.max_transactions`, ADR-155).
     ///
     /// # Errors
     ///
-    /// Returns [`NodeError::BlockTooLarge`] if it is.
-    pub fn check_size(&self) -> Result<()> {
+    /// Returns [`NodeError::BlockTooLarge`] if it is. For the count the error's
+    /// `bytes` and `cap` are the transaction count and the count cap.
+    pub fn check_size_within(&self, max_bytes: u64, max_txs: u64) -> Result<()> {
+        let count = u64::try_from(self.transactions.len()).unwrap_or(u64::MAX);
+        if count > max_txs {
+            return Err(NodeError::BlockTooLarge {
+                bytes: count,
+                cap: max_txs,
+            });
+        }
         let bytes = block_wire_len(self.transactions.iter().map(|tx| tx.to_bytes().len()));
-        if bytes > MAX_BLOCK_BYTES {
+        if bytes > max_bytes {
             return Err(NodeError::BlockTooLarge {
                 bytes,
-                cap: MAX_BLOCK_BYTES,
+                cap: max_bytes,
             });
         }
         Ok(())
@@ -516,9 +530,16 @@ impl Block {
         // would be a second place the rule lived. `Chain::insert_block` owns it.
         let header = BlockHeader::read_from(&mut reader)?;
 
-        // Minimum encoded transaction is 8 bytes of length prefix plus a small
-        // body; use the prefix width as the per-element floor.
-        let count = reader.read_collection_len(8)?;
+        // The count is bounded by what the byte ceiling could ever hold
+        // (ADR-155, NEW-4), not by the generic 65,536 collection cap, and by
+        // what the remaining bytes can hold at the per-entry floor, so a small
+        // frame never reserves a large vector.
+        let count = reader.read_record_len(MIN_TX_ENTRY_BYTES as usize)?;
+        if count as u64 > BLOCK_TXS_CEILING {
+            return Err(NodeError::Decode(format!(
+                "block of {count} transactions over the ceiling {BLOCK_TXS_CEILING}"
+            )));
+        }
         let mut transactions = Vec::with_capacity(count);
         for _ in 0..count {
             let len = reader.read_byte_len(MAX_TX_BYTES)?;
