@@ -20,7 +20,7 @@ export interface RoadmapItem {
   postGenesis?: boolean;
 }
 
-export const REPO_PR = "https://github.com/EricWijesinghe/Maya2C/pull/";
+export const REPO_PR = "https://github.com/maya2c/Maya2C/pull/";
 
 export const LANES: { id: LaneId; title: string; sub: string }[] = [
   { id: "m1", title: "Nov to Dec", sub: "Target: finish what is in flight" },
