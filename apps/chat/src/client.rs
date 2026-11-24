@@ -23,6 +23,13 @@ pub use payments::MAX_PAY_INBOX;
 
 /// How long an envelope asks relays to keep it, seconds.
 pub const ENVELOPE_TTL: u64 = 7 * 24 * 3_600;
+/// Most sessions one client keeps. Anyone can open a session for one stamp,
+/// so past this a session gives way: a hard refusal would lock out every new
+/// contact for good. Peers this client never wrote to go first, oldest first,
+/// so a flood of strangers evicts other strangers before a chosen contact.
+/// Recovery is manual: the evicted side sees `NoSession` for that peer's
+/// `Chat` envelopes until one side opens a fresh handshake.
+pub const MAX_SESSIONS: usize = 4_096;
 
 /// A received message.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -100,6 +107,12 @@ struct State {
     #[serde(default)]
     version: u8,
     sessions: BTreeMap<Address, Session>,
+    /// Absent before the session cap: those sessions load as least recent.
+    #[serde(default)]
+    last_active: BTreeMap<Address, u64>,
+    /// Absent before eviction ranking: those sessions rank as strangers.
+    #[serde(default)]
+    chosen: BTreeSet<Address>,
     accepted: BTreeMap<[u8; 32], u64>,
     #[serde(default)]
     outbox: BTreeMap<[u8; 32], Pending>,
@@ -127,6 +140,15 @@ struct State {
 pub struct Client {
     identity: Identity,
     sessions: BTreeMap<Address, Session>,
+    /// When each session last sent or received, for eviction past
+    /// [`Client::max_sessions`].
+    last_active: BTreeMap<Address, u64>,
+    /// Peers the user has written to (text or payment, not receipts): a
+    /// stranger cannot add itself here, so eviction spares these first.
+    /// Always a subset of `sessions`.
+    chosen: BTreeSet<Address>,
+    /// [`MAX_SESSIONS`] unless lowered; not saved.
+    max_sessions: usize,
     /// Handshakes already accepted, by session id, with their send time.
     /// Without this, replaying an old `Open` would reset a live session to
     /// stale keys and deliver its first message again. [`session::accept`] refuses a
@@ -166,6 +188,9 @@ impl Client {
         Self {
             identity,
             sessions: BTreeMap::new(),
+            last_active: BTreeMap::new(),
+            chosen: BTreeSet::new(),
+            max_sessions: MAX_SESSIONS,
             accepted: BTreeMap::new(),
             outbox: BTreeMap::new(),
             owed: BTreeMap::new(),
@@ -178,6 +203,39 @@ impl Client {
             pay_chain: None,
             pay_binding: None,
         }
+    }
+
+    /// This client with a lower session cap than [`MAX_SESSIONS`].
+    #[must_use]
+    pub fn with_max_sessions(mut self, max: usize) -> Self {
+        self.max_sessions = max.clamp(1, MAX_SESSIONS);
+        self
+    }
+
+    /// Stores `session` for `peer`, first evicting other sessions while the
+    /// table is full: strangers before chosen contacts, then least recent.
+    fn insert_session(&mut self, peer: Address, session: Session, now: u64) {
+        while !self.sessions.contains_key(&peer) && self.sessions.len() >= self.max_sessions {
+            // shortcut: O(n) scan of at most MAX_SESSIONS per new peer; index by time if the cap grows.
+            let Some(oldest) = self
+                .sessions
+                .keys()
+                .min_by_key(|p| {
+                    let when = self.last_active.get(*p).copied().unwrap_or(0);
+                    (self.chosen.contains(*p), when, **p)
+                })
+                .copied()
+            else {
+                break;
+            };
+            self.sessions.remove(&oldest);
+            self.last_active.remove(&oldest);
+            self.chosen.remove(&oldest);
+            // Its receipts can no longer be sealed.
+            self.owed.remove(&oldest);
+        }
+        self.sessions.insert(peer, session);
+        self.last_active.insert(peer, now);
     }
 
     fn state_key(identity: &Identity) -> Zeroizing<[u8; 32]> {
@@ -194,6 +252,8 @@ impl Client {
         let state = State {
             version: STATE_VERSION,
             sessions: self.sessions.clone(),
+            last_active: self.last_active.clone(),
+            chosen: self.chosen.clone(),
             accepted: self.accepted.clone(),
             outbox: self.outbox.clone(),
             owed: self.owed.clone(),
@@ -244,6 +304,9 @@ impl Client {
         Ok(Self {
             identity,
             sessions: state.sessions,
+            last_active: state.last_active,
+            chosen: state.chosen,
+            max_sessions: MAX_SESSIONS,
             accepted: state.accepted,
             outbox: state.outbox,
             owed: state.owed,
@@ -309,14 +372,17 @@ impl Client {
         version: u8,
     ) -> Result<Envelope, ChatError> {
         let payload = if let Some(session) = self.sessions.get_mut(&to) {
-            Payload::Chat(session.encrypt(text)?)
+            let message = Payload::Chat(session.encrypt(text)?);
+            self.last_active.insert(to, now);
+            message
         } else {
             let bundle = bundle.ok_or(ChatError::NoSession)?;
             let (mut session, handshake) = session::initiate(&self.identity, to, bundle, now)?;
             let first = session.encrypt(text)?;
-            self.sessions.insert(to, session);
+            self.insert_session(to, session, now);
             Payload::Open { handshake, first }
         };
+        self.chosen.insert(to);
         Ok(Envelope {
             to,
             expires_at: now + ENVELOPE_TTL,
@@ -371,7 +437,7 @@ impl Client {
                 self.accepted.insert(id, handshake.sent_at);
                 // A new handshake from the same peer replaces the old session:
                 // that is how a peer re-keys.
-                self.sessions.insert(from, session);
+                self.insert_session(from, session, now);
                 self.note_received(from, envelope.id()?);
                 Ok(Frame::Text(Received { from, text }))
             }
@@ -386,6 +452,7 @@ impl Client {
                     let session = self.sessions.get_mut(&from).ok_or(ChatError::NoSession)?;
                     (session.decrypt(message)?, session.peer_key().to_vec())
                 };
+                self.last_active.insert(from, now);
                 if receipt::is_receipt(&text) {
                     let ids = self.apply_receipt(&from, &peer_key, &message.session, &text)?;
                     return Ok(Frame::Receipt { from, ids });
@@ -541,6 +608,8 @@ impl Client {
         if let Err(e) = outbox::check_room(self.outbox.len(), self.outbox_bytes(), size) {
             if !had_session {
                 self.sessions.remove(&to);
+                self.last_active.remove(&to);
+                self.chosen.remove(&to);
             }
             return Err(e);
         }
@@ -747,5 +816,11 @@ impl Client {
     #[must_use]
     pub fn has_session(&self, peer: &Address) -> bool {
         self.sessions.contains_key(peer)
+    }
+
+    /// How many sessions this client holds.
+    #[must_use]
+    pub fn session_count(&self) -> usize {
+        self.sessions.len()
     }
 }

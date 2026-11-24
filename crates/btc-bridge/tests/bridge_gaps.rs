@@ -150,8 +150,10 @@ fn open_releases_are_exact_after_refused_short_and_closing_payouts() {
     assert_eq!(kept[&id].script, PAYOUT);
     assert_eq!(kept[&id].burner, ALICE);
 
+    let tag = net.bridge.release_tag(id).unwrap();
+
     // A partial payout does not shrink or close the release.
-    let part = net.confirmed(&[(25_000, PAYOUT)]);
+    let part = net.confirmed(&[(25_000, PAYOUT), (0, &tag)]);
     assert_eq!(
         net.bridge.confirm_release(id, &part),
         Err(BridgeError::DoesNotPay)
@@ -161,7 +163,7 @@ fn open_releases_are_exact_after_refused_short_and_closing_payouts() {
     assert_eq!(net.bridge.locked(), 100_000);
 
     // Same-amount output to another script is not a payout.
-    let wrong = net.confirmed(&[(60_000, LOCK[..5].as_ref())]);
+    let wrong = net.confirmed(&[(60_000, LOCK[..5].as_ref()), (0, &tag)]);
     assert_eq!(
         net.bridge.confirm_release(id, &wrong),
         Err(BridgeError::DoesNotPay)
@@ -169,7 +171,7 @@ fn open_releases_are_exact_after_refused_short_and_closing_payouts() {
     assert_eq!(net.bridge.open_releases(), &kept);
 
     // Two outputs to the script add up (>= amount closes it).
-    let split = net.confirmed(&[(25_000, PAYOUT), (35_000, PAYOUT)]);
+    let split = net.confirmed(&[(25_000, PAYOUT), (35_000, PAYOUT), (0, &tag)]);
     net.bridge.confirm_release(id, &split).unwrap();
     assert!(net.bridge.open_releases().is_empty());
     assert_eq!(net.bridge.owed(), 0);
@@ -358,7 +360,8 @@ proptest! {
                     if let Some(id) = ids.get(which % ids.len().max(1)).copied() {
                         let owed = net.bridge.open_releases()[&id].amount;
                         let paid = if short { owed - 1 } else { owed };
-                        let p = net.confirmed(&[(paid, PAYOUT)]);
+                        let tag = net.bridge.release_tag(id).unwrap();
+                        let p = net.confirmed(&[(paid, PAYOUT), (0, &tag)]);
                         let r = net.bridge.confirm_release(id, &p);
                         prop_assert_eq!(r.is_ok(), !short);
                     }
@@ -367,4 +370,68 @@ proptest! {
             net.books_balance();
         }
     }
+}
+
+#[test]
+fn a_release_closes_only_on_its_own_tag_in_a_block_after_the_burn() {
+    let mut net = Net::new();
+    let dep = net.confirmed(&[(100_000, LOCK), (0, &recipient(ALICE))]);
+    net.bridge.mint(&dep).unwrap();
+
+    // A payment to the script mined before the burn, even one carrying the
+    // tag the release will get, cannot close it.
+    let mut probe = net.bridge.clone();
+    let early_id = probe.burn(ALICE, 30_000, PAYOUT.to_vec()).unwrap();
+    let early_tag = probe.release_tag(early_id).unwrap();
+    let early = net.confirmed(&[(30_000, PAYOUT), (0, &early_tag)]);
+    let id = net.bridge.burn(ALICE, 30_000, PAYOUT.to_vec()).unwrap();
+    assert_eq!(id, early_id);
+    assert_eq!(net.bridge.release_tag(id).unwrap(), early_tag);
+    assert_eq!(
+        net.bridge.confirm_release(id, &early),
+        Err(BridgeError::BeforeBurn)
+    );
+
+    // A later payment without the tag, or with another release's tag.
+    let untagged = net.confirmed(&[(30_000, PAYOUT)]);
+    assert_eq!(
+        net.bridge.confirm_release(id, &untagged),
+        Err(BridgeError::Untagged)
+    );
+    let other = net.bridge.burn(ALICE, 30_000, PAYOUT.to_vec()).unwrap();
+    let other_tag = net.bridge.release_tag(other).unwrap();
+    assert_ne!(
+        other_tag, early_tag,
+        "same amount and script, distinct tags"
+    );
+    let crossed = net.confirmed(&[(30_000, PAYOUT), (0, &other_tag)]);
+    assert_eq!(
+        net.bridge.confirm_release(id, &crossed),
+        Err(BridgeError::Untagged)
+    );
+    assert_eq!(net.bridge.owed(), 60_000);
+    net.books_balance();
+
+    // The crossed payout is the other release's own: it closes that one.
+    net.bridge.confirm_release(other, &crossed).unwrap();
+    let paid = net.confirmed(&[(30_000, PAYOUT), (0, &early_tag)]);
+    net.bridge.confirm_release(id, &paid).unwrap();
+    assert!(net.bridge.open_releases().is_empty());
+    assert_eq!(net.bridge.release_tag(id), None);
+    net.books_balance();
+}
+
+#[test]
+fn a_release_tag_is_never_read_as_a_deposit_recipient() {
+    let mut net = Net::new();
+    let dep = net.confirmed(&[(10, LOCK), (0, &recipient(ALICE))]);
+    net.bridge.mint(&dep).unwrap();
+    let id = net.bridge.burn(ALICE, 5, PAYOUT.to_vec()).unwrap();
+    let tag = net.bridge.release_tag(id).unwrap();
+    assert_eq!(tx::op_return_32(&tag), None);
+    // A payout with change back to the lock script cannot be minted first.
+    let payout = net.confirmed(&[(5, PAYOUT), (5, LOCK), (0, &tag)]);
+    assert_eq!(net.bridge.mint(&payout), Err(BridgeError::NoRecipient));
+    net.bridge.confirm_release(id, &payout).unwrap();
+    net.books_balance();
 }

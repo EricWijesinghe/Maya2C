@@ -35,8 +35,10 @@ and that gap is what this ADR closes.
 3. **One verifier.** `cargo xtask verify-release <dir>` runs the same checks a
    user runs: checksums, cosign bundles for each file and `SHA256SUMS`, then
    `gh attestation verify` for each file and for `SHA256SUMS`. The workflow's
-   own `Verify release (self-check)` step runs it before upload, so a release
-   with a missing attestation fails before anything is published.
+   own `verify` job runs it before the `release` job, so a release with a
+   missing attestation fails before anything is published. It runs in its own
+   job with a read-only token because it compiles xtask; the `sign` job, which
+   holds the OIDC token, compiles nothing (2026-11-22).
 4. **No new secret, no new cost.** Sigstore and GitHub attestations are free for
    a public repository and use the built-in `GITHUB_TOKEN` and OIDC token.
 
