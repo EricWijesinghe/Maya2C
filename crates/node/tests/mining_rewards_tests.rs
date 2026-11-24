@@ -459,3 +459,93 @@ fn a_tail_needs_a_reserve_that_pays_it_until_the_last_height() {
     let state = Arc::new(StateDB::open(funded.path()).unwrap());
     config.seed_state(&state).unwrap();
 }
+
+/// One share's work signed under many transaction nonces is still one share:
+/// only the first copy can ever be paid, so only the first may be pooled.
+/// Before, every copy was admitted fee-free and outside the per-sender cap.
+#[test]
+fn one_shares_work_under_many_tx_nonces_is_pooled_once() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 2);
+
+    assert!(pool.insert(share(1, good[0], 0)).unwrap());
+    for tx_nonce in 1..4 {
+        let err = pool.insert(share(1, good[0], tx_nonce)).unwrap_err();
+        assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+    }
+    // Different work under the next nonce is a different share.
+    assert!(pool.insert(share(1, good[1], 1)).unwrap());
+    assert_eq!(pool.len(), 2);
+}
+
+/// A share is executed at its exact nonce like any transaction, so one that
+/// leaves a gap can never run and would only be re-proposed fee-free: it
+/// waits, unproposed, until the gap fills, and past the window it is refused.
+#[test]
+fn a_share_whose_nonce_leaves_a_gap_waits_unproposed() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 2);
+
+    assert!(pool.insert(share(1, good[0], 1)).unwrap());
+    assert_eq!((pool.len(), pool.queued_len()), (0, 1));
+    let far = custom_l1_node::network::mempool::MAX_NONCE_AHEAD + 1;
+    let err = pool.insert(share(1, good[0], far)).unwrap_err();
+    assert!(matches!(err, NodeError::MempoolRejected(_)), "{err:?}");
+
+    assert!(pool.insert(share(1, good[1], 0)).unwrap());
+    assert_eq!((pool.len(), pool.queued_len()), (2, 0), "the gap is filled");
+}
+
+/// A pooled share's work was hashed at admission and cannot go bad, so the
+/// per-round prune on the BFT consensus task must not hash it again: a pool
+/// of shares past the block's share cap would otherwise cost every validator
+/// ~2 ms per share every round (review of #653).
+#[test]
+fn pruning_dropped_shares_does_not_hash_their_work_again() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let good = find_shares(&c, 1, 0, 3);
+    let txs: Vec<Transaction> = (0u64..)
+        .zip(&good)
+        .map(|(tx_nonce, &work)| share(1, work, tx_nonce))
+        .collect();
+    for tx in &txs {
+        assert!(pool.insert(tx.clone()).unwrap());
+    }
+
+    let before = c.state().share_proofs();
+    let ids: Vec<_> = txs.iter().map(Transaction::txid).collect();
+    assert_eq!(pool.prune_invalid(&ids), 0, "every share can still pay");
+    assert_eq!(c.state().share_proofs(), before, "the prune re-hashed work");
+    assert_eq!(pool.len(), 3);
+}
+
+/// The cheap share rules still prune: once the epoch closes, a pooled share
+/// for it can never pay, and it goes without its work being hashed.
+#[test]
+fn a_dropped_share_from_a_closed_epoch_is_pruned_without_hashing() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let pool = Mempool::new(Arc::clone(c.state()));
+    let work = find_shares(&c, 1, 0, 1)[0];
+    let tx = share(1, work, 0);
+    assert!(pool.insert(tx.clone()).unwrap());
+    for h in H1..=2 * EPOCH_BLOCKS {
+        mine(&mut c, h, Vec::new()).unwrap();
+    }
+    assert_eq!(c.state().committed_mining().unwrap().unwrap().epoch, 2);
+
+    let before = c.state().share_proofs();
+    assert_eq!(pool.prune_invalid(&[tx.txid()]), 1);
+    assert_eq!(c.state().share_proofs(), before);
+    assert!(pool.is_empty());
+}

@@ -3042,7 +3042,7 @@ paths = "`crates/node/src/state/mining.rs`, `crates/node/src/state/mining_exec.r
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs"]
+tests = ["crate:custom-l1-node", "crates/node/tests/mining_rewards_tests.rs", "crates/node/tests/mempool_resubmission_tests.rs"]
 note = "ADR-044. Miners never order blocks; shares are MiningShare transactions checked by hashimoto_light against a per-epoch target and paid from MINING_RESERVE, never minted. get_mining_work RPC hands each miner its header. The CLI miner (--mine) hashes on CPU in light mode; the GPU dataset path is not wired. Off on a chain whose genesis has no bft.mining; not yet on the testnet."
 
 [[subsystem]]
@@ -3158,7 +3158,7 @@ paths = "`crates/crypto-pq/src/envelope.rs`, `crates/crypto-pq/src/agility/`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs", "crates/node/tests/suite_envelope_live_tests.rs"]
+tests = ["crate:maya-crypto-pq", "crates/crypto-pq/tests/agility_migration_tests.rs", "crates/node/tests/suite_parity_tests.rs", "crates/node/tests/verify_differential_tests.rs", "crates/node/tests/suite_envelope_live_tests.rs"]
 note = "Wire v7, live from genesis (ADR-013): consensus verifies under crypto::suites::verification_policy() (genesis schedule, mainnet rules, no state read); the mempool reads DefaultSignatureSuite. 1,000,000-account emergency migration is a SIM (keyed-hash authorization); real signatures cover the same paths in unit tests."
 
 [[subsystem]]

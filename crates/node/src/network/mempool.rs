@@ -22,15 +22,41 @@
 //! pooled must be affordable together, not one transaction at a time. Without
 //! these, one account holding a single coin filled the pool with
 //! future-nonce spends of that coin, none of which ever paid a fee.
+//!
+//! ## Entries that can never execute (independent audit CT-01, CT-04)
+//!
+//! A pooled entry the executor drops pays no fee, and the BFT feed proposes
+//! whatever is pooled, so an entry that can never execute would be ordered
+//! and dropped every round. Two rules keep stale, gapped and unaffordable
+//! entries out of the pool:
+//!
+//! - A nonce enters the pool only when every nonce from the account's up to it
+//!   is already pooled, here or in the node's other pool ([`Mempool::link_sibling`]),
+//!   so the pool has no gap; and [`Mempool::prune_invalid`] removes a dropped
+//!   entry that committed state has made stale, or whose run lost its head.
+//!   An entry that passes every other check waits in a bounded queue that is
+//!   never proposed, and moves into the pool when the gap fills (`queue`
+//!   module): refusing it lost it for good, since gossip does not redeliver.
+//! - A fee-free mining share is pooled once per piece of work: the same work
+//!   under another transaction nonce could never be paid twice.
+//!
+//! Not covered: an entry that passes every state check here but fails on its
+//! payload when staged (a cancel of an unknown order, a swap on a missing
+//! pool) is still re-proposed each round. Pruning it needs the builder to
+//! tell a staging failure from an entry left out for block room; BACKLOG.md.
 
 use primitive_types::U256;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
 use crate::core::{MAX_TX_BYTES, Transaction};
 use crate::error::{NodeError, Result};
 use crate::state::{Address, Module, StateDB};
+
+mod queue;
+pub use queue::{MAX_QUEUED, MAX_QUEUED_BYTES, QUEUED_FOR_BLOCKS};
+use queue::{Queue, Queued};
 
 /// Identifier of a pooled transaction.
 pub type TxHash = [u8; 32];
@@ -54,13 +80,43 @@ pub struct Mempool {
     /// its cheapest per byte without re-encoding everything it holds. Changed
     /// only under the pool's write lock.
     fees: Arc<std::sync::Mutex<HashMap<TxHash, (U256, usize)>>>,
+    /// The other local pool's sender tally, once linked: a node feeds both
+    /// its gossip pool and its RPC pool to consensus, so a nonce pooled in
+    /// either one is no gap ([`Mempool::link_sibling`]).
+    sibling: Arc<std::sync::OnceLock<Senders>>,
+    /// Entries that wait for a missing earlier nonce; never proposed. Locked
+    /// after the pool's write lock when both are held, never before it.
+    queue: Arc<std::sync::Mutex<Queue>>,
 }
 
+/// Whether a missing earlier nonce refuses an entry or lets it wait.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Gaps {
+    Refuse,
+    Wait,
+}
+
+/// Where an inserted entry went.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Admitted {
+    Pooled,
+    Queued,
+    Known,
+}
+
+/// Per-sender tallies of one pool.
+type Senders = Arc<std::sync::Mutex<HashMap<Address, Pending>>>;
+
 /// What one sender has pooled.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 struct Pending {
+    /// Every pooled entry, mining shares included.
     count: usize,
     outputs: U256,
+    /// How many pooled entries use each nonce; several may compete for one.
+    nonces: BTreeMap<u64, usize>,
+    /// `(epoch, work nonce)` of each pooled mining share: one piece of work.
+    shares: BTreeSet<(u64, u64)>,
 }
 
 /// How far past the account's nonce a pooled transaction may run.
@@ -94,7 +150,23 @@ impl Mempool {
             max_bytes: DEFAULT_MAX_BYTES,
             senders: Arc::default(),
             fees: Arc::default(),
+            sibling: Arc::default(),
+            queue: Arc::default(),
         }
+    }
+
+    /// Lets this pool and `other` each count the other's pooled nonces in the
+    /// gap rule. A node runs a gossip pool and an RPC pool and proposes from
+    /// both, so a wallet that sends nonce `n` to one node and `n + 1` to
+    /// another has them in different pools here; unlinked, `n + 1` would be
+    /// refused as a gap. Only nonces are shared: the per-sender cap and the
+    /// affordability sum stay per pool. Returns `false` when either pool was
+    /// already linked, and then that pool keeps its first link.
+    #[must_use]
+    pub fn link_sibling(&self, other: &Self) -> bool {
+        let here = self.sibling.set(Arc::clone(&other.senders)).is_ok();
+        let there = other.sibling.set(Arc::clone(&self.senders)).is_ok();
+        here && there
     }
 
     /// The same pool with a byte budget of `max_bytes` instead of the default.
@@ -133,23 +205,35 @@ impl Mempool {
 
     /// Refuses `tx` when one more entry from its sender would pass
     /// [`MAX_PER_SENDER`], or its outputs plus the sender's pooled ones would
-    /// pass `balance`. Mining shares are exempt: each costs real work.
+    /// pass `balance`, or when it is a mining share whose work the sender
+    /// already has pooled under another transaction nonce. A share moves
+    /// nothing, so it has no balance test.
     fn check_sender_room(&self, tx: &Transaction, balance: U256) -> Result<()> {
-        if is_share(tx) {
-            return Ok(());
-        }
         let sender = tx.sender();
-        let pending = self
-            .lock_senders()
-            .get(&sender)
-            .copied()
-            .unwrap_or_default();
-        if pending.count >= MAX_PER_SENDER {
+        let work = share_work(tx);
+        let (waiting, waiting_out) = self.lock_queue().share_of(&sender);
+        let (count, outputs, work_pooled) =
+            self.lock_senders()
+                .get(&sender)
+                .map_or((0, U256::zero(), false), |p| {
+                    let pooled = work.is_some_and(|w| p.shares.contains(&w));
+                    (p.count, p.outputs, pooled)
+                });
+        let (count, outputs) = (count + waiting, outputs.saturating_add(waiting_out));
+        if count >= MAX_PER_SENDER {
             return Err(NodeError::MempoolRejected(format!(
                 "sender already holds {MAX_PER_SENDER} pooled transactions"
             )));
         }
-        let total = pending.outputs.saturating_add(total_out(tx)?);
+        if work_pooled {
+            return Err(NodeError::MempoolRejected(
+                "this share's work is already pooled under another nonce".into(),
+            ));
+        }
+        if work.is_some() {
+            return Ok(());
+        }
+        let total = outputs.saturating_add(total_out(tx)?);
         if total > balance {
             return Err(NodeError::InsufficientBalance {
                 address: hex::encode(sender),
@@ -158,6 +242,66 @@ impl Mempool {
             });
         }
         Ok(())
+    }
+
+    /// Refuses a nonce more than [`MAX_NONCE_AHEAD`] past the account's and,
+    /// under [`Gaps::Refuse`], one that would leave a gap. The executor runs
+    /// a sender's transactions at exact nonces only, so an entry past a gap
+    /// would be ordered and dropped, fee-free, every round until it filled.
+    /// Under [`Gaps::Wait`] the gap is judged later, under the pool's write
+    /// lock ([`Mempool::insert`]), and a gapped entry waits in the queue.
+    fn check_nonce(
+        &self,
+        sender: &Address,
+        account_nonce: u64,
+        tx_nonce: u64,
+        gaps: Gaps,
+    ) -> Result<()> {
+        if tx_nonce > account_nonce.saturating_add(MAX_NONCE_AHEAD) {
+            return Err(NodeError::MempoolRejected(format!(
+                "nonce {tx_nonce} is more than {MAX_NONCE_AHEAD} past the account's {account_nonce}"
+            )));
+        }
+        if gaps == Gaps::Refuse
+            && let Some(missing) = self.first_missing(sender, account_nonce, tx_nonce)
+        {
+            return Err(NodeError::MempoolRejected(format!(
+                "nonce {tx_nonce} leaves a gap: nonce {missing} is not pooled"
+            )));
+        }
+        Ok(())
+    }
+
+    /// The first nonce from `account_nonce` up to `tx_nonce` that is not
+    /// pooled. A nonce pooled in the linked sibling pool counts
+    /// ([`Mempool::link_sibling`]), so a sender who used two RPC endpoints has
+    /// no gap here. At most [`MAX_NONCE_AHEAD`] lookups once the window holds.
+    fn first_missing(&self, sender: &Address, account_nonce: u64, tx_nonce: u64) -> Option<u64> {
+        // The two tallies are locked one after the other, never together, so
+        // two linked pools checking at once cannot deadlock.
+        let absent = |tally: &HashMap<Address, Pending>, nonces: &mut Vec<u64>| {
+            let pooled = tally.get(sender).map(|p| &p.nonces);
+            nonces.retain(|nonce| pooled.is_none_or(|n| !n.contains_key(nonce)));
+        };
+        let mut missing: Vec<u64> = (account_nonce..tx_nonce).collect();
+        absent(&self.lock_senders(), &mut missing);
+        if let Some(sibling) = self.sibling.get()
+            && !missing.is_empty()
+        {
+            absent(
+                &sibling
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+                &mut missing,
+            );
+        }
+        missing.first().copied()
+    }
+
+    fn lock_queue(&self) -> std::sync::MutexGuard<'_, Queue> {
+        self.queue
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn lock_fees(&self) -> std::sync::MutexGuard<'_, HashMap<TxHash, (U256, usize)>> {
@@ -239,6 +383,11 @@ impl Mempool {
     /// [`NodeError::InsufficientBalance`] when the sender cannot cover the
     /// outputs, or [`NodeError::BalanceOverflow`] on arithmetic overflow.
     pub fn validate(&self, tx: &Transaction) -> Result<()> {
+        self.validate_with(tx, Gaps::Refuse)
+    }
+
+    /// [`Mempool::validate`], with the gap rule as `gaps` says.
+    fn validate_with(&self, tx: &Transaction, gaps: Gaps) -> Result<()> {
         // The state checks run *before* the signature, and that is a reversal
         // of what this function used to do, for a cost reason (ADR-013):
         //
@@ -270,64 +419,9 @@ impl Mempool {
         if let crate::core::TxKind::MiningShare(share) = &tx.kind
             && tx.outputs.is_empty()
         {
-            return self.validate_share(tx, share);
+            return self.validate_share(tx, share, gaps);
         }
-        if let Some(fees) = self.state.committed_fees()? {
-            let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
-            let offered = tx
-                .outputs
-                .iter()
-                .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
-                .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
-            if offered < required {
-                return Err(NodeError::FeeTooLow { required, offered });
-            }
-        }
-
-        let sender_address = tx.sender();
-        let sender = self.state.get_account(&sender_address)?;
-        if sender.balance.is_zero() && sender.nonce == 0 {
-            return Err(NodeError::EmptySender {
-                address: hex::encode(sender_address),
-            });
-        }
-
-        // A nonce below the account's next expected value is a replay of
-        // something already committed. Nonces *above* it are accepted: the
-        // gap-filling transaction may still be in flight, and the block
-        // executor enforces exact ordering at commit time.
-        if tx.nonce < sender.nonce {
-            return Err(NodeError::InvalidNonce {
-                address: hex::encode(sender_address),
-                expected: sender.nonce,
-                actual: tx.nonce,
-            });
-        }
-        if tx.nonce > sender.nonce.saturating_add(MAX_NONCE_AHEAD) {
-            return Err(NodeError::MempoolRejected(format!(
-                "nonce {} is more than {MAX_NONCE_AHEAD} past the account's {}",
-                tx.nonce, sender.nonce
-            )));
-        }
-
-        let total_out = total_out(tx)?;
-        if sender.balance < total_out {
-            return Err(NodeError::InsufficientBalance {
-                address: hex::encode(sender_address),
-                required: total_out,
-                available: sender.balance,
-            });
-        }
-
-        // A vault account's out-of-policy transaction (ADR-030) would only be
-        // dropped at block building; refuse it here, before the signature,
-        // with the reason, against committed state like the checks above.
-        self.state.vault_check(
-            &crate::state::db::Overlay::default(),
-            tx,
-            &sender_address,
-            self.admission_height()?,
-        )?;
+        let sender_address = self.check_against_state(tx, gaps)?;
 
         // Then the signature, with the same rule block execution applies, at
         // the first height this transaction could execute at, under the policy
@@ -369,6 +463,68 @@ impl Mempool {
         self.check_breaker(&tx.kind)
     }
 
+    /// The checks of [`Mempool::validate`] that read committed state, short of
+    /// the signature: the base fee, an empty sender, a stale nonce or a gap, an
+    /// unaffordable spend, a vault's policy. Returns the sender.
+    ///
+    /// A signature verified at admission cannot go bad later, so these are
+    /// what can turn a pooled entry stale; [`Mempool::prune_invalid`] runs
+    /// only these.
+    fn check_against_state(&self, tx: &Transaction, gaps: Gaps) -> Result<Address> {
+        if let Some(fees) = self.state.committed_fees()? {
+            let required = maya_stateless_core::amount::to_u256(fees.required(tx.to_bytes().len()));
+            let offered = tx
+                .outputs
+                .iter()
+                .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
+                .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
+            if offered < required {
+                return Err(NodeError::FeeTooLow { required, offered });
+            }
+        }
+
+        let sender_address = tx.sender();
+        let sender = self.state.get_account(&sender_address)?;
+        if sender.balance.is_zero() && sender.nonce == 0 {
+            return Err(NodeError::EmptySender {
+                address: hex::encode(sender_address),
+            });
+        }
+
+        // A nonce below the account's next expected value is a replay of
+        // something already committed. Nonces *above* it are accepted only
+        // while every nonce in between is pooled (`check_nonce`); the block
+        // executor enforces exact ordering at commit time.
+        if tx.nonce < sender.nonce {
+            return Err(NodeError::InvalidNonce {
+                address: hex::encode(sender_address),
+                expected: sender.nonce,
+                actual: tx.nonce,
+            });
+        }
+        self.check_nonce(&sender_address, sender.nonce, tx.nonce, gaps)?;
+
+        let total_out = total_out(tx)?;
+        if sender.balance < total_out {
+            return Err(NodeError::InsufficientBalance {
+                address: hex::encode(sender_address),
+                required: total_out,
+                available: sender.balance,
+            });
+        }
+
+        // A vault account's out-of-policy transaction (ADR-030) would only be
+        // dropped at block building; refuse it here, before the signature,
+        // with the reason, against committed state like the checks above.
+        self.state.vault_check(
+            &crate::state::db::Overlay::default(),
+            tx,
+            &sender_address,
+            self.admission_height()?,
+        )?;
+        Ok(sender_address)
+    }
+
     /// Admission for a fee-free mining share (ADR-044). Cheapest first: a
     /// stale nonce, then the share rules against committed state (epoch, spent
     /// set, the 2 ms proof of work), and only then the signature. A flood of
@@ -378,7 +534,21 @@ impl Mempool {
         &self,
         tx: &Transaction,
         share: &crate::core::mining_payload::MiningShare,
+        gaps: Gaps,
     ) -> Result<()> {
+        let miner = self.check_share_nonce(tx, gaps)?;
+        self.state.check_mining_share(&miner, share)?;
+        let height = self.admission_height()?;
+        let sunsets = self.state.effective_schedule()?.sunsets;
+        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
+        self.state.verify_cached(tx, height, &policy)?;
+        self.check_breaker(&tx.kind)
+    }
+
+    /// A share's nonce rules: not stale, and, since a share runs at its exact
+    /// nonce like any transaction, the same window and gap rules (CT-04).
+    /// Returns the miner.
+    fn check_share_nonce(&self, tx: &Transaction, gaps: Gaps) -> Result<Address> {
         let miner = tx.sender();
         let account = self.state.get_account(&miner)?;
         if tx.nonce < account.nonce {
@@ -388,11 +558,31 @@ impl Mempool {
                 actual: tx.nonce,
             });
         }
-        self.state.check_mining_share(&miner, share)?;
-        let height = self.admission_height()?;
-        let sunsets = self.state.effective_schedule()?.sunsets;
-        let policy = crate::crypto::suites::policy(&self.state.parameters()?, &sunsets)?;
-        self.state.verify_cached(tx, height, &policy)?;
+        self.check_nonce(&miner, account.nonce, tx.nonce, gaps)?;
+        Ok(miner)
+    }
+
+    /// Whether a pooled entry can still execute, judged by the rules committed
+    /// state can change: [`Mempool::check_against_state`], or for a share its
+    /// nonce and share rules without the proof of work, then the circuit
+    /// breaker. No signature is verified and no work is hashed: both were
+    /// checked at admission and are fixed by the entry's bytes, and this runs
+    /// on the BFT consensus task every round, where re-verifying a pool of v8
+    /// frames or re-hashing shares past the block's share cap would stall it.
+    ///
+    /// shortcut: a v7 or v8 entry whose suite governance sunsets while it is
+    /// pooled is not caught here; the executor drops it and it stays until
+    /// evicted. Upgrade if sunsets become frequent: re-check suite
+    /// admissibility, which is cheap.
+    fn still_executable(&self, tx: &Transaction, gaps: Gaps) -> Result<()> {
+        if let crate::core::TxKind::MiningShare(share) = &tx.kind
+            && tx.outputs.is_empty()
+        {
+            let miner = self.check_share_nonce(tx, gaps)?;
+            self.state.check_mining_share_state(&miner, share)?;
+        } else {
+            self.check_against_state(tx, gaps)?;
+        }
         self.check_breaker(&tx.kind)
     }
 
@@ -431,23 +621,78 @@ impl Mempool {
     /// `Ok(false)` when it was already pooled — a duplicate is normal in a
     /// gossip mesh, not an error.
     ///
+    /// An entry whose only fault is a missing earlier nonce is admitted to
+    /// the queue (`Ok(true)`, so gossip relays it and peers queue it too), not
+    /// to the pool: it is not proposed until the gap fills. Pooling an entry
+    /// moves its sender's queued successors into the pool.
+    ///
     /// # Errors
     ///
     /// Propagates validation failures, or returns
-    /// [`NodeError::MempoolRejected`] when the pool is full.
+    /// [`NodeError::MempoolRejected`] when the pool or the queue is full.
     pub fn insert(&self, tx: Transaction) -> Result<bool> {
+        let sender = tx.sender();
+        let admitted = self.admit(tx, None)?;
+        if admitted == Admitted::Pooled {
+            self.promote(&sender);
+        }
+        Ok(admitted != Admitted::Known)
+    }
+
+    /// Moves `sender`'s queued entries into the pool, lowest nonce first,
+    /// while the lowest has no gap left. An entry that can no longer run
+    /// (stale nonce, unaffordable) is dropped. Each pass takes one entry out
+    /// of the queue, so this ends; a still-gapped head is left where it is,
+    /// so its wait keeps counting.
+    fn promote(&self, sender: &Address) {
+        loop {
+            // Statements of their own, so the queue lock is released before
+            // `admit` takes it again.
+            let Some(nonce) = self.lock_queue().lowest(sender) else {
+                return;
+            };
+            let Ok(account) = self.state.get_account(sender) else {
+                return; // the next round retries
+            };
+            if nonce >= account.nonce && self.first_missing(sender, account.nonce, nonce).is_some()
+            {
+                return;
+            }
+            let Some(next) = self.lock_queue().pop_lowest(sender) else {
+                return;
+            };
+            // An error drops the entry: it can never run. `Queued` means a
+            // predecessor left in between; it waits again with its old height.
+            if let Ok(Admitted::Queued) = self.admit(next.tx, Some(next.at)) {
+                return;
+            }
+        }
+    }
+
+    /// One insert. `queued_at: None` runs every admission check. `Some(at)` is
+    /// a queued entry being promoted (queued at height `at`), which passed the
+    /// signature, evidence, device-signature and proof of work checks when it
+    /// was queued: those cost signature or hash work, and promotion also runs
+    /// on the BFT consensus task ([`Mempool::settle_round`]), so it re-runs
+    /// only the state checks ([`Mempool::still_executable`], with that
+    /// function's shortcut). The executor re-checks everything when staging.
+    fn admit(&self, tx: Transaction, queued_at: Option<u64>) -> Result<Admitted> {
         let hash = tx.txid();
+        let sender = tx.sender();
 
         // Cheap duplicate check before the expensive signature verification, so
         // repeated gossip of a known transaction costs almost nothing.
-        if self.read_pool().contains_key(&hash) {
-            return Ok(false);
+        if self.read_pool().contains_key(&hash)
+            || self.lock_queue().holds(&sender, tx.nonce, &hash)?
+        {
+            return Ok(Admitted::Known);
         }
 
         // Room first (pre-audit S-016): refusing for a full pool or a sender
         // at its share must not cost a signature check. Re-checked under the
         // write lock below, since another insert may land in between.
-        let balance = self.state.get_account(&tx.sender())?.balance;
+        let account = self.state.get_account(&sender)?;
+        let balance = account.balance;
         let (fee, size) = (fee_of(&tx), tx.to_bytes().len());
         // The decoder refuses a frame this large, but a local submission never
         // is decoded. A transaction over the maximum could never fit a block.
@@ -465,13 +710,34 @@ impl Mempool {
         self.check_sender_room(&tx, balance)?;
 
         // Validation performs RocksDB reads; deliberately outside any lock.
-        self.validate(&tx)?;
+        let queued_at = match queued_at {
+            None => {
+                self.validate_with(&tx, Gaps::Wait)?;
+                self.admission_height()?
+            }
+            Some(at) => {
+                self.still_executable(&tx, Gaps::Wait)?;
+                at
+            }
+        };
 
         let mut pool = self.write_pool();
         if pool.contains_key(&hash) {
-            return Ok(false);
+            return Ok(Admitted::Known);
         }
         self.check_sender_room(&tx, balance)?;
+        // The gap is judged here, under the write lock, so a predecessor that
+        // lands between the checks above and now is seen. `account` may be a
+        // read older than the last commit: that only widens the range checked.
+        if self
+            .first_missing(&sender, account.nonce, tx.nonce)
+            .is_some()
+        {
+            let outputs = total_out(&tx)?;
+            self.lock_queue()
+                .push(sender, Queued::new(tx, outputs, queued_at))?;
+            return Ok(Admitted::Queued);
+        }
         // Every mutation holds the write lock, so this read cannot race an add.
         let bytes = self.pooled_bytes.load(Ordering::Relaxed);
         for victim in self.victims(pool.len(), bytes, fee, size)? {
@@ -484,7 +750,15 @@ impl Mempool {
         self.lock_fees().insert(hash, (fee, size));
         pool.insert(hash, tx);
         self.pooled_bytes.fetch_add(size, Ordering::Relaxed);
-        Ok(true)
+        Ok(Admitted::Pooled)
+    }
+
+    /// Entries waiting in the queue for a missing earlier nonce. They are not
+    /// in [`Mempool::len`], [`Mempool::scan`] or [`Mempool::snapshot`], so the
+    /// BFT feed never proposes them.
+    #[must_use]
+    pub fn queued_len(&self) -> usize {
+        self.lock_queue().len()
     }
 
     /// Decodes, validates, and inserts a transaction received from the wire.
@@ -575,24 +849,86 @@ impl Mempool {
     /// Adds `tx` to its sender's [`Pending`] or takes it away. Called with the
     /// pool's write lock held, so the tally always matches the pool.
     fn track(&self, tx: &Transaction, added: bool) {
-        if is_share(tx) {
-            return;
-        }
         // Admitted transactions passed `total_out`, so this cannot overflow.
         let outputs = total_out(tx).unwrap_or_default();
+        let work = share_work(tx);
         let sender = tx.sender();
         let mut senders = self.lock_senders();
         let entry = senders.entry(sender).or_default();
         if added {
             entry.count += 1;
             entry.outputs = entry.outputs.saturating_add(outputs);
-        } else {
-            entry.count = entry.count.saturating_sub(1);
-            entry.outputs = entry.outputs.saturating_sub(outputs);
-            if entry.count == 0 {
-                senders.remove(&sender);
+            *entry.nonces.entry(tx.nonce).or_default() += 1;
+            if let Some(work) = work {
+                entry.shares.insert(work);
+            }
+            return;
+        }
+        entry.count = entry.count.saturating_sub(1);
+        entry.outputs = entry.outputs.saturating_sub(outputs);
+        if let Some(uses) = entry.nonces.get_mut(&tx.nonce) {
+            *uses = uses.saturating_sub(1);
+            if *uses == 0 {
+                entry.nonces.remove(&tx.nonce);
             }
         }
+        if let Some(work) = work {
+            entry.shares.remove(&work);
+        }
+        if entry.count == 0 {
+            senders.remove(&sender);
+        }
+    }
+
+    /// A committed round's bookkeeping: removes `included`, then prunes the
+    /// `dropped` entries that can never execute. Returns how many dropped
+    /// entries were pruned. The driver reports `included` only after the block
+    /// committed, so the gap check already starts past those nonces and the
+    /// two calls give the same result in either order.
+    ///
+    /// Then the queue: entries waiting longer than [`QUEUED_FOR_BLOCKS`] are
+    /// dropped, and the rest are promoted where the commit, or the sibling
+    /// pool, filled their gap. State reads only, as for the prune.
+    pub fn settle_round(&self, included: &[TxHash], dropped: &[TxHash]) -> usize {
+        self.remove_all(included);
+        let pruned = self.prune_invalid(dropped);
+        // A failed read skips this round's queue pass; the next round retries,
+        // and nothing queued is proposed meanwhile.
+        if let Ok(height) = self.admission_height() {
+            let waiting = self.lock_queue().expire(height);
+            for sender in &waiting {
+                self.promote(sender);
+            }
+        }
+        pruned
+    }
+
+    /// Re-checks only `hashes`, the entries a committed round ordered but
+    /// did not execute, and removes those that can never execute: a stale
+    /// nonce, a run whose head is gone, a spent share, a balance that no
+    /// longer covers them. Returns how many were removed.
+    ///
+    /// Cost: point reads of committed state per entry, no signature and no
+    /// proof of work ([`Mempool::still_executable`]), so it can run on the
+    /// consensus task with a full pool.
+    ///
+    /// Entries are taken in nonce order per sender and removed one at a
+    /// time, so removing nonce `n` makes `n + 1` fail the gap check in the
+    /// same pass. As in [`Mempool::revalidate`], a state read failure also
+    /// removes the entry.
+    pub fn prune_invalid(&self, hashes: &[TxHash]) -> usize {
+        let mut dropped: Vec<(Address, u64, TxHash, Transaction)> = hashes
+            .iter()
+            .filter_map(|hash| self.get(hash).map(|tx| (tx.sender(), tx.nonce, *hash, tx)))
+            .collect();
+        dropped.sort_unstable_by_key(|(sender, nonce, hash, _)| (*sender, *nonce, *hash));
+        let mut removed = 0;
+        for (_, _, hash, tx) in dropped {
+            if self.still_executable(&tx, Gaps::Refuse).is_err() {
+                removed += self.remove_all(&[hash]);
+            }
+        }
+        removed
     }
 
     /// Drops pooled transactions that committed state has invalidated.
@@ -627,6 +963,15 @@ fn fee_of(tx: &Transaction) -> U256 {
         .iter()
         .filter(|o| o.recipient == crate::state::fees::FEE_COLLECTOR)
         .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount))
+}
+
+/// The piece of work a fee-free mining share pays for, `(epoch, work nonce)`.
+/// The spent-share key also binds the miner, which is the pool's sender key.
+fn share_work(tx: &Transaction) -> Option<(u64, u64)> {
+    match &tx.kind {
+        crate::core::TxKind::MiningShare(share) if is_share(tx) => Some((share.epoch, share.nonce)),
+        _ => None,
+    }
 }
 
 /// A fee-free mining share (ADR-044), which moves nothing.

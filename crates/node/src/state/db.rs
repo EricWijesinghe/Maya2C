@@ -253,6 +253,9 @@ pub struct StateDB {
     /// DAG caches for mining shares (ADR-044), built on the first share so a
     /// chain that does not mine never pays for one.
     pub(crate) mining_dag: OnceLock<std::sync::Arc<crate::crypto::dag::registry::CacheRegistry>>,
+    /// Share proofs of work hashed (`StateDB::share_proofs`): a diagnostic,
+    /// never read by consensus.
+    pub(crate) share_proofs: std::sync::atomic::AtomicU64,
 }
 
 impl StateDB {
@@ -309,6 +312,7 @@ impl StateDB {
             preview: crate::state::preview::PreviewCache::default(),
             chain_tag: OnceLock::new(),
             mining_dag: OnceLock::new(),
+            share_proofs: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -1058,6 +1062,21 @@ impl StateDB {
     pub fn verify_cached(&self, tx: &Transaction, height: u64, policy: &SuitePolicy) -> Result<()> {
         self.verified
             .verify(tx, height, policy, self.get_chain_tag()?)
+    }
+
+    /// Full signature verifications run through [`StateDB::verify_cached`]
+    /// (cache misses and every v8 frame). Diagnostic only: tests use it to show
+    /// a path does not re-verify.
+    #[must_use]
+    pub fn signature_verifications(&self) -> u64 {
+        self.verified.verifications()
+    }
+
+    /// Mining-share proofs of work hashed so far (ADR-044). Diagnostic only,
+    /// like [`StateDB::signature_verifications`].
+    #[must_use]
+    pub fn share_proofs(&self) -> u64 {
+        self.share_proofs.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The longest prefix-closed subsequence of `transactions` that executes,
