@@ -4,7 +4,7 @@
 
 **Do not open a public issue for a security problem.** Report privately
 through GitHub's *Report a vulnerability* (private vulnerability reporting) on
-this repository: <https://github.com/EricWijesinghe/Maya2C/security/advisories/new>.
+this repository: <https://github.com/maya2c/Maya2C/security/advisories/new>.
 
 | Channel | Status |
 |---|---|
