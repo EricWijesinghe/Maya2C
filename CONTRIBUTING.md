@@ -3,7 +3,7 @@
 Thank you for looking. Bug reports, docs fixes, tests and ideas all help, and
 every one is read in full.
 
-- Questions and ideas: [Discussions](https://github.com/EricWijesinghe/Maya2C/discussions)
+- Questions and ideas: [Discussions](https://github.com/maya2c/Maya2C/discussions)
 - Bugs, features, docs: an issue, using its template
 - Vulnerabilities: privately, never in public: [SECURITY.md](SECURITY.md)
 - Conduct: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
@@ -46,7 +46,7 @@ the change, CI, and the maintainer's review before merge.
 ## Your first contribution
 
 Start with an issue labelled
-[good first issue](https://github.com/EricWijesinghe/Maya2C/labels/good%20first%20issue):
+[good first issue](https://github.com/maya2c/Maya2C/labels/good%20first%20issue):
 each names the files, the context and the check that proves it done, and none
 touches consensus or cryptography. Comment on it before you start so two
 people do not build the same thing. Beyond that list, a path that always has
