@@ -16,6 +16,7 @@ use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
 use custom_l1_node::crypto::validator_keys as keys;
 use custom_l1_node::error::NodeError;
 use custom_l1_node::genesis::{Allocation, BftGenesis, FeesGenesis, GenesisConfig};
+use custom_l1_node::governance::{PendingParameter, pending_parameter_key};
 use custom_l1_node::state::contract_fee::STORAGE_ENTRY_OVERHEAD;
 use custom_l1_node::state::fees::FEE_COLLECTOR;
 use custom_l1_node::state::shielded::FEE_SINK;
@@ -63,6 +64,11 @@ fn user() -> HybridSigningKey {
     signing_key_from_seed(&[0x41; 32]).unwrap()
 }
 
+/// A second funded sender (GAS-12).
+fn other() -> HybridSigningKey {
+    signing_key_from_seed(&[0x42; 32]).unwrap()
+}
+
 fn default_of(key: ParameterKey) -> u64 {
     key.bounds().default.saturating_to_u64()
 }
@@ -74,10 +80,16 @@ fn state(dir: &TempDir) -> StateDB {
         timestamp: 1_000_000,
         difficulty_bits: 0,
         pow_limit_bits: 0,
-        allocations: vec![Allocation {
-            address: hex::encode(user().address()),
-            balance: U256::from(START),
-        }],
+        allocations: vec![
+            Allocation {
+                address: hex::encode(user().address()),
+                balance: U256::from(START),
+            },
+            Allocation {
+                address: hex::encode(other().address()),
+                balance: U256::from(START),
+            },
+        ],
         oracle: None,
         sealed: None,
         treasury: None,
@@ -125,12 +137,17 @@ fn block_of(transactions: Vec<Transaction>) -> Block {
 
 /// `kind` from the user at `nonce`, paying `fee` to the collector.
 fn paid(kind: TxKind, nonce: u64, fee: U256) -> Transaction {
+    paid_by(&user(), kind, nonce, fee)
+}
+
+/// `kind` from `key` at `nonce`, paying `fee` to the collector.
+fn paid_by(key: &HybridSigningKey, kind: TxKind, nonce: u64, fee: U256) -> Transaction {
     let mut tx = Transaction::with_kind(kind, nonce);
     tx.outputs = vec![TxOutput {
         amount: fee,
         recipient: FEE_COLLECTOR,
     }];
-    tx.sign(&user(), &common::test_chain()).unwrap();
+    tx.sign(key, &common::test_chain()).unwrap();
     tx
 }
 
@@ -153,22 +170,26 @@ fn balance(db: &StateDB, who: &[u8; 32]) -> U256 {
     db.get_account(who).unwrap().balance
 }
 
-/// Deploys `code` at nonce 0 in block 1, paying exactly what GAS-11 and
-/// GAS-13 ask of a deployment, and returns its address.
-fn deploy(db: &StateDB, code: &[u8]) -> [u8; 32] {
+/// The user's deployment of `code` at `nonce`, paying exactly what GAS-11
+/// and GAS-13 ask of it, and that fee.
+fn deploy_tx(code: &[u8], nonce: u64) -> (Transaction, U256) {
     let kind = TxKind::DeployContract(ContractDeploy {
         code: code.to_vec(),
     });
     let cold = maya_vm::gas::cold_call_fuel(code).unwrap();
     let owed = U256::from(BASE_FEE)
         * (fee_units(cold) + storage_units(code.len() as u64 + STORAGE_ENTRY_OVERHEAD));
-    let fee = byte_fee(&kind, 0) + owed;
+    let fee = byte_fee(&kind, nonce) + owed;
+    (paid(kind, nonce, fee), fee)
+}
+
+/// Deploys `code` at nonce 0 in block 1, paying exactly what GAS-11 and
+/// GAS-13 ask of a deployment, and returns its address.
+fn deploy(db: &StateDB, code: &[u8]) -> [u8; 32] {
+    let (tx, fee) = deploy_tx(code, 0);
     let sink = balance(db, &FEE_SINK);
-    db.apply_block(
-        &block_of(vec![paid(kind, 0, fee)]),
-        BlockContext::at_height(1),
-    )
-    .expect("a paid deployment applies");
+    db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1))
+        .expect("a paid deployment applies");
     assert_eq!(
         balance(db, &FEE_SINK) - sink,
         fee,
@@ -335,4 +356,134 @@ fn a_deployment_that_offers_only_its_bytes_is_refused() {
         matches!(refused, Err(NodeError::FeeTooLow { .. })),
         "{refused:?}"
     );
+}
+
+/// A loop contract that a cold call of it spends close to `target` gas on
+/// (as `sealed_tests`' spinner).
+fn spinner_using(target: u64) -> Vec<u8> {
+    let make = |n: u64| {
+        wat::parse_str(format!(
+            r#"(module
+                (memory (export "memory") 1)
+                (func (export "invoke") (param i32) (result i64)
+                  (local $i i64)
+                  (loop $l
+                    (local.set $i (i64.add (local.get $i) (i64.const 1)))
+                    (br_if $l (i64.lt_u (local.get $i) (i64.const {n}))))
+                  (i64.const 0)))"#
+        ))
+        .unwrap()
+    };
+    let vm = maya_vm::Vm::new().unwrap();
+    let gas = |n| {
+        vm.execute(
+            &make(n),
+            [0; 32],
+            &[],
+            u64::MAX / 4,
+            maya_vm::MemoryState::at_height(1),
+        )
+        .outcome
+        .unwrap()
+        .gas_used
+    };
+    let (small, large) = (gas(1_000), gas(2_000));
+    let per = (large - small) / 1_000;
+    make(1_000 + (target - small) / per)
+}
+
+/// A call to `contract` naming `gas_limit`.
+fn call_with(contract: [u8; 32], gas_limit: u64) -> TxKind {
+    TxKind::CallContract(ContractCall {
+        contract,
+        input: Vec::new(),
+        gas_limit,
+    })
+}
+
+/// Bytes plus the whole gas reservation of a call (GAS-11), and a margin
+/// for new state that is a tip where unused.
+fn reserved_fee(key: &HybridSigningKey, kind: &TxKind, nonce: u64) -> U256 {
+    let TxKind::CallContract(call) = kind else {
+        unreachable!("a call")
+    };
+    let probe = paid_by(key, kind.clone(), nonce, U256::one());
+    U256::from(BASE_FEE) * (U256::from(probe.to_bytes().len()) + fee_units(call.gas_limit))
+        + U256::from(BASE_FEE) * storage_units(1_000)
+}
+
+#[test]
+fn a_raised_block_cap_lets_the_sender_cap_bind_while_another_sender_gets_in() {
+    // GAS-12 is a governance lever (PR #701 review): at the default caps the
+    // sender cap equals the block cap, so GAS-2 refuses first and one sender
+    // may still fill a block. Once the block cap is voted above it, one
+    // sender's second call past its share is passed over while another
+    // sender's call in the same block is included. It does not stop one
+    // party splitting work across addresses: GAS-11 makes that cost the gas.
+    let dir = TempDir::new().unwrap();
+    let db = state(&dir);
+    let sender_cap = default_of(ParameterKey::VmMaxSenderBlockGas);
+    assert_eq!(sender_cap, default_of(ParameterKey::VmMaxBlockGas));
+    let raised = ParameterKey::VmMaxBlockGas.bounds().max.saturating_to_u64();
+    assert!(raised > sender_cap);
+
+    let heavy_gas = sender_cap - 50_000_000;
+    let spinner = deploy(&db, &spinner_using(heavy_gas));
+    let writer_code = wat::parse_str(WRITER_WAT).unwrap();
+    let writer = derive_contract_id(&user().address(), 1, &writer_code);
+    // A passed vote's value, due at height 3: promoted by block 2.
+    let due = PendingParameter {
+        activation: 3,
+        value: maya_dex::Amount::from_u64(raised),
+    };
+    db.raw_put_for_test(
+        &pending_parameter_key(ParameterKey::VmMaxBlockGas.tag()),
+        &due.encode(),
+    )
+    .unwrap();
+    db.apply_block(
+        &block_of(vec![deploy_tx(&writer_code, 1).0]),
+        BlockContext::at_height(2),
+    )
+    .expect("the writer deploys and the raised cap is promoted");
+    assert_eq!(
+        db.parameters()
+            .unwrap()
+            .get(ParameterKey::VmMaxBlockGas)
+            .saturating_to_u64(),
+        raised
+    );
+
+    // The first call spends ~heavy_gas; the second fits the raised block
+    // (GAS-2) but not what its sender has left (GAS-12).
+    let heavy = call_with(spinner, heavy_gas + 10_000_000);
+    let first = paid(heavy.clone(), 2, reserved_fee(&user(), &heavy, 2));
+    let more = call_with(spinner, 60_000_000);
+    let second = paid(more.clone(), 3, reserved_fee(&user(), &more, 3));
+    let theirs = call_with(writer, 60_000_000);
+    let elsewhere = paid_by(
+        &other(),
+        theirs.clone(),
+        0,
+        reserved_fee(&other(), &theirs, 0),
+    );
+    let context = BlockContext::at_height(3);
+
+    let refused = db.apply_block(&block_of(vec![first.clone(), second.clone()]), context);
+    assert!(
+        matches!(refused, Err(NodeError::SenderGasExhausted { .. })),
+        "{refused:?}"
+    );
+    let kept = db
+        .select_applicable(
+            vec![first.clone(), second, elsewhere.clone()],
+            context,
+            target_from_leading_zero_bits(0),
+        )
+        .unwrap();
+    let bytes = |txs: &[Transaction]| txs.iter().map(Transaction::to_bytes).collect::<Vec<_>>();
+    assert_eq!(bytes(&kept), bytes(&[first, elsewhere]));
+    db.apply_block(&block_of(kept), context)
+        .expect("the selected block applies");
+    assert!(db.get_contract_storage(&writer, b"k").unwrap().is_some());
 }

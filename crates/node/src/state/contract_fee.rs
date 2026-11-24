@@ -330,6 +330,44 @@ mod tests {
     }
 
     #[test]
+    fn admission_refuses_a_call_no_senders_share_of_a_block_could_hold() {
+        // PR #701 review: governance may set `vm.max_sender_block_gas` below
+        // `vm.max_tx_gas`. A call between the two passed GAS-1 at admission,
+        // then GAS-12 refused it in every block before any VM work, so it was
+        // never paid for and sat in every pool until it expired.
+        use crate::core::payload::ContractCall;
+        let dir = tempfile::TempDir::new().unwrap();
+        let db = StateDB::open(dir.path()).unwrap();
+        let sender_cap = ParameterKey::VmMaxSenderBlockGas
+            .bounds()
+            .min
+            .saturating_to_u64();
+        let tx_cap = ParameterKey::VmMaxTxGas
+            .bounds()
+            .default
+            .saturating_to_u64();
+        assert!(sender_cap < tx_cap);
+        let table = crate::governance::ParameterTable::new().with(
+            ParameterKey::VmMaxSenderBlockGas,
+            maya_dex::Amount::from_u64(sender_cap),
+        );
+        db.raw_put_for_test(crate::governance::PARAMETERS_KEY, &table.encode())
+            .unwrap();
+        let call = |gas_limit| {
+            TxKind::CallContract(ContractCall {
+                contract: [0; 32],
+                input: Vec::new(),
+                gas_limit,
+            })
+        };
+        assert!(db.admit_vm_gas(&call(sender_cap)).is_ok());
+        assert!(matches!(
+            db.admit_vm_gas(&call(sender_cap + 1)),
+            Err(NodeError::GasAboveCap { cap, .. }) if cap == sender_cap
+        ));
+    }
+
+    #[test]
     fn only_new_bytes_grow_state() {
         assert_eq!(write_growth(b"k", b"vv", None), 3 + STORAGE_ENTRY_OVERHEAD);
         assert_eq!(write_growth(b"k", b"vvvv", Some(2)), 2);

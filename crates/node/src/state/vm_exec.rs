@@ -131,6 +131,19 @@ fn admit_deployable(needed: u64, block_cap: u64) -> Result<()> {
     Ok(())
 }
 
+/// The most contract gas one transaction can ever spend in a block, for
+/// admission: the block cap (GAS-2), and one sender's share of it (GAS-12).
+fn admission_block_cap(table: &crate::governance::ParameterTable) -> u64 {
+    table
+        .get(ParameterKey::VmMaxBlockGas)
+        .saturating_to_u64()
+        .min(
+            table
+                .get(ParameterKey::VmMaxSenderBlockGas)
+                .saturating_to_u64(),
+        )
+}
+
 /// A VM failure as the node sees it. A fault of this node's engine (the
 /// operating system refused memory) is `Storage`, as a database fault is: it
 /// says nothing about the transaction, so the block is refused here and the
@@ -297,9 +310,13 @@ impl StateDB {
         Ok(growth)
     }
 
-    /// Mempool admission for contract gas (GAS-1, GAS-2), against committed
-    /// parameters: a call naming more than one transaction may, or a
-    /// deployment no block could hold, can never be included.
+    /// Mempool admission for contract gas (GAS-1, GAS-2, GAS-12), against
+    /// committed parameters: a call naming more than one transaction may, or
+    /// a deployment no block could hold, can never be included. Nor can one
+    /// above one sender's share of a block: governance may set
+    /// `vm.max_sender_block_gas` below `vm.max_tx_gas`, and GAS-12 refuses
+    /// such a call before any VM work, so it would never pay and never leave
+    /// the pool (PR #701 review).
     ///
     /// Constant work, so it runs before the signature: a deployment is judged
     /// here by its length alone. Its shape is a scan of the whole module, so
@@ -311,7 +328,7 @@ impl StateDB {
     /// [`NodeError::GasAboveCap`], or [`NodeError::Storage`] on a read failure.
     pub(crate) fn admit_vm_gas(&self, kind: &TxKind) -> Result<()> {
         let table = self.parameters()?;
-        let block_cap = table.get(ParameterKey::VmMaxBlockGas).saturating_to_u64();
+        let block_cap = admission_block_cap(&table);
         match kind {
             TxKind::CallContract(call) => {
                 let tx_cap = table.get(ParameterKey::VmMaxTxGas).saturating_to_u64();
@@ -339,11 +356,7 @@ impl StateDB {
             return Ok(());
         };
         let needed = gas::cold_call_fuel(&deploy.code).map_err(|e| NodeError::Vm(e.to_string()))?;
-        let block_cap = self
-            .parameters()?
-            .get(ParameterKey::VmMaxBlockGas)
-            .saturating_to_u64();
-        admit_deployable(needed, block_cap)
+        admit_deployable(needed, admission_block_cap(&self.parameters()?))
     }
 
     /// GAS-9, block selection (consensus under DAG-BFT): whether selection

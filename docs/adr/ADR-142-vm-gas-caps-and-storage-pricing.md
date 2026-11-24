@@ -1218,13 +1218,21 @@ path. Each is a guarantee:
   what a block of bytes costs, so neither is the cheap way to fill a block.
   Before this, one byte fee bought a call's whole gas, so one fee a block
   bought that block's contract gas (the R-3 finding).
-- **No sender can take a block's contract gas from everyone else (R-3,
-  GAS-12).** `vm.max_sender_block_gas`, a validity parameter. Its floor is
-  the tx cap's own (239,979,600), because a lower one would make the largest
-  deployable module uncallable (GAS-5). At the default caps it equals the
-  block cap, so today it is the lever, not the limit: it binds once the
-  block cap is voted above it, with no new binary.
-- **State cannot balloon for a byte fee (R-1, GAS-13).** Every byte of new
+- **A per-sender share of a block is a lever governance can pull without a
+  new binary (R-3, GAS-12).** `vm.max_sender_block_gas`, a validity
+  parameter. Its floor is the tx cap's own (239,979,600), because a lower one
+  would make the largest deployable module uncallable (GAS-5). At the
+  default caps it equals the block cap, and GAS-2 is checked first, so today
+  it never refuses anything and one sender may still use a whole block's
+  gas, paying GAS-11's price for all of it. It binds once the block cap is
+  voted above it (or the share below it). It is per address, and addresses
+  are free, so it does not stop one party splitting work across funded
+  addresses; what bounds a block-filler is the price, since gas spent from
+  many addresses costs the same as from one. Mempool admission refuses a
+  call or deployment above `min(tx cap, block cap, sender share)`, so a
+  share voted below the tx cap cannot leave unincludable calls in the pool
+  (PR #701 review).
+- **Plaintext contract state cannot balloon for a byte fee (R-1, GAS-13).** Every byte of new
   contract state pays `vm.storage_fee_bytes_per_byte` bytes' worth of base
   fee (default 40, in line with Ethereum's ratio of a new storage byte to a
   calldata byte, about 39); a new entry also pays its 71-byte overhead.
@@ -1243,10 +1251,20 @@ and `deploy_contract` (GAS-12 and the GAS-13 check before staging),
 `10-vm-gas.md` v0.5.0, GAS-11..GAS-13.
 
 **Not covered, stated:** revealed sealed actions pay their envelope's fee and
-are not charged GAS-11/GAS-13 or counted by GAS-12; the GAS-13 existence read
+are not charged GAS-11/GAS-13 or counted by GAS-12: an inner call may spend
+up to `sealed_gas_budget` (62.5 M gas a block at the defaults) and write new
+state for the envelope's byte fee. Only a genesis installs a sealed committee,
+the ceremony installs none, and `cargo xtask genesis-check` refuses a mainnet
+genesis that does, so on mainnet R-1 holds without exception; pricing reveals
+(charging GAS-11 and GAS-13 against a deposit the envelope commits to) is a
+precondition for any network that installs one; the GAS-13 existence read
 is not metered on its own (a block makes at most 50,000 at the default caps;
 time not measured); GAS-11 does not feed the base-fee step.
 
-**Evidence:** `crates/node/tests/contract_fee_tests.rs`;
-`state::contract_fee::tests`.
+**Evidence:** `crates/node/tests/contract_fee_tests.rs` (the block-level
+GAS-12 case:
+`a_raised_block_cap_lets_the_sender_cap_bind_while_another_sender_gets_in`);
+`state::contract_fee::tests` (admission:
+`admission_refuses_a_call_no_senders_share_of_a_block_could_hold`); xtask
+`genesis_check::tests::a_genesis_with_a_sealed_committee_fails`.
 
