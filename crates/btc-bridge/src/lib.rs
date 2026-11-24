@@ -15,7 +15,11 @@
 //! Bitcoin script and amount. The request closes only when a Bitcoin
 //! transaction paying at least that amount to that script is proven, just as
 //! deposits are, so the bridge's books follow Bitcoin, not an operator's
-//! report.
+//! report. The payout must also carry the release's own tag
+//! ([`Bridge::release_tag`]) and sit in a block above the tip the bridge saw
+//! at the burn, so an earlier or unrelated payment to the same script cannot
+//! close it. Inputs are not checked: that needs the spent outputs' scripts,
+//! which a header light client does not have.
 //!
 //! **What is trusted, stated:**
 //! - The most-work chain is valid. An attacker who out-mines
@@ -77,6 +81,12 @@ pub enum BridgeError {
     /// The proven transaction does not pay the release.
     #[error("the transaction does not pay the release")]
     DoesNotPay,
+    /// The payout does not carry the release's tag output.
+    #[error("the transaction does not name the release")]
+    Untagged,
+    /// The payout's block is not above the tip seen when the release opened.
+    #[error("the payout is not later than the burn")]
+    BeforeBurn,
     /// An amount that overflows.
     #[error("amount overflow")]
     Overflow,
@@ -102,7 +112,15 @@ pub struct Release {
     pub amount: u64,
     /// The Bitcoin script to pay.
     pub script: Vec<u8>,
+    /// Best Bitcoin tip height when the release opened; the payout must be
+    /// in a higher block.
+    pub opened_at: u32,
 }
+
+/// Prefix of a release tag's `OP_RETURN` payload. Four bytes plus a 32-byte
+/// digest is a 36-byte push, so a tag is never read as a deposit recipient.
+pub const RELEASE_TAG_MAGIC: [u8; 4] = *b"M2CR";
+const RELEASE_TAG_DOMAIN: &[u8] = b"maya2c/btc-bridge/release/v1";
 
 /// The bridge's state.
 #[derive(Clone, Debug)]
@@ -231,18 +249,41 @@ impl Bridge {
                 burner,
                 amount,
                 script,
+                opened_at: self.headers.height(),
             },
         );
         Ok(id)
     }
 
+    /// The `OP_RETURN` script a payout for open release `id` must carry. It
+    /// commits to this bridge's lock script and to the release's id, burner,
+    /// amount and payout script.
+    #[must_use]
+    pub fn release_tag(&self, id: u64) -> Option<Vec<u8>> {
+        let r = self.releases.get(&id)?;
+        let mut pre = RELEASE_TAG_DOMAIN.to_vec();
+        for part in [&self.lock_script, &r.script] {
+            pre.extend_from_slice(&(part.len() as u64).to_le_bytes());
+            pre.extend_from_slice(part);
+        }
+        pre.extend_from_slice(&id.to_le_bytes());
+        pre.extend_from_slice(&r.burner);
+        pre.extend_from_slice(&r.amount.to_le_bytes());
+        let mut tag = vec![tx::OP_RETURN, 36];
+        tag.extend_from_slice(&RELEASE_TAG_MAGIC);
+        tag.extend_from_slice(&maya_btc_spv::sha256d(&pre));
+        Some(tag)
+    }
+
     /// Closes release `id` with a proven Bitcoin payment of at least its
-    /// amount to its script. One Bitcoin transaction closes one release.
+    /// amount to its script, carrying its [`Bridge::release_tag`], in a block
+    /// above the tip at the burn. One Bitcoin transaction closes one release.
     ///
     /// # Errors
     ///
-    /// An unknown release, a failed proof, a payment short of the amount, or
-    /// a transaction already used as a deposit or for another release.
+    /// An unknown release, a failed proof, a payment short of the amount,
+    /// untagged or no later than the burn, or a transaction already used as
+    /// a deposit or for another release.
     pub fn confirm_release(&mut self, id: u64, proof: &InclusionProof) -> Result<(), BridgeError> {
         let release = self
             .releases
@@ -251,6 +292,22 @@ impl Bridge {
         let parsed = self.proven(proof)?;
         if self.used_txs.contains(&parsed.txid) {
             return Err(BridgeError::AlreadyUsed);
+        }
+        // `proven` passes an off-chain block when min_confirmations is 0;
+        // a payout's height must be known, so it must be on the best chain.
+        let depth = self
+            .headers
+            .confirmations(&proof.block)
+            .checked_sub(1)
+            .ok_or(BridgeError::TooShallow { have: 0, need: 1 })?;
+        if self.headers.height().saturating_sub(depth) <= release.opened_at {
+            return Err(BridgeError::BeforeBurn);
+        }
+        let tag = self
+            .release_tag(id)
+            .ok_or(BridgeError::UnknownRelease(id))?;
+        if !parsed.outputs.iter().any(|o| o.script == tag) {
+            return Err(BridgeError::Untagged);
         }
         let paid = parsed
             .outputs

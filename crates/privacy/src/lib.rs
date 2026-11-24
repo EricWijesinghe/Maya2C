@@ -26,6 +26,8 @@ use zeroize::Zeroizing;
 pub enum PrivacyError {
     /// The key does not open this envelope (wrong key, or tampered).
     CannotOpen,
+    /// The cipher refused the plaintext (beyond its length limit).
+    CannotSeal,
 }
 
 /// An account's viewing key pair.
@@ -88,14 +90,18 @@ fn open_with(key: &[u8; 32], env: &Envelope) -> Result<Vec<u8>, PrivacyError> {
 
 /// Seals `details` to a viewing key. Each envelope has its own KEM secret,
 /// so a fixed zero nonce never repeats under one key.
-#[must_use]
-pub fn seal(details: &[u8], to: &EncapsulationKey) -> Envelope {
+///
+/// # Errors
+///
+/// [`PrivacyError::CannotSeal`] if the cipher refuses `details`; an empty
+/// body is never returned in its place.
+pub fn seal(details: &[u8], to: &EncapsulationKey) -> Result<Envelope, PrivacyError> {
     let (kem_ct, secret) = to.encapsulate();
     let key = envelope_key(secret.as_bytes(), &kem_ct);
     let body = ChaCha20Poly1305::new(Key::from_slice(key.as_ref()))
         .encrypt(Nonce::from_slice(&[0u8; 12]), details)
-        .unwrap_or_default();
-    Envelope { kem_ct, body }
+        .map_err(|_| PrivacyError::CannotSeal)?;
+    Ok(Envelope { kem_ct, body })
 }
 
 /// Opens with the account viewing key.
