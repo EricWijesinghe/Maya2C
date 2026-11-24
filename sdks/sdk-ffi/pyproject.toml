@@ -55,9 +55,9 @@ classifiers = [
 dependencies = []
 
 [project.urls]
-Homepage = "https://github.com/EricWijesinghe/Maya2C"
-Documentation = "https://github.com/EricWijesinghe/Maya2C/tree/master/docs"
-Source = "https://github.com/EricWijesinghe/Maya2C/tree/master/sdks/sdk-ffi"
+Homepage = "https://github.com/maya2c/Maya2C"
+Documentation = "https://github.com/maya2c/Maya2C/tree/master/docs"
+Source = "https://github.com/maya2c/Maya2C/tree/master/sdks/sdk-ffi"
 
 [tool.maturin]
 # uniffi generates `maya_sdk_ffi.py` beside the cdylib rather than exposing a

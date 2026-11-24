@@ -209,6 +209,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         protocol_upgrades: Vec::new(),
         suite_deprecations: Vec::new(),
         security_council: None,
+        // Absent: the shielded pool stays off (P4). Turning it on is named in
+        // the genesis file, by hand or by the ceremony.
         shielded_activation_height: None,
         bft: None,
     };

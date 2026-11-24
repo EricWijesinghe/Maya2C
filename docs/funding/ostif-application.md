@@ -8,7 +8,7 @@ gate 7). Every figure below is measured, with the command beside it.
 ## Project
 
 **Maya2C** — a post-quantum layer-1 blockchain node in Rust.
-Code: https://github.com/EricWijesinghe/Maya2C (Apache-2.0)
+Code: https://github.com/maya2c/Maya2C (Apache-2.0)
 Site: https://maya2c.dev · Live testnet: https://status.maya2c.dev
 
 ## What it is, in three lines
