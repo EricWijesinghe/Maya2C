@@ -125,7 +125,11 @@ jobs:
         # `--provenance` attaches a signed attestation linking the tarball to
         # this workflow run and this commit, so a consumer can check that what
         # they installed was built from what they can read.
-        run: npm publish --provenance --access public
+        # Staged, not published (owner decision 2026-11-24): the npm trusted
+        # publisher for maya2c.js only allows `npm stage publish`, so a release
+        # stays private until the owner approves it on npmjs.com with 2FA. A
+        # stolen token or a compromised run cannot put a package in front of users.
+        run: npm stage publish . --provenance --access public
 
   # ---------------------------------------------------------------------------
   wheels:

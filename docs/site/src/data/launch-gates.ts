@@ -13,7 +13,7 @@ export const gates: { name: string; detail: string; state: GateState; href: stri
   { name: "Operations rehearsed", detail: "state sync, crash restore, coordinated restart", state: "done", href: "/guides/validators" },
   { name: "Public testnet", detail: "maya-testnet-1 ran 7 days 15 h with zero halts to block 393,812, then was paused on purpose 2026-10-28 for the next genesis", state: "done", href: "/guides/testnet" },
   { name: "Foundation validator set", detail: "four project-run validators, all on one PC and said so: any one validator can stop without halting the chain, the PC failing halts it until it returns; other machines join after launch (ADR-047)", state: "next", href: "/guides/validators" },
-  { name: "Attacknet, 4 weeks", detail: "31 attacknet runs across 2026-10-05 to 2026-11-04: crashes, a stolen key, floods, outages, a validator down beyond retention; every halt recovered", state: "done", href: "https://github.com/EricWijesinghe/Maya2C/tree/master/reports/attacknet" },
-  { name: "Security pre-audit", detail: "threat model, findings tracker, known issues and per-scope audit packets published; a protocol design review against 25 chains (2026-11-08)", state: "done", href: "https://github.com/EricWijesinghe/Maya2C/tree/master/docs/audit" },
+  { name: "Attacknet, 4 weeks", detail: "31 attacknet runs across 2026-10-05 to 2026-11-04: crashes, a stolen key, floods, outages, a validator down beyond retention; every halt recovered", state: "done", href: "https://github.com/maya2c/Maya2C/tree/master/reports/attacknet" },
+  { name: "Security pre-audit", detail: "threat model, findings tracker, known issues and per-scope audit packets published; a protocol design review against 25 chains (2026-11-08)", state: "done", href: "https://github.com/maya2c/Maya2C/tree/master/docs/audit" },
   { name: "Mainnet", detail: "blocked until every gate above passes", state: "later", href: "/reference/empire" },
 ];
