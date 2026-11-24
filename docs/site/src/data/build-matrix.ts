@@ -23,7 +23,7 @@ import {
   type Step,
 } from "./picker";
 
-const REPO = "https://github.com/EricWijesinghe/Maya2C";
+const REPO = "https://github.com/maya2c/Maya2C";
 const RUSTUP_SH = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none";
 const BUILD = "cargo build -p maya2c-node -p l1-wallet";
 const FIRST_BUILD_NOTE =
