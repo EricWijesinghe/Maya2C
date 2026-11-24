@@ -2,7 +2,7 @@
 // (public/health.json from features.toml, public/progress.json from
 // PROGRESS.md, the mainnet gates and GitHub), never typed (Standing Orders 1-2).
 // A figure the build could not get says "unknown" instead of a guess.
-const repo = "https://github.com/EricWijesinghe/Maya2C";
+const repo = "https://github.com/maya2c/Maya2C";
 
 export interface Health {
   ledger: { total: number; by_status: Record<string, number> };
