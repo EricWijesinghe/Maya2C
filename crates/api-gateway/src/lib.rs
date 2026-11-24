@@ -49,9 +49,10 @@ pub mod webhooks;
 
 use std::sync::Arc;
 
-use async_graphql_axum::GraphQL;
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::Router;
-use axum::routing::post_service;
+use axum::extract::State;
+use axum::routing::post;
 use maya_web_security::{secure, security_txt};
 use tower_http::limit::RequestBodyLimitLayer;
 
@@ -71,16 +72,30 @@ fn routes(node: Arc<dyn NodeClient>) -> Router {
     let schema = graphql::schema(Arc::clone(&node));
     let state = Arc::new(AppState { node });
 
-    // `post_service`, not `post`: `GraphQL` is a tower `Service` rather than an
-    // axum handler, and the two are not interchangeable. Its own router carries
-    // the body cap, so the cap reaches this route and no other.
+    // Its own router carries the body cap, so the cap reaches this route and
+    // no other.
     let graphql_routes = Router::new()
-        .route("/graphql", post_service(GraphQL::new(schema)))
+        .route("/graphql", post(graphql_handler))
+        .with_state(schema)
         .layer(RequestBodyLimitLayer::new(graphql::MAX_REQUEST_BYTES));
     rest::router(state)
         .merge(graphql_routes)
         .merge(security_txt())
         .layer(cors())
+}
+
+/// Runs one GraphQL operation.
+///
+/// Not `async_graphql_axum::GraphQL`: that service accepts a batch (a JSON
+/// array of operations) and checks each against the complexity limit on its
+/// own, so one request, one rate-limit token, could fan out to as many node
+/// calls as the body cap allows. `GraphQLRequest` refuses a batch with a 400
+/// before anything runs, as the JSON-RPC route does.
+async fn graphql_handler(
+    State(schema): State<graphql::GatewaySchema>,
+    request: GraphQLRequest,
+) -> GraphQLResponse {
+    schema.execute(request.into_inner()).await.into()
 }
 
 /// JSON only, no HTML: nothing it serves can run script or be framed.

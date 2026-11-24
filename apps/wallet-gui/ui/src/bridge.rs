@@ -273,6 +273,11 @@ pub async fn lock() -> Result<(), String> {
     call("lock", &NoArgs {}).await
 }
 
+/// Whether a wallet is unlocked; false once it locked itself after idling.
+pub async fn is_unlocked() -> Result<bool, String> {
+    call("is_unlocked", &NoArgs {}).await
+}
+
 /// Whether a wallet exists under `name`.
 pub async fn wallet_exists(name: &str) -> Result<bool, String> {
     #[derive(Serialize)]

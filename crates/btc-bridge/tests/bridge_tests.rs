@@ -265,8 +265,13 @@ fn a_release_closes_only_on_a_proven_payout() {
     assert_eq!(net.bridge.owed(), 60_000);
 
     // Custody underpays first, then pays in full.
-    let short = net.block(&[transaction(6, &[(59_999, PAYOUT)])]).remove(0);
-    let full = net.block(&[transaction(7, &[(60_000, PAYOUT)])]).remove(0);
+    let tag = net.bridge.release_tag(id).unwrap();
+    let short = net
+        .block(&[transaction(6, &[(59_999, PAYOUT), (0, &tag)])])
+        .remove(0);
+    let full = net
+        .block(&[transaction(7, &[(60_000, PAYOUT), (0, &tag)])])
+        .remove(0);
     assert!(matches!(
         net.bridge.confirm_release(id, &full),
         Err(BridgeError::TooShallow { .. })

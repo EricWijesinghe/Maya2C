@@ -219,6 +219,10 @@ pub struct Participant {
 impl Participant {
     /// A participant with fresh keys, drawing its seeds from `entropy`.
     ///
+    /// `entropy` must be 32 fresh bytes from the OS CSPRNG for every round:
+    /// the self-mask seed and the Shamir coefficients all derive from it, so
+    /// reused or guessable entropy reveals the masks.
+    ///
     /// # Errors
     ///
     /// [`Error::UnknownParticipant`] for an index outside the round.

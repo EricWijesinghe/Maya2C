@@ -113,6 +113,26 @@ the steps above.
   if the secret exists before the step is written.
 - **Android keystore.** Add `ANDROID_KEYSTORE_BASE64` and the Android build job
   together. The `sign` job fails on the secret until signing exists.
-- **Environment approval.** The `sign` and `release` jobs use the `release`
-  environment. In GitHub settings, add required reviewers to that environment,
-  so one person's tag push cannot publish on its own.
+- **Updater key scope.** When `TAURI_SIGNING_PRIVATE_KEY` and its password are
+  added, add them as secrets of the `release` environment, not as repository
+  secrets, so only jobs that pass the environment gate can read them.
+
+## Repository settings the release depends on
+
+`updater-sign` (Tauri update key), `sign` (OIDC) and `release`
+(`contents: write`) run only for `node-v*` tags and all use the `release`
+environment; `cargo test -p xtask workflow_hardening` fails if a workflow edit
+drops either. The rest of the gate is in GitHub settings, which no file in the
+tree can pin. Recorded 2026-11-22 with the read-only commands below:
+
+| Setting | Recorded value | Check |
+|---|---|---|
+| `release` environment reviewers | required reviewer: the owner | `gh api repos/EricWijesinghe/Maya2C/environments/release --jq '.protection_rules'` |
+| `release` deployment refs | custom policy, one tag rule `node-v*` | `gh api repos/EricWijesinghe/Maya2C/environments/release/deployment-branch-policies --jq '.branch_policies'` |
+| Tag ruleset "release tags: owner only, immutable" | active, all tags; creation, update, deletion and non-fast-forward restricted; bypass: admin role | `gh api repos/EricWijesinghe/Maya2C/rulesets/24884483 --jq '{enforcement,conditions,rules,bypass_actors}'` |
+| Secrets | none at repository or `release` environment level (Tauri key not added yet) | `gh api repos/EricWijesinghe/Maya2C/actions/secrets --jq '.total_count'`; `gh api repos/EricWijesinghe/Maya2C/environments/release/secrets --jq '.total_count'` |
+
+The environment allows administrators to bypass it (`can_admins_bypass:
+true`) and does not prevent self-review; with one maintainer both are
+expected. Re-run the commands before each release and update this table when
+a value changes.
