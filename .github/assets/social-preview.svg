@@ -23,5 +23,5 @@
 <text x="474" y="372" font-size="48" font-weight="600" fill="#c2d5dc" textLength="740" lengthAdjust="spacingAndGlyphs">Post-quantum Layer-1, built in Rust</text>
 <rect x="474" y="398" width="120" height="5" rx="2.5" fill="#ff9c47"/>
 <rect x="474" y="434" width="280" height="56" rx="28" fill="#123948" stroke="#a1afb9" stroke-opacity=".5"/><text x="614" y="471" text-anchor="middle" font-size="24" font-weight="600" fill="#c2d5dc">ML-DSA-65 + SLH-DSA</text><rect x="768" y="434" width="236" height="56" rx="28" fill="#123948" stroke="#a1afb9" stroke-opacity=".5"/><text x="886" y="471" text-anchor="middle" font-size="24" font-weight="600" fill="#c2d5dc">DAG-BFT finality</text><rect x="1018" y="434" width="176" height="56" rx="28" fill="#123948" stroke="#a1afb9" stroke-opacity=".5"/><text x="1106" y="471" text-anchor="middle" font-size="24" font-weight="600" fill="#c2d5dc">Rust · WASM</text>
-<text x="474" y="560" font-size="26" fill="#c2d5dc"><tspan font-weight="700" fill="#52e5dd">maya2c.dev</tspan>  ·  github.com/EricWijesinghe/Maya2C</text></g>
+<text x="474" y="560" font-size="26" fill="#c2d5dc"><tspan font-weight="700" fill="#52e5dd">maya2c.dev</tspan>  ·  github.com/maya2c/Maya2C</text></g>
 </svg>
