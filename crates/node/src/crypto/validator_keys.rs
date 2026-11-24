@@ -21,10 +21,52 @@
 //! | signature | 3,309 B | 4,627 B |
 //! | secret at rest | 4,032 B expanded | 32 B seed |
 
+use maya_crypto_pq::suite::SuiteId;
 use maya_crypto_pq::suite::validator::{self as backend, ValidatorSigningKey};
 use zeroize::Zeroizing;
 
 use crate::error::{NodeError, Result};
+
+/// The suites a consensus key may be registered under (NEW-2, ADR-153).
+///
+/// Every validator key on the wire and in state carries its suite byte, so a
+/// second suite (a hash-based one, should lattices weaken) is added by
+/// extending this list in an upgrade at an activation height, with no new
+/// payload, record or certificate format. Today it holds the genesis suite
+/// alone: ML-DSA-87 under the validator context (CRY-4).
+pub const VALIDATOR_SUITES: [SuiteId; 1] = [SuiteId::MlDsa87];
+
+/// The suite genesis validators and every registration today use.
+pub const DEFAULT_VALIDATOR_SUITE: SuiteId = SuiteId::MlDsa87;
+
+/// The largest signature any [`VALIDATOR_SUITES`] member makes: the bound a
+/// vote, proposal or certificate entry may claim on the wire. Derived, never
+/// written down, so adding a suite moves the bound with it.
+pub const MAX_VALIDATOR_SIGNATURE_LEN: usize = {
+    let mut max = 0;
+    let mut i = 0;
+    while i < VALIDATOR_SUITES.len() {
+        let len = VALIDATOR_SUITES[i].info().signature_len;
+        if len > max {
+            max = len;
+        }
+        i += 1;
+    }
+    max
+};
+
+/// The validator suite a wire or record byte names.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for a byte that names no suite, or a suite no
+/// validator may use.
+pub fn validator_suite(byte: u8) -> Result<SuiteId> {
+    VALIDATOR_SUITES
+        .into_iter()
+        .find(|s| s.to_byte() == byte)
+        .ok_or_else(|| NodeError::Decode(format!("suite 0x{byte:02x} is not a validator suite")))
+}
 
 /// Encoded signature length.
 pub const SIGNATURE_LENGTH: usize = backend::SIGNATURE_LEN;

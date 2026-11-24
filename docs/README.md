@@ -18,6 +18,8 @@ inherits the thing it describes.
 |---|---|
 | [REPO-MAP.md](REPO-MAP.md) | Every top-level directory, and which file is the authority for which question |
 | [HYGIENE.md](HYGIENE.md) | Where files go, what counts as junk, and the cleanup ledger |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | One transaction and one block through the node, with the file that does each step |
+| [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) | From a fresh clone to a change ready for review: build, local devnet, tests, gates |
 | [architecture-vision.md](architecture-vision.md) | The full target architecture, and which of it is shipped, which is dark, and which was never written |
 | [trajectory.md](trajectory.md) | The 160-prompt build order, where the sessions are in it, and where the plan disagrees with the tree |
 | [mainnet-readiness.md](mainnet-readiness.md) | Why mainnet is blocked, and what lifting the block would require |

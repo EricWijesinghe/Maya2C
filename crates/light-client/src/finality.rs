@@ -27,7 +27,7 @@ use std::fmt::Display;
 
 use custom_l1_node::consensus::bft::attest::Checkpoint;
 use custom_l1_node::core::{BlockHeader, ChainTag};
-use custom_l1_node::crypto::validator_keys::{PUBLIC_KEY_LEN, VerifyingKey};
+use custom_l1_node::crypto::validator_keys::VerifyingKey;
 use custom_l1_node::state::proof::LayerDigest;
 use custom_l1_node::state::staking::{
     committee_record, committee_weights_record, decode_committee, decode_weights, key_record,
@@ -328,14 +328,13 @@ fn member_key(id: &[u8; 32], record: &RecordProof) -> Result<VerifyingKey> {
     if record.key != key_record(id) {
         return Err(rotation("a key record is out of committee order"));
     }
-    if validator_id(&record.value) != *id {
+    // `suite ‖ key` (NEW-2): the suite must be a validator suite, and the id
+    // is the hash of the key bytes.
+    let bytes = custom_l1_node::state::staking::decode_key_value(&record.value)
+        .map_err(|_| rotation("a key record is not a validator suite and key"))?;
+    if validator_id(&bytes) != *id {
         return Err(rotation("a key does not hash to its validator id"));
     }
-    let bytes: [u8; PUBLIC_KEY_LEN] = record
-        .value
-        .as_slice()
-        .try_into()
-        .map_err(|_| rotation("a key record has the wrong length"))?;
     VerifyingKey::from_bytes(&bytes).map_err(rotation_from)
 }
 

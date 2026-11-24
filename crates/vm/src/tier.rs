@@ -30,8 +30,8 @@
 
 use wasmtime::Engine;
 
-use crate::config::{config_digest, deterministic_config};
-use crate::error::{Result, VmError};
+use crate::config::{checked_engine, config_digest, config_for, deterministic_config};
+use crate::error::Result;
 
 /// A compilation target for the deterministic configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -61,17 +61,16 @@ impl Tier {
 ///
 /// # Errors
 ///
-/// [`VmError::EngineConfig`] if wasmtime rejects the target.
+/// [`crate::VmError::EngineConfig`] if wasmtime rejects the target.
 pub fn tier_engine(tier: Tier) -> Result<(Engine, [u8; 32])> {
-    let mut config = deterministic_config()?;
-    if tier == Tier::Pulley {
+    let config = match tier {
         // 64-bit Pulley regardless of host, so one bytecode serves every
-        // machine; the host's own pointer width does not enter it.
-        config
-            .target("pulley64")
-            .map_err(|e| VmError::EngineConfig(e.to_string()))?;
-    }
-    let engine = Engine::new(&config).map_err(|e| VmError::EngineConfig(e.to_string()))?;
+        // machine; the host's own pointer width does not enter it, and nor
+        // do the native ISA flags (`config::ISA_FLAGS`), which Pulley lacks.
+        Tier::Pulley => config_for(Some("pulley64"), &[])?,
+        Tier::Cranelift => deterministic_config()?,
+    };
+    let engine = checked_engine(&config)?;
     let mut digest = blake3::Hasher::new();
     digest.update(&config_digest());
     digest.update(tier.name().as_bytes());

@@ -75,7 +75,8 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
-          node-version: "20"
+          # vitest 5 requires Node 22+ (dev toolchain only; `engines` is for consumers).
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
           cache: npm
           cache-dependency-path: sdks/sdk-js/package-lock.json

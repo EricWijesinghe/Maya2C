@@ -194,7 +194,7 @@ fn a_forged_proof_fails_at_the_step_it_forges() {
     };
 
     let mut p = l.proof.clone();
-    p.attested.slot += 1;
+    p.attested.proposer_index += 1;
     assert_eq!(
         verify(&p),
         Err(LightClientError::Signature),
@@ -227,4 +227,42 @@ fn a_forged_proof_fails_at_the_step_it_forges() {
         beacon::verify_bootstrap(l.trusted, &other, &l.committee, &l.committee_branch),
         Err(LightClientError::UntrustedBootstrap)
     );
+}
+
+#[test]
+fn slots_out_of_order_are_refused_before_the_signature_is_checked() {
+    let l = load();
+    let verify = |p: &FinalityProof| {
+        beacon::verify_finality(&l.committee, l.bootstrap.slot, p, l.fork, l.gvr)
+    };
+    let mut p = l.proof.clone();
+    p.signature_slot = p.attested.slot;
+    assert_eq!(
+        verify(&p),
+        Err(LightClientError::SlotOrder),
+        "signed in its own slot"
+    );
+    let mut p = l.proof.clone();
+    p.finalized.slot = p.attested.slot + 1;
+    assert_eq!(
+        verify(&p),
+        Err(LightClientError::SlotOrder),
+        "finalizes the future"
+    );
+}
+
+#[test]
+fn a_finality_proof_is_not_accepted_twice() {
+    let l = load();
+    let mut store = beacon::FinalizedSlot::default();
+    store
+        .accept(&l.committee, l.bootstrap.slot, &l.proof, l.fork, l.gvr)
+        .expect("first acceptance");
+    assert_eq!(store.get(), Some(l.proof.finalized.slot));
+    assert_eq!(
+        store.accept(&l.committee, l.bootstrap.slot, &l.proof, l.fork, l.gvr),
+        Err(LightClientError::Stale),
+        "a replay cannot be accepted again"
+    );
+    assert_eq!(store.get(), Some(l.proof.finalized.slot));
 }

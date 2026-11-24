@@ -50,4 +50,4 @@ The library this ADR builds on modelled a weaker rule than the table above. ADR-
 - F5 finishing cancels pending transfers back to the balance.
 - F6 one request per proposed key; a guardian's approval follows its latest proposal and can be withdrawn (`WithdrawApproval`), so one hostile guardian cannot block an honest majority.
 
-F7 (`BLOCKS_PER_DAY = 43_200`, 2 s blocks, against the node's 15 s `TARGET_BLOCK_TIME`) is open and pinned as-is by a test.
+F7 (`BLOCKS_PER_DAY`, which was 43,200 for 2 s blocks) is decided: 86,400, one day at one block a second (Eric 2026-11-14 MCQ, ADR-082 amendment 2026-11-15), pinned by `policy_day_is_one_day_at_one_block_per_second`.

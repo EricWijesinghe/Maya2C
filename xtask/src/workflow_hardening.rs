@@ -143,6 +143,75 @@ mod tests {
         }
     }
 
+    /// The job's lines without comments, so prose that names a tool does not count.
+    fn code(yaml: &str, header: &str) -> String {
+        block(yaml, header)
+            .lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    // APP-07: the job that can mint Sigstore and attestation identities must not
+    // compile repository or dependency code (build scripts, proc macros).
+    #[test]
+    fn sign_job_runs_no_repository_or_dependency_code() {
+        let sign = code(RELEASE_BINARIES, "  sign:");
+        assert!(sign.contains("id-token: write"), "sign job no longer signs");
+        for banned in [
+            "actions/checkout",
+            "rust-toolchain",
+            "cargo ",
+            "install-action",
+        ] {
+            assert!(!sign.contains(banned), "sign job runs {banned:?}");
+        }
+    }
+
+    #[test]
+    fn sbom_is_built_without_signing_rights() {
+        let sbom = code(RELEASE_BINARIES, "  sbom:");
+        assert!(sbom.contains("cargo cyclonedx"));
+        assert!(!sbom.contains("id-token") && !sbom.contains("environment:"));
+        // The `needs:` line itself: the sign job's comments also name `sbom`.
+        assert!(
+            code(RELEASE_BINARIES, "  sign:")
+                .lines()
+                .any(|l| l.trim_start().starts_with("needs:") && l.contains("sbom")),
+            "sign does not wait for the SBOM"
+        );
+    }
+
+    #[test]
+    fn release_self_check_runs_outside_the_signing_job() {
+        let verify = code(RELEASE_BINARIES, "  verify:");
+        assert!(verify.contains("cargo run --locked -p xtask -- verify-release"));
+        assert!(!verify.contains("id-token") && !verify.contains("attestations: write"));
+        assert!(!verify.contains("contents: write"));
+        // `gh attestation verify` reads the attestations API with this token.
+        assert!(verify.contains("attestations: read"));
+        assert!(block(RELEASE_BINARIES, "  release:").contains("needs: [verify]"));
+    }
+
+    // APP-08: the in-tree half of the gate. The environment's reviewers and tag
+    // rule live in repository settings (recorded in docs/verify-release.md); these pin
+    // that every key- or write-holding job asks for that environment at all.
+    #[test]
+    fn privileged_release_jobs_bind_to_the_release_environment() {
+        assert!(block(RELEASE_BINARIES, "  push:").contains("tags: [\"node-v*\"]"));
+        for job in ["  updater-sign:", "  sign:", "  release:"] {
+            let body = code(RELEASE_BINARIES, job);
+            assert!(
+                body.contains("environment: release"),
+                "{job} skips the release environment"
+            );
+            assert!(
+                body.contains("if: startsWith(github.ref, 'refs/tags/node-v')"),
+                "{job} runs outside node-v* tags"
+            );
+        }
+    }
+
     #[test]
     fn site_links_install_without_lifecycle_scripts() {
         assert!(SITE_LINKS.contains("npm ci --ignore-scripts"));
