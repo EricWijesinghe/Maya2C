@@ -21,10 +21,12 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::Command;
 
-const REPO: &str = "EricWijesinghe/Maya2C";
+const REPO: &str = "maya2c/Maya2C";
 const OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 /// Only the release workflow, run on a `node-v*` tag, may sign a release.
-const IDENTITY_REGEX: &str = r"^https://github\.com/EricWijesinghe/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$";
+// The repository moved from EricWijesinghe/Maya2C to maya2c/Maya2C on 2026-11-24. Releases signed before the
+// move carry the old path in their certificate, so both owners are accepted; both accounts belong to the project owner.
+const IDENTITY_REGEX: &str = r"^https://github\.com/(maya2c|EricWijesinghe)/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$";
 const SUMS: &str = "SHA256SUMS";
 const BUNDLE_SUFFIX: &str = ".sigstore.json";
 const HASH_HEX_LEN: usize = 64;
@@ -262,12 +264,19 @@ mod tests {
     #[test]
     fn signer_identity_pins_release_workflow_on_a_node_tag() {
         let re = regex::Regex::new(IDENTITY_REGEX).expect("pattern compiles");
-        let good = "https://github.com/EricWijesinghe/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.1.0-testnet.1";
-        assert!(re.is_match(good), "release identity rejected");
+        for good in [
+            "https://github.com/maya2c/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.3.0",
+            // signed before the 2026-11-24 move: must keep verifying
+            "https://github.com/EricWijesinghe/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.1.0-testnet.1",
+        ] {
+            assert!(re.is_match(good), "release identity rejected: {good}");
+        }
         for wrong in [
             "https://github.com/EricWijesinghe/Maya2C/.github/workflows/ci.yml@refs/tags/node-v0.1.0",
             "https://github.com/EricWijesinghe/Maya2C/.github/workflows/release-binaries.yml@refs/heads/master",
             "https://github.com/Someone/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.1.0",
+            "https://github.com/maya2c-evil/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.1.0",
+            "https://github.com/maya2c/Maya2C/.github/workflows/ci.yml@refs/tags/node-v0.1.0",
             "https://github.com/EricWijesinghe/Maya2C/.github/workflows/release-binaries.yml@refs/tags/wallet-v1",
         ] {
             assert!(!re.is_match(wrong), "accepted {wrong}");
