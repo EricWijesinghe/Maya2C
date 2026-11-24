@@ -77,8 +77,9 @@ fn signatures_cover_exactly_the_bytes_validators_verify() {
     let Response::Signed(sig) = s.handle(&r) else {
         panic!("refused")
     };
-    // ADR-033: VOTE_DOMAIN ‖ digest, the node's own message, nothing more.
-    let expected = [maya_dag_bft::VOTE_DOMAIN, r.digest.as_slice()].concat();
+    // ADR-033 as amended for CT-05: VOTE_DOMAIN ‖ round ‖ author ‖ digest,
+    // the node's own message, nothing more.
+    let expected = maya_dag_bft::slot_message(maya_dag_bft::VOTE_DOMAIN, 1, 0, &r.digest);
     assert_eq!(signed_message(&r), expected);
     let public: &[u8; validator::PUBLIC_KEY_LEN] = s.public_key().try_into().unwrap();
     let sig: &[u8; validator::SIGNATURE_LEN] = sig.as_slice().try_into().unwrap();

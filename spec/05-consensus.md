@@ -30,6 +30,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Admitted payloads are emitted in commit order, so execution order is the commit order restricted to the admitted set.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
+- **CON-14** A validator signature fills one slot and commits to it: the signed bytes are `domain ‖ round (u64 LE) ‖ author (u16 LE) ‖ digest`. For a vertex or a vote the domain is `"maya2c/dag-bft/vote/v1"`, the round and author are the voted vertex's own, and the digest is `BLAKE3-derive-key("maya2c dag-bft vote chain v1", chain_tag ‖ vertex_digest)`. For a block attestation the domain is `"maya2c block attestation v1"`, the round is the height, the author is the attester's committee index, and the digest is the attestation digest (ADR-038). A signature over the same digest at another round or author does not verify, so equivocation evidence and certificates are judged at the slot their vertex names (ADR-033 amendment 2026-11-24, CT-05). *(external vectors: crates/signer/tests/slot_label_tests.rs)*
 
 ## Vectors and gaps
 

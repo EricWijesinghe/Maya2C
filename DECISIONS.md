@@ -923,3 +923,9 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — Consensus signatures commit to their slot (audit CT-05, Eric 2026-11-24, option B1)
+
+- **Guarantee:** a validator signature is valid for exactly one `(round, author)` slot. The signed bytes are `domain ‖ round ‖ author ‖ digest` for vertices, votes and block attestations (spec CON-14). A compromised node cannot get a remote-signer validator to equivocate by giving a false slot label: the signature it gets back fills the slot it named and verifies for nothing at the slot it hid.
+- **Why B1:** it is the smallest change that removes the whole class. Requests stay a 32-byte digest plus the slot, and the signer never handles batch payloads, which option A would have required. ADR-033 amendment 2026-11-24, ADR-038 attestation bytes. The draft analysis is #685, and this change is stacked on it.
+- **Consensus:** every vertex, vote and attestation signature changes bytes, landed with the genesis format. The testnet re-genesises or upgrades all validators and signers together (runbook row).

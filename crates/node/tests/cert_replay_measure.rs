@@ -339,7 +339,7 @@ fn verify_only(
                 let c = decode_certificate(record).unwrap();
                 let digest = c.digest();
                 for (voter, sig) in c.votes.iter().zip(&c.signatures) {
-                    assert!(auth.verify(*voter, &digest, sig));
+                    assert!(auth.verify(*voter, c.vertex.round, c.vertex.author, &digest, sig));
                     sigs += 1;
                 }
                 certs += 1;

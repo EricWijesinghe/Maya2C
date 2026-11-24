@@ -20,10 +20,31 @@ use crate::vertex::{Digest, ValidatorId, Vertex};
 /// same bytes: part of the consensus wire format.
 pub const VOTE_DOMAIN: &[u8] = b"maya2c/dag-bft/vote/v1";
 
-/// What a signature is for (ADR-033). Never signed itself: the signed bytes
-/// are the digest alone, so this changes no consensus rule. It exists so an
-/// authenticator that enforces slashing protection, such as the remote
-/// signer, can know which `(round, author)` slot it is being asked to fill.
+/// The bytes a validator signs to fill the slot (`round`, `author`) with
+/// `digest`: `domain ‖ round (u64 LE) ‖ author (u16 LE) ‖ digest`, 32 + 10
+/// bytes after the domain (CON-14, ADR-033 amendment 2026-11-24).
+///
+/// The slot is in the signed bytes, not only in the request that asks for
+/// them (audit CT-05). A signer that refuses a second digest for one slot
+/// then protects the slot the *signature* fills: a request labelled with a
+/// false round or author yields a signature that verifies for that false
+/// slot and for no vertex that exists. Every verifier builds these bytes from
+/// the vertex it holds. One function for votes, proposals and attestations,
+/// so a local key and the remote signer cannot drift apart.
+#[must_use]
+pub fn slot_message(domain: &[u8], round: u64, author: ValidatorId, digest: &[u8; 32]) -> Vec<u8> {
+    let mut m = Vec::with_capacity(domain.len() + 8 + 2 + digest.len());
+    m.extend_from_slice(domain);
+    m.extend_from_slice(&round.to_le_bytes());
+    m.extend_from_slice(&author.to_le_bytes());
+    m.extend_from_slice(digest);
+    m
+}
+
+/// What a signature is for (ADR-033). The kind is not signed (a proposal's
+/// signature is its author's vote, so both kinds sign the same bytes); the
+/// round and author are, through [`slot_message`]. A remote signer reads all
+/// three to apply slashing protection to the `(round, author)` slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SignKind {
     /// This validator's own vertex.
@@ -50,9 +71,17 @@ pub trait Authenticator {
     /// its vote, never safety.
     fn sign(&self, ctx: SignContext, digest: &Digest) -> Vec<u8>;
 
-    /// Whether `signature` is `signer`'s over `digest`. Must be false for a
-    /// signer outside the committee.
-    fn verify(&self, signer: ValidatorId, digest: &Digest, signature: &[u8]) -> bool;
+    /// Whether `signature` is `signer`'s over `digest` for the vertex slot
+    /// (`round`, `author`), the vertex's own round and author. Must be false
+    /// for a signer outside the committee.
+    fn verify(
+        &self,
+        signer: ValidatorId,
+        round: u64,
+        author: ValidatorId,
+        digest: &Digest,
+        signature: &[u8],
+    ) -> bool;
 }
 
 /// SIM: no keys. Every signature is empty and every signature verifies.
@@ -69,7 +98,14 @@ impl Authenticator for Unauthenticated {
         Vec::new()
     }
 
-    fn verify(&self, _signer: ValidatorId, _digest: &Digest, _signature: &[u8]) -> bool {
+    fn verify(
+        &self,
+        _signer: ValidatorId,
+        _round: u64,
+        _author: ValidatorId,
+        _digest: &Digest,
+        _signature: &[u8],
+    ) -> bool {
         true
     }
 }
@@ -102,8 +138,8 @@ impl Equivocation {
             && a.epoch == b.epoch
             && a.round == b.round
             && da != db
-            && auth.verify(a.author, &da, &self.first_signature)
-            && auth.verify(b.author, &db, &self.second_signature)
+            && auth.verify(a.author, a.round, a.author, &da, &self.first_signature)
+            && auth.verify(b.author, b.round, b.author, &db, &self.second_signature)
     }
 }
 
@@ -120,7 +156,14 @@ mod tests {
             self.0.to_le_bytes().to_vec()
         }
 
-        fn verify(&self, signer: ValidatorId, _digest: &Digest, signature: &[u8]) -> bool {
+        fn verify(
+            &self,
+            signer: ValidatorId,
+            _round: u64,
+            _author: ValidatorId,
+            _digest: &Digest,
+            signature: &[u8],
+        ) -> bool {
             signature == signer.to_le_bytes()
         }
     }
@@ -150,5 +193,23 @@ mod tests {
         assert!(!ev(vertex(2, 5, 1), vertex(3, 5, 2), sig(2), sig(3)).is_valid(&auth));
         // A forged signature is not evidence.
         assert!(!ev(vertex(2, 5, 1), vertex(2, 5, 2), sig(2), sig(1)).is_valid(&auth));
+    }
+
+    /// The CON-14 vector: the layout any implementation must reproduce.
+    #[test]
+    fn the_slot_message_is_domain_round_author_digest() {
+        let m = slot_message(b"D", 0x0102_0304_0506_0708, 0x0A0B, &[0xEE; 32]);
+        let mut want = vec![b'D', 8, 7, 6, 5, 4, 3, 2, 1, 0x0B, 0x0A];
+        want.extend_from_slice(&[0xEE; 32]);
+        assert_eq!(m, want);
+        // Another round or another author is another message.
+        assert_ne!(
+            m,
+            slot_message(b"D", 0x0102_0304_0506_0709, 0x0A0B, &[0xEE; 32])
+        );
+        assert_ne!(
+            m,
+            slot_message(b"D", 0x0102_0304_0506_0708, 0x0A0C, &[0xEE; 32])
+        );
     }
 }

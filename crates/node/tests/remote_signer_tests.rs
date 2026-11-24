@@ -94,16 +94,25 @@ fn a_remote_signature_verifies_under_the_nodes_unchanged_verifier() {
     let sig = auth.sign(vote(3, 0), &digest);
     assert!(!sig.is_empty(), "the signer signed");
     assert!(
-        observer.verify(1, &digest, &sig),
+        observer.verify(1, 3, 0, &digest, &sig),
         "every validator accepts it"
     );
     assert!(
-        !observer.verify(0, &digest, &sig),
+        !observer.verify(0, 3, 0, &digest, &sig),
         "under the right key only"
     );
     assert!(
-        !observer.verify(1, &[6u8; 32], &sig),
+        !observer.verify(1, 3, 0, &[6u8; 32], &sig),
         "for this digest only"
+    );
+    // CT-05: the slot the signer approved is the slot the signature fills.
+    assert!(
+        !observer.verify(1, 4, 0, &digest, &sig),
+        "for this round only"
+    );
+    assert!(
+        !observer.verify(1, 3, 1, &digest, &sig),
+        "for this author only"
     );
 }
 

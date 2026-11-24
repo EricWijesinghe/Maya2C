@@ -6,11 +6,9 @@
 //! `(round, author)` slot, which is the equivocation the signer exists to
 //! prevent.
 //!
-//! Ignored until Eric picks a fix (the [needs-eric] PR lists the options).
-//! Either fix turns it green: the signer recomputes the digest from the
-//! vertex header and refuses the false label (option A), or the signed bytes
-//! carry the round and author, so the signature does not verify for the real
-//! slot (option B).
+//! Eric chose option B1 on 2026-11-24: the signed bytes carry the round and
+//! author (`maya_dag_bft::slot_message`), so a signature obtained under a
+//! false label does not verify for the real slot.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -31,7 +29,6 @@ fn vertex(stamp: u64) -> Vertex {
 }
 
 #[test]
-#[ignore = "audit CT-05: red until Eric chooses option A or B ([needs-eric] PR)"]
 fn a_second_vertex_for_a_signed_slot_cannot_be_signed_under_another_label() {
     let dir = TempDir::new().unwrap();
     let mut service = Service::new(
@@ -46,9 +43,15 @@ fn a_second_vertex_for_a_signed_slot_cannot_be_signed_under_another_label() {
         author: v.author,
         digest: v.digest(),
     };
-    assert!(matches!(service.handle(&honest(&first)), Response::Signed(_)));
+    assert!(matches!(
+        service.handle(&honest(&first)),
+        Response::Signed(_)
+    ));
     // The protection rule holds when the label is true.
-    assert!(matches!(service.handle(&honest(&second)), Response::Refused(_)));
+    assert!(matches!(
+        service.handle(&honest(&second)),
+        Response::Refused(_)
+    ));
 
     // The same second vertex, labelled one round later.
     let relabelled = Request {

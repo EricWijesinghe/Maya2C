@@ -37,7 +37,9 @@ months of uptime.
 node may import up to.**
 
 - After a validator builds and inserts block `B` at height `h`, it signs
-  `"maya2c block attestation v1" ‖ chain_tag ‖ epoch ‖ h ‖ id(B)` with its
+  `"maya2c block attestation v1" ‖ h ‖ validator ‖ digest(chain_tag ‖ epoch ‖ h ‖ id(B))`
+  (the height and attester signed in the clear since the ADR-033 amendment
+  2026-11-24, CT-05, spec CON-14) with its
   DAG-BFT validator key (ML-DSA-65; the remote signer too) and gossips the
   attestation. Every validator builds the same `B`, so the signatures agree.
 - `2f + 1` attestations from the epoch's committee make `B` a **checkpoint**.

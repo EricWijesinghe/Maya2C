@@ -52,16 +52,26 @@ pub fn attestation_digest(chain: &ChainTag, epoch: u64, height: u64, block: &[u8
     *h.finalize().as_bytes()
 }
 
-/// The bytes a validator signs to attest that block `block` is height
-/// `height` of the chain `chain`, in staking epoch `epoch`:
-/// [`ATTEST_DOMAIN`] then [`attestation_digest`].
+/// The bytes committee member `validator` signs to attest that block `block`
+/// is height `height` of the chain `chain`, in staking epoch `epoch`:
+/// `ATTEST_DOMAIN ‖ height ‖ validator ‖ attestation_digest`
+/// ([`maya_dag_bft::slot_message`], CON-14). The height and the attester are
+/// signed as well as hashed, so a remote signer's one-block-per-height record
+/// protects the height the signature really fills (CT-05).
 #[must_use]
-pub fn attestation_bytes(chain: &ChainTag, epoch: u64, height: u64, block: &[u8; 32]) -> Vec<u8> {
-    [
+pub fn attestation_bytes(
+    chain: &ChainTag,
+    epoch: u64,
+    height: u64,
+    validator: u16,
+    block: &[u8; 32],
+) -> Vec<u8> {
+    maya_dag_bft::slot_message(
         ATTEST_DOMAIN,
-        attestation_digest(chain, epoch, height, block).as_slice(),
-    ]
-    .concat()
+        height,
+        validator,
+        &attestation_digest(chain, epoch, height, block),
+    )
 }
 
 /// One validator's signature on one block.
@@ -94,7 +104,7 @@ impl Attestation {
         block: [u8; 32],
     ) -> Result<Self> {
         let signature = key
-            .sign(&attestation_bytes(chain, epoch, height, &block))?
+            .sign(&attestation_bytes(chain, epoch, height, validator, &block))?
             .to_vec();
         Ok(Self {
             epoch,
@@ -124,7 +134,7 @@ impl Attestation {
                 NodeError::Decode("attestation signature has the wrong length".to_string())
             })?;
         key.verify(
-            &attestation_bytes(chain, self.epoch, self.height, &self.block),
+            &attestation_bytes(chain, self.epoch, self.height, self.validator, &self.block),
             signature,
         )
     }

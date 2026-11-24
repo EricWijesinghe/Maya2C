@@ -4,7 +4,8 @@
 //! signer the slot (`kind`, `round`, `author`) and the vertex digest over the
 //! mutually authenticated post-quantum channel (`maya_signer::channel`). The
 //! signer applies its own slashing protection and returns a signature over
-//! exactly the bytes every validator verifies (`VOTE_DOMAIN ‖ digest`).
+//! exactly the bytes every validator verifies
+//! (`VOTE_DOMAIN ‖ round ‖ author ‖ digest`, CT-05).
 //!
 //! Every failure is a missing vote, never a wrong one. A refusal, a timeout, a
 //! broken channel or a signature that does not verify under the validator's
@@ -64,7 +65,7 @@ impl ValidatorKey {
         use super::attest::{attestation_bytes, attestation_digest};
         match self {
             Self::Local(key) => key
-                .sign(&attestation_bytes(chain, epoch, height, block))
+                .sign(&attestation_bytes(chain, epoch, height, validator, block))
                 .map(|s| s.to_vec())
                 .map_err(|e| eprintln!("attestation at height {height} not signed: {e}"))
                 .ok(),
