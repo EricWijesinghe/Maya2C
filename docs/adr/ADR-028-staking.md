@@ -115,3 +115,61 @@ not migrated. It rides the pre-mainnet re-genesis: any network still on
 version 2 (the testnet included) is re-genesised with this binary, not
 upgraded in place. Genesis clears pending after the bond
 registrations, so genesis bonds earn from epoch 0.
+
+## Amendment 2026-11-24: every double-sign is slashable, every penalty is in the genesis id, and a mainnet starts with seven seats
+
+Eric 2026-11-24 (the recommended options of the 11-24 audit decisions, each to be
+presented as a guarantee).
+
+**CON-05: an attestation double-sign costs what a proposal double-sign costs.** A block
+attestation (ADR-038) signs `(epoch, height, block)`; two of them by one committee member
+for two blocks at one height are what two conflicting checkpoints are made of. Before
+this, the node saw such a pair and could only report it: the on-chain verifier accepted
+two `Propose` frames and nothing else. `ReportEquivocation` now also accepts two
+attestation frames. No wire change: an attestation frame starts with `0xA7`, which no
+engine frame does, so the evidence names its own kind and a pair of one kind can never be
+read as the other. The pair must name one epoch, one height, one committee index and two
+blocks, and both signatures must verify against that index of the epoch's frozen
+committee. The validator is then slashed `double_sign_slash_bps` and tombstoned, exactly as
+for proposals (STK-15). Keeping the pair as a file the operator can submit is the node-local
+part, in the consensus hardening PR (#686).
+
+**Written staking rules (ceiling rows S1, S2, S4, S9, S13).** `unbonding_epochs`,
+`double_sign_slash_bps`, `downtime_slash_bps`, `downtime_threshold_bps`, `jail_epochs` and
+`max_commission_bps` came from `Params::DEVNET` whatever the genesis said, and none reached
+the genesis id. `bft.staking.rules` now names all six, each required, no unknown field, and
+folds them into the id (`"maya2c genesis staking rules v1"`, STK-18). A genesis without the
+section keeps its id and the compiled values, so every test and testnet genesis is
+unchanged. The ceremony writes the section on every value-bearing chain, as literals
+(`LAUNCH_STAKING_RULES`), so a later change to the devnet defaults cannot move a mainnet;
+today they equal the values the node has always run, and a ceremony test pins that.
+`cargo xtask genesis-check` and the node both refuse a value-bearing genesis without them,
+and `genesis-check` also refuses any value other than `LAUNCH_STAKING_RULES` (review of
+PR #704): the node bounds them only loosely (`Params::is_valid`), so a hand-written mainnet
+genesis with a zero slash or a one-epoch evidence window would otherwise pass the launch gate.
+
+**C4 and C5: committee bounds the node enforces itself.** A genesis naming more validators
+than `max_validators` is refused on every chain. A value-bearing genesis (chain id
+containing `mainnet`, the ceremony's rule) is refused with fewer than seven validators
+(`MIN_VALUE_BEARING_VALIDATORS`; seven seats survive two faults) or without a staking
+section and its written rules. The ceremony's `MIN_LAUNCH_VALIDATORS` is now that same
+constant, so the tool and the node cannot disagree. STK-17.
+
+Tests: `an_attestation_double_sign_is_slashed_at_the_proposal_rate`,
+`the_staking_rules_are_part_of_the_genesis_id_and_are_the_rules_run`,
+`the_loader_refuses_a_committee_outside_its_bounds` (`crates/node/tests/bft_staking_tests.rs`);
+`unwritten_staking_rules_fail`, `staking_rules_other_than_the_launch_values_fail`
+(`xtask/src/genesis_check.rs`);
+`mainnet_needs_seven_validators_a_testnet_does_not`,
+`the_launch_rules_are_the_values_the_node_has_always_run`
+(`bins/genesis-ceremony/src/committee.rs`).
+
+Open, raised with Eric (not covered by the 2026-11-24 decisions): whether
+`unbonding_epochs = 7` (seven 3,600-block epochs, about seven hours at one block a second)
+is the evidence window mainnet wants. Committee records are pruned after
+`unbonding_epochs + 1` epochs (`staking_exec.rs`), after which proposal and attestation
+evidence is refused ("no committee on record"), so a validator can double-sign, unbond and
+be beyond reach about eight hours later, and a checkpoint older than that has no slashable
+stake behind it. Cosmos Hub unbonds over 21 days; Ethereum's withdrawal delay is about 27
+hours or more. Changing it is one line each in `LAUNCH_STAKING_RULES`, the `genesis-check`
+copy and `xtask/src/proving.rs`, before genesis.

@@ -291,6 +291,11 @@ fn a_parameter_is_accepted_exactly_within_its_range() {
     let value = any_amount();
     let bounds = key.bounds();
 
+    // A key that is not governable refuses every value (G4).
+    if !key.is_governable() {
+        assert!(key.check(value).is_err());
+        return;
+    }
     if key.check(value).is_ok() {
         assert!(value >= bounds.min && value <= bounds.max);
     } else {
@@ -310,7 +315,8 @@ fn every_default_is_reachable_by_proposal() {
 
     let bounds = key.bounds();
     assert!(bounds.min <= bounds.max);
-    assert!(key.check(bounds.default).is_ok());
+    assert!(bounds.default >= bounds.min && bounds.default <= bounds.max);
+    assert!(!key.is_governable() || key.check(bounds.default).is_ok());
 }
 
 /// A parameter tag round-trips, and an unknown one is always refused.

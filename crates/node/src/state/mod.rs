@@ -55,6 +55,8 @@ pub mod upgrades;
 pub mod vault;
 pub mod verified;
 pub mod vm_exec;
+/// Per-operator committee weight cap (CON-06).
+pub mod weight_cap;
 pub mod zkml;
 
 // Re-exported so that a caller wiring up a trade does not have to take a

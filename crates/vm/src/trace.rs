@@ -185,6 +185,10 @@ impl<S: HostState> HostState for Traced<S> {
         verdict
     }
 
+    fn touch_storage(&mut self, contract: &ContractId, key: &[u8]) -> bool {
+        self.inner.touch_storage(contract, key)
+    }
+
     fn storage_get(&self, contract: &ContractId, key: &[u8]) -> Option<Vec<u8>> {
         let value = self.inner.storage_get(contract, key);
         self.record(Step::Read {

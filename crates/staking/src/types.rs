@@ -95,6 +95,8 @@ pub enum StakeError {
     InsufficientStake,
     /// The validator is tombstoned.
     Tombstoned,
+    /// The validator's whole bond is already waiting to leave (CON-07).
+    Leaving,
     /// Arithmetic would overflow.
     Overflow,
 }
@@ -121,6 +123,11 @@ pub struct Staking {
     pub pending_self: BTreeMap<ValidatorId, Amount>,
     /// Delegations added in the current epoch, same rule as `pending_self`.
     pub pending_delegations: BTreeMap<(Address, ValidatorId), Amount>,
+    /// Validators whose operator unbonded the whole self bond while the
+    /// eligible set stood at [`crate::MIN_COMMITTEE`] (CON-07). Each stays
+    /// bonded, seated and slashable, and its bond starts unbonding at the
+    /// first epoch boundary where the set keeps `MIN_COMMITTEE` without it.
+    pub exits: BTreeSet<ValidatorId>,
 }
 
 /// One validator's stake as seen by selection and metrics.
@@ -152,6 +159,7 @@ impl Staking {
             retired: BTreeSet::new(),
             pending_self: BTreeMap::new(),
             pending_delegations: BTreeMap::new(),
+            exits: BTreeSet::new(),
         })
     }
 

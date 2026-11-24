@@ -32,10 +32,10 @@ allocation, and anyone who says otherwise is not speaking for this project.
 
 | | Status |
 |---|---|
-| Validator software | Shipped: `maya2c-node` on the [releases page](https://github.com/EricWijesinghe/Maya2C/releases) |
+| Validator software | Shipped: `maya2c-node` on the [releases page](https://github.com/maya2c/Maya2C/releases) |
 | Registering a key | Shipped: `l1-wallet register-validator` |
-| Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
-| Committee today | Four validators, all run by the project, on one machine. Real multi-signer DAG-BFT, but not independent: one machine failing halts the chain until it returns (it does not fork it). Mainnet launches the same way, and other machines join after launch ([ADR-047](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)). Live membership is on the [status page](https://status.maya2c.dev/). |
+| Rejoining after an outage | Shipped: attested checkpoints, `--catch-up-from` ([ADR-038](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-038-attested-checkpoints.md)) |
+| Committee today | Four validators, all run by the project, on one machine. Real multi-signer DAG-BFT, but not independent: one machine failing halts the chain until it returns (it does not fork it). Mainnet launches the same way, and other machines join after launch ([ADR-047](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-047-single-pc-foundation-set.md)). Live membership is on the [status page](https://status.maya2c.dev/). |
 | Connecting to the network | A public WebSocket bootnode at `p2p.maya2c.dev`, and a bootstrap endpoint for snapshots and headers at `bootstrap.maya2c.dev` |
 | Open registration | **Not yet.** Registrations are reviewed; see below. |
 
@@ -44,7 +44,7 @@ allocation, and anyone who says otherwise is not speaking for this project.
 Today every validator seat carries one vote, whatever its stake. A registration
 whose node never comes online still takes a seat, and with enough absent seats
 no quorum can form and the chain stops
-([ADR-039](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md)).
+([ADR-039](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md)).
 The arithmetic is in the scientists tab below.
 
 Until votes are weighted by stake, the testnet validator only proposes
@@ -64,7 +64,7 @@ how mainnet will work.
 ## Steps
 
 1. **Install** `maya2c-node` and `l1-wallet` from the
-   [releases page](https://github.com/EricWijesinghe/Maya2C/releases), and check
+   [releases page](https://github.com/maya2c/Maya2C/releases), and check
    them against `SHA256SUMS`.
 2. **Make a validator key.** This prints its public key:
 
@@ -78,7 +78,7 @@ how mainnet will work.
 3. **Make a wallet** with `l1-wallet generate` (it writes `wallet.key` by
    default), then note the address with `l1-wallet address`.
 4. **Apply** by opening a
-   [validator application](https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml)
+   [validator application](https://github.com/maya2c/Maya2C/issues/new?template=validator-application.yml)
    with the public key and the address. Never paste a key file.
 5. **Once approved and funded, register:**
 
@@ -153,14 +153,28 @@ powercfg /change hibernate-timeout-ac 0
 
 The node then keeps the system awake while it runs. Lid-close is a separate
 setting: set it to "Do nothing" on AC. Details:
-[validator start guards](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/runbooks/validator-start-guards.md).
+[validator start guards](https://github.com/maya2c/Maya2C/blob/master/docs/runbooks/validator-start-guards.md).
 
 ## What being a validator means
 
 - **Downtime is slashed.** A validator that commits fewer than half of the anchor
   slots it led in an epoch loses 1% of its bond and is jailed for two epochs.
 - **Double signing is slashed hard.** 50% of the bond, and the key is retired.
-  Evidence can be filed for `unbonding_epochs + 1` epochs after the offence.
+  Signing two blocks at one height (attestations) counts the same as signing
+  two vertices for one slot. Evidence can be filed for `unbonding_epochs + 1`
+  epochs after the offence.
+- **Penalties and exits never shrink the committee below four seats.** A full
+  unbond at the floor waits until a replacement bonds. A retired key keeps its
+  seat at the floor until a replacement bonds too, one at a time. The slash for
+  an offence is never delayed. Holding that seat keeps the chain moving at the
+  cost of the floor's fault margin, which the retired key has already used.
+- **No operator address holds more than a fifth of the vote.** Stake above that
+  still earns its full reward. The weight it gives up is spread over the other
+  addresses, so the cap bounds each address, not each owner
+  ([ADR-040](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-040-stake-weighted-committee.md)).
+- **Every penalty is part of the genesis id.** A mainnet genesis writes out the
+  slashing, jail, unbonding and downtime values, so two nodes that disagree
+  about a penalty disagree about block zero.
 - **Undelegating takes the whole stake or leaves at least the minimum.** A
   zero or dust undelegation is refused.
 - **Your node votes on every round.** Its vote signatures are ML-DSA-87, the
@@ -173,7 +187,7 @@ setting: set it to "Do nothing" on AC. Details:
 ## The halting condition
 
 Let $m$ be the number of online seats and $k$ the number of absent seats, so the
-committee has $N = m + k$ seats. From [ADR-039](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md),
+committee has $N = m + k$ seats. From [ADR-039](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-039-quorum-n-minus-f.md),
 $f = \lfloor (N-1)/3 \rfloor$ and the quorum is $N - f$. The online seats can form a
 quorum alone exactly when $m \ge N - f$, that is, when
 
@@ -194,14 +208,15 @@ anchor slots are missed. That is the case the downtime penalty is built for.
 
 ## The penalties
 
-Let $B$ be a bond. The parameters are in `crates/staking/src/params.rs`, in basis
-points where $10\,000$ bps is 100%:
+Let $B$ be a bond. The parameters are written in the genesis (`bft.staking.rules`,
+hashed into its id; a test or devnet genesis without them uses
+`crates/staking/src/params.rs`), in basis points where $10\,000$ bps is 100%:
 
 | Offence | Test | Penalty | Parameter |
 |---|---|---|---|
 | Downtime | led $< 5\,000$ bps of its anchor slots in the epoch | $B \cdot 100 / 10\,000 = 0.01\,B$ | `downtime_slash_bps = 100`, `downtime_threshold_bps = 5000` |
 | Downtime | | jailed for $2$ epochs | `jail_epochs = 2` |
-| Double signing | two signed vertices for one slot | $B \cdot 5\,000 / 10\,000 = 0.5\,B$, key retired | `double_sign_slash_bps = 5000` |
+| Double signing | two signed vertices for one slot, or two attestations to different blocks at one height | $B \cdot 5\,000 / 10\,000 = 0.5\,B$, key retired | `double_sign_slash_bps = 5000` |
 
 Double signing is the attack on the quorum argument in
 [consensus](/guides/consensus/), and its penalty is ten times the downtime one.
@@ -210,7 +225,7 @@ Double signing is the attack on the quorum argument in
 
 Under equal weights a seat is one vote regardless of bond. An attacker who
 registers $k$ idle keys therefore buys $k$ votes for the cost of $k$ bonds.
-Stake-weighted quorums ([ADR-040](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-040-stake-weighted-committee.md))
+Stake-weighted quorums ([ADR-040](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-040-stake-weighted-committee.md))
 change the unit of the threshold from seats to weight $W$, with $f = \lfloor (W-1)/3 \rfloor$.
 The attacker then needs roughly a third of the **stake**, not a third of the
 seats. The reviewed registration on the testnet is a stopgap until that lands.

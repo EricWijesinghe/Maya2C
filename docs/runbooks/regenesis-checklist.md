@@ -11,7 +11,9 @@ against a live server on its own.
 |---|---|---|
 | `bft.mining` (ADR-044), funded keyless reserve | mining has never run on the live testnet | `cargo xtask mining-localnet` |
 | Security council 2-of-3 (ADR-050) | the old genesis has none | `genesis-ceremony council ...` |
-| wasmtime 48.0.7 | consensus-VM bump, a hard fork | #190, vm tests |
+| wasmtime 48.0.10 | consensus-VM bump, a hard fork; gas unchanged from 48.0.8 | `crates/vm/tests/gas_golden_tests.rs`, vm tests |
+| `memory_init_cow(false)` (ADR-034 amendment 2026-11-23) | gas changes for every contract with a data segment (was host-dependent: Linux and Windows disagreed). Testnet validators upgrade together or the network is re-genesised; a mixed testnet splits on calls whose gas limit falls in the old gap | `a_data_segment_costs_the_same_gas_on_every_host_and_tier`, `gas_golden_tests.rs` |
+| Suite byte on validator and council keys (NEW-2, ADR-153, spec CRY-7) | `RegisterValidator`, the `k:key:` record, council record v2 and council approvals change layout; the genesis state root of any chain with validators or a council changes | `a_registration_names_its_key_suite_and_only_a_validator_suite_decodes`, `every_member_key_carries_a_council_suite` |
 | Staking record v3, stake added in an epoch earns from the next | state format change | PR for `fix/reward-sniping` |
 | ML-DSA-87 validator keys (ADR-051 option 3) | key type is fixed in genesis | built (feat/validator-mldsa87, spec CRY-4); every key must be regenerated with the new binary |
 | 20% per-operator cap, 7+ validators | policy | `cargo xtask genesis-check FILE` |

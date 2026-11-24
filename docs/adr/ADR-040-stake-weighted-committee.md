@@ -195,3 +195,53 @@ Accepted for v1, from the security review:
 
 Still open (gate 10): recovery from a halt caused by more than a third of
 the stake going offline.
+
+## Amendment 2026-11-24: no operator holds more than a fifth of the vote (CON-06)
+
+Eric 2026-11-24: cap consensus weight per operator at 20%, below the third that could stop
+finality; stake above the cap still earns. Before this the 20% cap was a genesis check
+(`cargo xtask genesis-check`) only, and `BondMore` or `Delegate` could move any share of the
+weight onto one operator after launch.
+
+`stake_weights` now ends in `state::weight_cap::cap_operator_weights`: weights are summed per
+operator (the `operator` address the stake pays out to, so one operator running several keys
+is one operator), and the heaviest are cut by integer water-filling to the level `c` at
+which each holds at most 20% of the new total (STK-16 gives the arithmetic). A cut
+operator's keys are scaled alike. Integer math only, `BTreeMap` order, ties by address.
+Rewards are paid on stake by `maya-staking` and never read these weights, so excess stake
+still earns in full; it just cannot dominate a vote.
+
+The cap is a property of every epoch's weights, whatever path the stake took. It needs at
+least five operators (five times 20% is all of it); with fewer, no weights can satisfy it and
+they are left as stakes. A value-bearing genesis seats at least seven validators
+(ADR-028 amendment 2026-11-24) and genesis-check holds each operator to 20% at launch.
+With equal bonds, as at mainnet launch, the cap moves nothing.
+
+What it guarantees, exactly: no single operator *address* holds more than 20% of an epoch's
+weight. What it costs, measured with the STK-16 arithmetic (review of PR #704, 2026-11-24):
+water-filling hands a cut operator's excess to every other address in proportion, so once
+there are five or more addresses the weight an attacker can reach depends on how many
+addresses it runs, not on how much stake it holds. Addresses cost one minimum bond each.
+
+| Committee (one key per address at the minimum bond `m`, except one honest address large enough to be cut) | Attacker's share of the weight |
+|---|---|
+| 1 honest large address (> 2.75 m), 6 honest, attacker 5: level 2.75 m of 13.75 m | 36.4%: above 1/3, can stop finality |
+| 1 honest large address (> 9.25 m), 6 honest, attacker 31: level 9.25 m of 46.25 m | 67.0%: above 2/3, can break safety |
+| 1 honest large address (> m), attacker 4: level m of 5 m | 80% |
+
+Without the cap the same attacker needs more than 1/3 (or 2/3) of the total stake. So, as
+built, the cap lowers the cost of an attack by many small addresses against a committee
+with one large honest operator. Its arithmetic is exact at every stake size (256-bit
+intermediate, `the_cap_holds_at_the_full_u64_range`); the trade-off above is a property of
+the design, not of rounding. **Open owner decision:** a dual-threshold quorum (a
+certificate or checkpoint needs `W − f` under the capped weights *and* under the raw stake
+weights), with which the cap only adds a requirement and never lowers the cost of an attack.
+Until that is decided, this section is the statement of what the cap does.
+
+Tests (`crates/node/src/state/weight_cap.rs`): `equal_bonds_are_left_exactly_as_they_are`,
+`a_whale_is_cut_to_a_fifth_of_the_new_total_and_nobody_else_moves`,
+`one_operator_running_many_keys_is_capped_as_one`,
+`below_five_operators_no_cap_is_satisfiable_so_none_is_applied`,
+`the_cap_holds_at_the_full_u64_range` (weights at the u64 ceiling, where `w × c` passes
+2^128), and the 2,000-committee sweep `no_operator_ever_holds_more_than_the_cap` over every
+bit width from 1 to 64.

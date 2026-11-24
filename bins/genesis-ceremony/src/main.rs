@@ -313,10 +313,14 @@ fn check_mining_profile(chain_id: &str, mining: &MiningGenesis) -> Result<(), St
 /// The `shielded_activation_height` a genesis for `chain_id` gets (ADR-037).
 ///
 /// A value-bearing chain on an unaudited circuit gets "never"; every other
-/// genesis names none, which runs the pool from block zero and keeps the id
-/// a genesis written before ADR-037 would have had.
-fn shielded_activation_for(chain_id: &str, circuit_audited: bool) -> Option<u64> {
-    (is_value_bearing(chain_id) && !circuit_audited).then_some(u64::MAX)
+/// genesis names `0`, the pool from block zero. Always named: a genesis that
+/// names none keeps the pool off (P4), so a testnet that wants it says so.
+fn shielded_activation_for(chain_id: &str, circuit_audited: bool) -> u64 {
+    if is_value_bearing(chain_id) && !circuit_audited {
+        u64::MAX
+    } else {
+        0
+    }
 }
 
 /// Whether `chain_id` names a value-bearing network (case and spaces ignored).
@@ -427,6 +431,9 @@ fn launch_config(
         && let Some(staking) = bft.as_mut().and_then(|b| b.staking.as_mut())
     {
         staking.stake_weighted = true;
+        // Every penalty written out and hashed into the id (Eric 2026-11-24);
+        // the node refuses a value-bearing genesis without them.
+        staking.rules = Some(committee::LAUNCH_STAKING_RULES);
     }
     let difficulty_bits = if bft.is_some() {
         0
@@ -457,7 +464,10 @@ fn launch_config(
         shielded_activation_height: if args.shielded_never {
             Some(u64::MAX)
         } else {
-            shielded_activation_for(&args.chain_id, maya_zk_stark::pool::circuit_is_audited())
+            Some(shielded_activation_for(
+                &args.chain_id,
+                maya_zk_stark::pool::circuit_is_audited(),
+            ))
         },
         bft,
     }
@@ -479,8 +489,9 @@ fn consensus_section(committee: Option<&[committee::Member]>) -> String {
 fn shielded_line(config: &GenesisConfig) -> &'static str {
     match config.shielded_activation_height {
         Some(u64::MAX) => "off (ADR-037: unaudited circuit; a later upgrade may turn it on)",
+        Some(0) => "on from block zero",
         Some(_) => "on from a scheduled height",
-        None => "on from block zero",
+        None => "off (no height named: the pool runs only where a genesis names one)",
     }
 }
 
@@ -1173,10 +1184,10 @@ mod shielded_tests {
     #[test]
     fn a_mainnet_genesis_keeps_the_pool_off_while_the_circuit_is_unaudited() {
         for chain in ["maya-mainnet", "mainnet"] {
-            assert_eq!(shielded_activation_for(chain, false), Some(u64::MAX));
+            assert_eq!(shielded_activation_for(chain, false), u64::MAX);
             // After an audit the ceremony stops forcing it; turning the pool
             // on for a running mainnet is still a scheduled upgrade.
-            assert_eq!(shielded_activation_for(chain, true), None);
+            assert_eq!(shielded_activation_for(chain, true), 0);
         }
     }
 
@@ -1205,18 +1216,15 @@ mod shielded_tests {
     #[test]
     fn case_and_spaces_do_not_turn_mainnet_into_a_testnet() {
         for name in ["Maya-Mainnet", "MAINNET", " mainnet "] {
-            assert_eq!(
-                shielded_activation_for(name, false),
-                Some(u64::MAX),
-                "{name:?}"
-            );
+            assert_eq!(shielded_activation_for(name, false), u64::MAX, "{name:?}");
         }
     }
 
     #[test]
-    fn any_other_genesis_keeps_the_id_it_always_had() {
-        assert_eq!(shielded_activation_for("maya-testnet-1", false), None);
-        assert_eq!(shielded_activation_for("maya-genesis-rc1", false), None);
+    fn any_other_genesis_names_the_pool_on_from_block_zero() {
+        // Named, not left out: an unnamed pool is off (P4).
+        assert_eq!(shielded_activation_for("maya-testnet-1", false), 0);
+        assert_eq!(shielded_activation_for("maya-genesis-rc1", false), 0);
     }
 
     #[test]
@@ -1224,11 +1232,7 @@ mod shielded_tests {
         use super::is_value_bearing;
         for chain in ["maya2c-mainnet", "maya-mainnet-1", "Maya-MainNet-Beta"] {
             assert!(is_value_bearing(chain), "{chain}");
-            assert_eq!(
-                shielded_activation_for(chain, false),
-                Some(u64::MAX),
-                "{chain}"
-            );
+            assert_eq!(shielded_activation_for(chain, false), u64::MAX, "{chain}");
         }
         assert!(!is_value_bearing("maya-testnet-2"));
     }
@@ -1259,7 +1263,7 @@ mod mining_tests {
 
     #[test]
     fn zero_supply_mints_only_the_reserve_and_the_bonds() {
-        // The genesis money must be exactly the reserve plus the four bonds.
+        // The genesis money must be exactly the reserve plus the seven bonds.
         let config = launch_config(&mainnet_args(0), Vec::new(), None, Some(&members()));
         let addresses: Vec<String> = config
             .allocations
@@ -1267,7 +1271,7 @@ mod mining_tests {
             .map(|a| a.address.clone())
             .collect();
         assert_eq!(addresses, vec![hex::encode(MINING_RESERVE)]);
-        let bonds = primitive_types::U256::from(4_000_000);
+        let bonds = primitive_types::U256::from(7_000_000);
         assert_eq!(
             config.total_supply().unwrap(),
             primitive_types::U256::from(5_000_000) + bonds
@@ -1329,8 +1333,9 @@ mod mining_tests {
         assert!(split_supply(zero, 1_000).is_err());
     }
 
+    /// Seven seats: the node's floor for a value-bearing genesis (C5).
     fn members() -> Vec<committee::Member> {
-        (1..=4u8)
+        (1..=7u8)
             .map(|i| committee::Member {
                 label: format!("op{i}"),
                 // Real keys: the state root decodes every validator key.

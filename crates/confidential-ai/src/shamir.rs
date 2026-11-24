@@ -52,17 +52,14 @@ impl PartialEq for Share {
 
 impl Eq for Share {}
 
+/// Both operands can be secret (share bytes, coefficients), so the loop runs
+/// all eight rounds and selects with masks instead of branching on bits.
 fn gf_mul(mut a: u8, mut b: u8) -> u8 {
     let mut product = 0u8;
-    while b != 0 {
-        if b & 1 == 1 {
-            product ^= a;
-        }
-        let carry = a & 0x80 != 0;
-        a <<= 1;
-        if carry {
-            a ^= 0x1B;
-        }
+    for _ in 0..8 {
+        product ^= a & 0u8.wrapping_sub(b & 1);
+        let reduce = 0u8.wrapping_sub(a >> 7);
+        a = (a << 1) ^ (0x1B & reduce);
         b >>= 1;
     }
     product
@@ -207,6 +204,31 @@ mod tests {
         assert!(split(&[1], 4, 3, &mut rng).is_err());
         let shares = split(&[1, 2], 2, 3, &mut rng).expect("split");
         assert!(combine(&[shares[0].clone(), shares[0].clone()], 2).is_err());
+    }
+
+    #[test]
+    fn branch_free_multiply_matches_the_field_on_every_pair() {
+        // Schoolbook GF(2^8) product reduced by the AES polynomial 0x11B.
+        fn reference(a: u8, b: u8) -> u8 {
+            let mut wide = 0u16;
+            for bit in 0..8 {
+                if b >> bit & 1 == 1 {
+                    wide ^= u16::from(a) << bit;
+                }
+            }
+            for bit in (8..15).rev() {
+                if wide >> bit & 1 == 1 {
+                    wide ^= 0x11B << (bit - 8);
+                }
+            }
+            u8::try_from(wide).unwrap()
+        }
+        assert_eq!(gf_mul(0x57, 0x83), 0xC1, "FIPS 197 section 4.2");
+        for a in 0..=255u8 {
+            for b in 0..=255u8 {
+                assert_eq!(gf_mul(a, b), reference(a, b), "{a:#04x} * {b:#04x}");
+            }
+        }
     }
 
     #[test]

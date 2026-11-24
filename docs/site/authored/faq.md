@@ -11,7 +11,7 @@ Where a claim has a source, the source is named.
 Maya2C is a layer-1 blockchain written in Rust. Its transactions are signed with
 NIST post-quantum signature schemes, and its validators order blocks with a
 DAG-BFT consensus. The source is public under Apache-2.0
-([github.com/EricWijesinghe/Maya2C](https://github.com/EricWijesinghe/Maya2C)).
+([github.com/maya2c/Maya2C](https://github.com/maya2c/Maya2C)).
 
 The public testnet, `maya-testnet-1`, is **paused**, and mainnet has **not launched**.
 See [Join the testnet](/guides/testnet/) for the current status.
@@ -61,7 +61,7 @@ GPU with Vulkan, Metal or DX12 through wgpu.
 **No.** `maya-testnet-1` ran for 7 days 15 hours 42 minutes without a halt. It was
 stopped on purpose at 2026-10-28 07:36 UTC, so the next build can start from a new
 genesis. The faucet and transfers are offline until then. The soak report is in
-[`reports/sessions/2026-10-28-testnet-stopped.md`](https://github.com/EricWijesinghe/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md).
+[`reports/sessions/2026-10-28-testnet-stopped.md`](https://github.com/maya2c/Maya2C/blob/master/reports/sessions/2026-10-28-testnet-stopped.md).
 
 ## What happens if an app or bridge on Maya2C is exploited?
 
@@ -69,7 +69,7 @@ genesis. The faucet and transfers are offline until then. The soak report is in
 and halts a native module that behaves anomalously while transfers keep working.
 
 **Proposed, not built:** the Sentinel Recovery Network
-([MIP-0001](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/mip/MIP-0001-sentinel-recovery-network.md))
+([MIP-0001](https://github.com/maya2c/Maya2C/blob/master/docs/mip/MIP-0001-sentinel-recovery-network.md))
 would quarantine a compromised app or bridge on its own. Recovery would be a public,
 rule-bound vote that moves only funds traced to the incident, and it never rewrites
 finalized blocks. It switches on only after mainnet, an independent audit and a
@@ -78,25 +78,25 @@ decentralized validator set.
 ## Is the code open source, and is it audited?
 
 **Open source:** yes. The code is Apache-2.0 at
-[github.com/EricWijesinghe/Maya2C](https://github.com/EricWijesinghe/Maya2C).
+[github.com/maya2c/Maya2C](https://github.com/maya2c/Maya2C).
 
 **Audited:** no external security audit has been completed or reported.
 
 - **Self-review:** the project has run its own review, for example
-  [`reports/security/2026-10-25-committee-self-review.md`](https://github.com/EricWijesinghe/Maya2C/blob/master/reports/security/2026-10-25-committee-self-review.md).
+  [`reports/security/2026-10-25-committee-self-review.md`](https://github.com/maya2c/Maya2C/blob/master/reports/security/2026-10-25-committee-self-review.md).
   A self-review is not an audit.
 - **Automated checks:** fuzzing of the decoders, Kani model checks of ledger
   arithmetic, and an unsafe-code survey. They run on every pull request and nightly.
   The document states what each check does and does not prove. See
   [Security audit](/reference/security-audit/).
 - **Plan:** mainnet is to launch labelled "external audit pending" until a report
-  lands ([ADR-042](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-042-solo-launch-path.md)).
+  lands ([ADR-042](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-042-solo-launch-path.md)).
 
 ## How do I run a node or a wallet?
 
 - **Local chain (no network needed):** [Quickstart](/guides/quickstart/) builds the
   node and a wallet from source and starts a one-validator chain on your machine.
-- **Node binaries:** the [releases page](https://github.com/EricWijesinghe/Maya2C/releases)
+- **Node binaries:** the [releases page](https://github.com/maya2c/Maya2C/releases)
   has the builds. Windows and macOS builds are not code-signed yet, so the system
   will warn about an unknown publisher. See [Code signing policy](/guides/code-signing-policy/).
 - **Joining the testnet:** [Help run the network](/guides/help-run/) and

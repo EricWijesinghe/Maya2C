@@ -12,6 +12,11 @@ use crate::types::{Address, Effect, StakeError, Staking, Status, ValidatorId};
 /// smallest committee that survives one fault (n = 3f + 1, f = 1).
 pub const MIN_COMMITTEE: usize = 4;
 
+/// Most tombstoned validators the floor may hold in one committee (CON-07):
+/// `f` of the `MIN_COMMITTEE = 3f + 1` seats. A held one spends that fault
+/// budget, so the floor then has no margin for a further Byzantine member.
+pub const MAX_HELD_TOMBSTONES: usize = (MIN_COMMITTEE - 1) / 3;
+
 /// How much each active validator took part in the ending epoch.
 ///
 /// The node counts *anchor slots*: every even round names a leader, and the
@@ -62,6 +67,9 @@ impl Staking {
         self.pay_rewards(&unpaid, reward_pool, &mut out)?;
         self.pending_self.clear();
         self.pending_delegations.clear();
+        // Before the epoch moves on, so an exit that waited releases
+        // `unbonding_epochs` after this boundary, like an unbond sent now.
+        self.process_exits()?;
         self.epoch = self.epoch.checked_add(1).ok_or(StakeError::Overflow)?;
         self.release(&mut out);
         // A record with funds still unbonding stays, even at zero stake: evidence
@@ -77,10 +85,74 @@ impl Staking {
         self.validators.retain(|id, v| {
             v.status == Status::Tombstoned || !v.total().is_zero() || unbonding.contains(id)
         });
-        let max = usize::from(self.params.max_validators);
-        self.active = self.ranked().into_iter().take(max).map(|s| s.id).collect();
+        self.active = self.next_committee();
         out.active.clone_from(&self.active);
         Ok(out)
+    }
+
+    /// Starts every waiting exit whose validator the floor no longer needs
+    /// (CON-07), in id order. An exit by a validator that is not eligible
+    /// starts at once: it holds no seat the floor counts.
+    fn process_exits(&mut self) -> Result<(), StakeError> {
+        if self.exits.is_empty() {
+            return Ok(());
+        }
+        let mut eligible = self.ranked().len();
+        for id in core::mem::take(&mut self.exits) {
+            let Some(v) = self.validators.get(&id) else {
+                continue;
+            };
+            // A tombstone's bond can never be unbonded (`operated_mut`).
+            if v.status == Status::Tombstoned {
+                continue;
+            }
+            let (operator, bond) = (v.operator, v.self_bond);
+            if self.is_eligible(v) {
+                if eligible <= MIN_COMMITTEE {
+                    self.exits.insert(id);
+                    continue;
+                }
+                eligible -= 1;
+            }
+            if !bond.is_zero() {
+                self.start_self_unbond(operator, id, bond)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The top `max_validators` eligible validators by stake, ties by id.
+    ///
+    /// CON-07: where fewer than [`MIN_COMMITTEE`] are eligible, a member of
+    /// the ending committee that was tombstoned keeps its seat until a
+    /// replacement bonds. At most [`MAX_HELD_TOMBSTONES`] are held. The hold
+    /// puts liveness before safety: four seats with a held equivocator have
+    /// `f = 1` already spent on it, so one more Byzantine member can break
+    /// safety, where three seats without it (`f = 0`) could only be halted.
+    fn next_committee(&self) -> Vec<ValidatorId> {
+        let max = usize::from(self.params.max_validators);
+        let mut next: Vec<ValidatorId> =
+            self.ranked().into_iter().take(max).map(|s| s.id).collect();
+        let held = self
+            .active
+            .iter()
+            .filter(|id| {
+                !next.contains(id)
+                    && self
+                        .validators
+                        .get(*id)
+                        .is_some_and(|v| v.status == Status::Tombstoned && !v.total().is_zero())
+            })
+            .take(MAX_HELD_TOMBSTONES)
+            .copied()
+            .collect::<Vec<_>>();
+        for id in held {
+            if next.len() >= MIN_COMMITTEE.min(max) {
+                break;
+            }
+            next.push(id);
+        }
+        next
     }
 
     fn punish_downtime(
@@ -245,6 +317,10 @@ impl Staking {
             let Some(v) = self.validators.get(id) else {
                 continue;
             };
+            // A tombstone the floor holds (CON-07) serves unpaid.
+            if v.status == Status::Tombstoned {
+                continue;
+            }
             let pending = self.pending_self.get(id).copied().unwrap_or(Amount::ZERO);
             let self_bond = v.self_bond.saturating_sub(pending);
             let delegated = by_validator.get(id).map_or(Ok(Amount::ZERO), |ds| {

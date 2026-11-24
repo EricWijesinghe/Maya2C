@@ -389,10 +389,18 @@ impl StateDB {
         joinsplit: &ShieldedJoinSplit,
     ) -> Result<()> {
         overlay.joinsplits += 1;
-        if overlay.joinsplits > MAX_SHIELDED_PER_BLOCK {
+        // Governed below the compiled ceiling (G4): a vote can lower the cap,
+        // never raise it past what a release was measured for.
+        let limit = usize::try_from(self.parameter_u64(
+            overlay,
+            maya_governance::params::ParameterKey::ShieldedMaxPerBlock,
+        )?)
+        .unwrap_or(usize::MAX)
+        .min(MAX_SHIELDED_PER_BLOCK);
+        if overlay.joinsplits > limit {
             return Err(NodeError::TooManyShielded {
                 actual: overlay.joinsplits,
-                limit: MAX_SHIELDED_PER_BLOCK,
+                limit,
             });
         }
 

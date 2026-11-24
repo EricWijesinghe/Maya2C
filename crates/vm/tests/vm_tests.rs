@@ -51,11 +51,13 @@ fn the_wasmtime_version_pin_has_not_drifted() {
     // Fuel accounting is not stable across wasmtime releases, so the version is
     // consensus-critical. If this fails, the dependency moved and the gas
     // schedule may have moved with it — that is a hard fork, not an upgrade.
-    let actual = env!("CARGO_PKG_VERSION_MAJOR");
-    let _ = actual;
-    assert_eq!(
-        WASMTIME_VERSION, "48.0.7",
-        "the recorded wasmtime version changed; verify the gas schedule"
+    // Compared against the manifest's `=x.y.z`, not a literal, so a bump that
+    // forgets the constant (it once read 48.0.7 under a 48.0.8 pin) fails.
+    let manifest = include_str!("../Cargo.toml");
+    let pin = format!("wasmtime = {{ version = \"={WASMTIME_VERSION}\"");
+    assert!(
+        manifest.lines().any(|l| l.trim_start().starts_with(&pin)),
+        "WASMTIME_VERSION {WASMTIME_VERSION} is not the wasmtime pin in crates/vm/Cargo.toml"
     );
 }
 
@@ -586,7 +588,9 @@ fn gas_exhaustion_discards_the_writes_that_preceded_it() {
     );
 
     let baseline = MemoryState::default();
-    let execution = vm.execute(&module, CONTRACT, &[], 200_000, baseline);
+    // Enough for the upfront price (ADR-142: length and shape) and the write,
+    // so the loop is what runs out.
+    let execution = vm.execute(&module, CONTRACT, &[], 2_000_000, baseline);
 
     assert!(matches!(execution.outcome, Err(VmError::OutOfGas { .. })));
 
@@ -654,6 +658,43 @@ fn a_memory64_module_is_rejected() {
         r#"(module
             (memory (export "memory") i64 1)
             (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+    );
+}
+
+// GHSA-rc4p-x33f-vpr2 (fixed in wasmtime 48.0.9): in a build without the `gc`
+// cargo feature, which this is, the GC proposal stays on, and a runtime check
+// against a non-final (`sub`) function type by `call_indirect`, `ref.test`,
+// `ref.cast` or `br_on_cast` reached an unimplemented builtin that ended the
+// host process. The next two pin why no contract reaches that check here, on
+// 48.0.8 as on 48.0.10: the VM refuses every table, and the cast instructions
+// need a reference value that cannot be made with reference types off.
+
+#[test]
+fn a_call_indirect_against_a_non_final_type_is_refused_before_it_runs() {
+    let vm = Vm::new().expect("vm");
+    let module = wasm(
+        r#"(module
+            (type $t (sub (func (result i64))))
+            (table 1 funcref)
+            (elem (i32.const 0) $f)
+            (func $f (type $t) (i64.const 0))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (call_indirect (type $t) (i32.const 0))))"#,
+    );
+    let exec = vm.execute(&module, CONTRACT, &[], 1_000_000, MemoryState::default());
+    assert!(exec.outcome.is_err(), "a module with a table must not run");
+}
+
+#[test]
+fn a_ref_test_module_is_rejected() {
+    assert_rejected(
+        r#"(module
+            (type $t (sub (func)))
+            (memory (export "memory") 1)
+            (func (export "invoke") (param i32) (result i64)
+              (drop (ref.test (ref $t) (ref.null func)))
+              (i64.const 0)))"#,
     );
 }
 

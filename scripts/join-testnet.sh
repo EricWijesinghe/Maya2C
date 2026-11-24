@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One command from a fresh Mac or Linux machine to a maya-testnet-1 node:
 #
-#   curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/maya2c/Maya2C/master/scripts/join-testnet.sh | bash
 #
 # Written for people who are helping, not for engineers: every step says
 # what it does in plain words, every failure says what to do next, and the
@@ -35,7 +35,7 @@
 # bash 3.2 compatible on purpose: that is the bash every Mac ships.
 set -euo pipefail
 
-REPO="EricWijesinghe/Maya2C"
+REPO="maya2c/Maya2C"
 SCRIPT_URL="https://raw.githubusercontent.com/$REPO/master/scripts/join-testnet.sh"
 GENESIS_URL="${MAYA2C_GENESIS_URL:-https://maya2c.dev/testnet/genesis.json}"
 GENESIS_SHA256="${MAYA2C_GENESIS_SHA256:-dd9bb356c94b7699e6e8d2595681faee48be435b02dc927677cbf833e55edd5d}"

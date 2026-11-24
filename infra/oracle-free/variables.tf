@@ -53,7 +53,7 @@ variable "chain_id" {
 }
 
 variable "git_commit" {
-  description = "Full commit SHA of EricWijesinghe/Maya2C to build on the VM. Pinned, never a branch."
+  description = "Full commit SHA of maya2c/Maya2C to build on the VM. Pinned, never a branch."
   type        = string
 
   # A branch name would build whatever landed a minute before boot. A full

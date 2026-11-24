@@ -19,6 +19,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use custom_l1_node::consensus::bft::attest::Attestation;
 use custom_l1_node::consensus::bft::auth::MlDsaAuthenticator;
 use custom_l1_node::consensus::bft::{BROADCAST, BftDriver, BftSetup, Envelope, Step};
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
@@ -27,7 +28,10 @@ use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::transaction::Transaction;
 use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::crypto::validator_keys::{self as keys, SigningKey, VerifyingKey};
-use custom_l1_node::genesis::{Allocation, BftGenesis, GenesisBond, GenesisConfig, StakingGenesis};
+use custom_l1_node::genesis::{
+    Allocation, BftGenesis, GenesisBond, GenesisConfig, MIN_VALUE_BEARING_VALIDATORS,
+    StakingGenesis, StakingRules,
+};
 use custom_l1_node::state::db::StateDB;
 use custom_l1_node::state::staking::validator_id;
 use maya_dag_bft::{Authenticator, Message, Params, Vertex};
@@ -92,6 +96,7 @@ fn genesis_with(stake_weighted: bool) -> GenesisConfig {
                 max_validators: 100,
                 min_delegation: primitive_types::U256::from(10),
                 stake_weighted,
+                rules: None,
             }),
         }),
     }
@@ -298,6 +303,88 @@ fn double_proposal(i: usize, committee: &Arc<[VerifyingKey]>, tag: ChainTag) -> 
         first: frame(1),
         second: frame(2),
     }
+}
+
+/// Two attestations by committee member `i` of epoch 0 at one height, to the
+/// blocks `[first; 32]` and `[second; 32]`, signed with `key`.
+fn double_attestation(
+    key: &SigningKey,
+    i: usize,
+    tag: ChainTag,
+    first: u8,
+    second: u8,
+) -> StakingAction {
+    let sign = |block: u8| {
+        Attestation::sign(key, u16::try_from(i).unwrap(), &tag, 0, 5, [block; 32])
+            .unwrap()
+            .encode()
+    };
+    StakingAction::ReportEquivocation {
+        first: sign(first),
+        second: sign(second),
+    }
+}
+
+/// CON-05 (Eric 2026-11-24): an attestation double-sign, two signatures by
+/// one member on two blocks at one height, is slashed and tombstoned at the
+/// proposal double-sign's rate. A pair that agrees on the block, or one
+/// signed by another key, slashes nobody.
+#[test]
+fn an_attestation_double_sign_is_slashed_at_the_proposal_rate() {
+    let mut mesh = Mesh::new();
+    // A fifth seat, so the tombstone leaves the set at the next boundary
+    // rather than being held by the committee floor (CON-07).
+    mesh.submit(&register(4, 20_000, 0));
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    let tag = ChainTag::from_genesis(mesh.members[0].chain.genesis());
+    let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
+    let retired = |m: &Mesh| {
+        m.members.iter().all(|x| {
+            x.chain
+                .state()
+                .committed_staking()
+                .unwrap()
+                .is_some_and(|r| r.staking.retired.contains(&offender))
+        })
+    };
+
+    // Not evidence: one block twice, and a pair whose signer is not member 3.
+    mesh.submit(&staking_tx(
+        double_attestation(&validator_key(3), 3, tag, 1, 1),
+        1,
+    ));
+    mesh.submit(&staking_tx(
+        double_attestation(&validator_key(2), 3, tag, 1, 2),
+        1,
+    ));
+    let h = mesh.members[0].chain.height();
+    mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 4));
+    assert!(
+        !retired(&mesh),
+        "a pair that is not a double-sign slashed someone"
+    );
+
+    mesh.submit(&staking_tx(
+        double_attestation(&validator_key(3), 3, tag, 1, 2),
+        1,
+    ));
+    mesh.run_until(retired);
+    assert!(retired(&mesh), "attestation evidence never landed");
+    mesh.agree();
+    let record = mesh.members[0]
+        .chain
+        .state()
+        .committed_staking()
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        record.staking.validators[&offender].self_bond,
+        maya_ledger_math::Amount::from_u64(5_000),
+        "the proposal rate: half the bond burned"
+    );
+    mesh.run_until(|m| m.all_in_epoch(2));
+    assert!(!mesh.committee(0).contains(&offender), "still seated");
 }
 
 #[test]
@@ -539,6 +626,80 @@ fn stake_weighting_is_part_of_the_genesis_id() {
     );
 }
 
+/// Eric 2026-11-24: slashing, jail, unbonding, downtime and commission are
+/// written in the genesis and hashed into its id, so two operators who
+/// disagree about a penalty disagree about block zero. Writing them out at
+/// the devnet values still commits to them.
+#[test]
+fn the_staking_rules_are_part_of_the_genesis_id_and_are_the_rules_run() {
+    fn rules(config: &mut GenesisConfig) -> &mut Option<StakingRules> {
+        &mut config.bft.as_mut().unwrap().staking.as_mut().unwrap().rules
+    }
+    let plain = genesis_with(true);
+    let mut written = genesis_with(true);
+    *rules(&mut written) = Some(StakingRules::DEVNET);
+    assert_ne!(plain.chain_id_commitment(), written.chain_id_commitment());
+    let mut harsher = written.clone();
+    *rules(&mut harsher) = Some(StakingRules {
+        downtime_slash_bps: 200,
+        ..StakingRules::DEVNET
+    });
+    assert_ne!(written.chain_id_commitment(), harsher.chain_id_commitment());
+    let params = harsher.bft.unwrap().staking.unwrap().params();
+    assert_eq!(params.downtime_slash_bps, 200);
+    assert_eq!(
+        params.min_self_bond,
+        maya_ledger_math::Amount::from_u64(1_000)
+    );
+}
+
+/// C4 and C5 (Eric 2026-11-24): the node refuses a genesis with more
+/// validators than `max_validators`, and a value-bearing one with fewer than
+/// seven or without written staking rules, whatever tool wrote the file.
+#[test]
+fn the_loader_refuses_a_committee_outside_its_bounds() {
+    let mut over = genesis();
+    over.bft
+        .as_mut()
+        .unwrap()
+        .staking
+        .as_mut()
+        .unwrap()
+        .max_validators = 3;
+    let err = over.validate().unwrap_err().to_string();
+    assert!(err.contains("max_validators"), "{err}");
+
+    let mut mainnet = genesis();
+    mainnet.chain_id = "maya-mainnet".to_string();
+    let err = mainnet.validate().unwrap_err().to_string();
+    assert!(err.contains("at least 7"), "{err}");
+
+    let op = hex::encode(operator().address());
+    let bft = mainnet.bft.as_mut().unwrap();
+    for i in GENESIS_VALIDATORS..MIN_VALUE_BEARING_VALIDATORS {
+        bft.validators
+            .push(hex::encode(validator_key(i).verifying_key().to_bytes()));
+        bft.staking.as_mut().unwrap().bonds.push(GenesisBond {
+            operator: op.clone(),
+            bond: primitive_types::U256::from(10_000),
+            commission_bps: 0,
+        });
+    }
+    let err = mainnet.validate().unwrap_err().to_string();
+    assert!(err.contains("bft.staking.rules"), "{err}");
+    mainnet
+        .bft
+        .as_mut()
+        .unwrap()
+        .staking
+        .as_mut()
+        .unwrap()
+        .rules = Some(StakingRules::DEVNET);
+    mainnet.validate().expect("seven seats and written rules");
+    // A testnet keeps its four seats and its defaults.
+    genesis().validate().expect("a testnet genesis");
+}
+
 #[test]
 fn a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights() {
     // Review of #77: a tombstone shrinks `active` mid-epoch while the epoch's
@@ -546,11 +707,14 @@ fn a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights() {
     // then must take keys and weights from the same snapshot, or it refuses
     // to start and its checkpoints stop.
     let mut mesh = Mesh::with(true);
+    // A fifth seat: at four the committee floor holds a tombstone's seat
+    // (CON-07), and this test is about the one that leaves mid-epoch.
+    mesh.submit(&register(4, 10_000, 0));
     mesh.run_until(|m| m.all_in_epoch(1));
     assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
     let keys0: Arc<[VerifyingKey]> = genesis().bft.unwrap().verifying_keys().unwrap().into();
     let tag = ChainTag::from_genesis(mesh.members[0].chain.genesis());
-    mesh.submit(&staking_tx(double_proposal(3, &keys0, tag), 0));
+    mesh.submit(&staking_tx(double_proposal(3, &keys0, tag), 1));
     let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
     mesh.run_until(|m| !m.committee(0).contains(&offender));
     assert!(!mesh.committee(0).contains(&offender), "no tombstone");
@@ -561,11 +725,7 @@ fn a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights() {
         .committee_weights(epoch)
         .unwrap()
         .expect("weights for the running epoch");
-    assert_eq!(
-        weights.len(),
-        GENESIS_VALIDATORS,
-        "weights frozen at the boundary"
-    );
+    assert_eq!(weights.len(), NODES, "weights frozen at the boundary");
 
     // A restart in the middle of that epoch.
     let setup = BftSetup {

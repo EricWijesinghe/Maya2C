@@ -30,9 +30,12 @@ use maya_vrf::keys::VrfPublicKey;
 use crate::crypto::suites::{SuiteSunset, SuiteSunsets};
 use crate::oracle::registry::{OracleAuthority, OracleRegistry};
 use crate::sealed::CommitteeRecord;
-use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
+use crate::state::context::SHIELDED_NEVER;
 use crate::state::{Account, Address, StateDB};
 use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule};
+
+mod staking_rules;
+pub use staking_rules::{MIN_VALUE_BEARING_VALIDATORS, StakingRules, is_value_bearing};
 
 /// A 256-bit amount as the 32 little-endian bytes the genesis id hashes.
 fn amount_bytes(value: U256) -> [u8; 32] {
@@ -124,13 +127,13 @@ pub struct GenesisConfig {
     pub security_council: Option<CouncilGenesis>,
     /// First height at which shielded join-splits execute (ADR-037).
     ///
-    /// Absent means [`SHIELDED_ACTIVATION_HEIGHT`] (from block zero), which is
-    /// what every genesis written before this field meant, and leaves the
-    /// genesis id unchanged. Present, it is committed into the genesis id
+    /// Absent means [`SHIELDED_NEVER`]: the pool is off unless a genesis
+    /// turns it on by name (Eric 2026-11-24, P4). A forgotten field therefore
+    /// fails closed, never into a pool whose circuit is unaudited. Absent
+    /// leaves the genesis id as it was; present, it is committed into the id
     /// (`chain_id_commitment`), so two operators who disagree about whether
-    /// the pool runs disagree about block zero. Mainnet v1 sets
-    /// [`crate::state::context::SHIELDED_NEVER`]: its circuit is unaudited, and a pool that never
-    /// runs cannot mint.
+    /// the pool runs disagree about block zero. A testnet that runs the pool
+    /// names `0`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shielded_activation_height: Option<u64>,
 }
@@ -321,6 +324,12 @@ pub struct StakingGenesis {
     /// about it disagree about block zero. Mainnet sets it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stake_weighted: bool,
+    /// Slashing, jail, unbonding, downtime and commission, every value
+    /// written out and hashed into the genesis id. Absent, the devnet values
+    /// apply and the id is the one it always was; a value-bearing chain is
+    /// refused without it (`staking_rules::check_committee`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<StakingRules>,
 }
 
 /// One genesis validator's bond.
@@ -349,6 +358,7 @@ impl StakingGenesis {
             max_validators: Self::default_max_validators(),
             min_delegation: Self::default_min_delegation(),
             stake_weighted: false,
+            rules: None,
         }
     }
 
@@ -371,12 +381,15 @@ impl StakingGenesis {
     /// Staking parameters.
     #[must_use]
     pub fn params(&self) -> maya_staking::Params {
-        maya_staking::Params {
+        let params = maya_staking::Params {
             min_self_bond: to_amount(self.min_self_bond),
             min_delegation: to_amount(self.min_delegation),
             max_validators: self.max_validators,
             ..maya_staking::Params::DEVNET
-        }
+        };
+        self.rules
+            .as_ref()
+            .map_or(params, |rules| rules.apply(params))
     }
 
     /// Sum of the genesis bonds.
@@ -714,14 +727,7 @@ impl GenesisConfig {
                     "bft.anchor_timeout_ms must be at least {MIN_ANCHOR_TIMEOUT_MS}"
                 )));
             }
-            if bft.staking.as_ref().is_some_and(|staking| {
-                usize::from(staking.max_validators) > crate::consensus::bft::store::MAX_COMMITTEE
-            }) {
-                return Err(NodeError::Decode(format!(
-                    "bft.staking.max_validators must be at most {}",
-                    crate::consensus::bft::store::MAX_COMMITTEE
-                )));
-            }
+            staking_rules::check_committee(&self.chain_id, bft)?;
         }
         self.upgrade_schedule()?;
         self.suite_sunsets()?;
@@ -1043,7 +1049,10 @@ impl GenesisConfig {
             state
                 .register(operator, id, to_amount(bond.bond), bond.commission_bps)
                 .map_err(|e| NodeError::Decode(format!("genesis bond refused: {e:?}")))?;
-            records.insert(key_record(&id), encoded.to_vec());
+            records.insert(
+                key_record(&id),
+                crate::state::staking::encode_key_value(&encoded),
+            );
             active.push(id);
         }
         state.active.clone_from(&active);
@@ -1181,7 +1190,18 @@ impl GenesisConfig {
         } else {
             base
         };
-        self.delegation_commitment(base)
+        self.rules_commitment(self.delegation_commitment(base))
+    }
+
+    /// Folds written staking rules into the id, so operators who disagree
+    /// about a penalty disagree about block zero; a genesis without them
+    /// keeps the id it always had.
+    fn rules_commitment(&self, base: [u8; 32]) -> [u8; 32] {
+        self.bft
+            .as_ref()
+            .and_then(|b| b.staking.as_ref())
+            .and_then(|s| s.rules.as_ref())
+            .map_or(base, |rules| rules.commitment(base))
     }
 
     /// Folds a non-default `min_delegation` into the id, so operators who
@@ -1200,11 +1220,11 @@ impl GenesisConfig {
         *h.finalize().as_bytes()
     }
 
-    /// First height at which shielded join-splits execute on this network.
+    /// First height at which shielded join-splits execute on this network:
+    /// never, where the genesis names none (P4).
     #[must_use]
     pub fn shielded_activation(&self) -> u64 {
-        self.shielded_activation_height
-            .unwrap_or(SHIELDED_ACTIVATION_HEIGHT)
+        self.shielded_activation_height.unwrap_or(SHIELDED_NEVER)
     }
 
     /// The chain id, and the DAG-BFT committee where there is one.

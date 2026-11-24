@@ -163,12 +163,22 @@ fn setup(work: &Path, root: &Path) -> Result<PathBuf> {
             .args(["--timestamp", &now.to_string(), "--out-dir"])
             .arg(&out),
     )?;
-    // Mainnet's id gets stake weighting from the tool; this id does not, so
-    // it is set here, the one difference from a mainnet genesis.
+    // Mainnet's id gets stake weighting and the written staking rules from
+    // the tool; this id does not, so both are set here, the one difference
+    // from a mainnet genesis. The rules are the ceremony's
+    // `LAUNCH_STAKING_RULES`.
     let path = out.join("genesis.json");
     let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut genesis: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     genesis["bft"]["staking"]["stake_weighted"] = json!(true);
+    genesis["bft"]["staking"]["rules"] = json!({
+        "unbonding_epochs": 7,
+        "double_sign_slash_bps": 5_000,
+        "downtime_slash_bps": 100,
+        "downtime_threshold_bps": 5_000,
+        "jail_epochs": 2,
+        "max_commission_bps": 2_000,
+    });
     std::fs::write(&path, genesis.to_string()).map_err(|e| e.to_string())?;
     crate::genesis_check::run(&[path.to_string_lossy().into_owned()])?;
     Ok(path)

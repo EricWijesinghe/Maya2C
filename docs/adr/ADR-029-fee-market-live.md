@@ -35,7 +35,11 @@ steps toward `target_block_bytes` with `maya_fee_market::next_base_fee`.
 
 Per staking epoch: the collector's balance — the tips — is the reward pool
 `maya-staking` pays out (ADR-028). There is no treasury share at launch
-(`treasury_bps = 0`); governance can add one.
+(`treasury_bps = 0`). *Corrected 2026-11-24:* this said "governance can
+add one", but no record field or governance parameter names a treasury
+share, so none can be voted in; adding one is a scheduled protocol upgrade
+with its own ADR. `spec/04-fees.md` v0.2.0 states the node's rule (FEE-1 with
+`bps = 0`, FEE-7).
 
 **Presence is activation.** `genesis.bft.fees` seeds `k:fee`; without it no
 record exists, no rule runs, and no root moves. Parameters are checked against

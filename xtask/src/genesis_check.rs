@@ -131,7 +131,37 @@ struct Staking {
     /// Prices the mining reserve: the schedule counts epochs to the last height.
     #[serde(default)]
     epoch_blocks: Option<u64>,
+    /// The written staking rules (Eric 2026-11-24). The node bounds them only
+    /// loosely (`Params::is_valid`), so the launch gate holds them to
+    /// [`LAUNCH_STAKING_RULES`].
+    #[serde(default)]
+    rules: Option<StakingRules>,
 }
+
+/// `bft.staking.rules`, the six values the genesis id hashes (STK-18).
+#[derive(Deserialize, Debug, PartialEq, Eq)]
+struct StakingRules {
+    unbonding_epochs: u64,
+    double_sign_slash_bps: u16,
+    downtime_slash_bps: u16,
+    downtime_threshold_bps: u16,
+    jail_epochs: u64,
+    max_commission_bps: u16,
+}
+
+/// The rules a mainnet launches with: `genesis-ceremony`'s
+/// `LAUNCH_STAKING_RULES` (xtask does not link the node, so they are restated;
+/// the ceremony test `the_launch_rules_are_the_values_the_node_has_always_run`
+/// pins its side). A hand-written genesis with a zero slash, a one-epoch
+/// evidence window or a 100% commission would otherwise pass this gate.
+const LAUNCH_STAKING_RULES: StakingRules = StakingRules {
+    unbonding_epochs: 7,
+    double_sign_slash_bps: 5_000,
+    downtime_slash_bps: 100,
+    downtime_threshold_bps: 5_000,
+    jail_epochs: 2,
+    max_commission_bps: 2_000,
+};
 
 fn units_opt<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u128>, D::Error> {
     units(d).map(Some)
@@ -365,6 +395,16 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
     if !g.bft.staking.stake_weighted {
         out.push("voting is not stake-weighted".to_string());
     }
+    match &g.bft.staking.rules {
+        None => out.push(
+            "staking.rules is unset: slashing, jail, unbonding and downtime would be the devnet defaults, outside the genesis id"
+                .to_string(),
+        ),
+        Some(rules) if *rules != LAUNCH_STAKING_RULES => out.push(format!(
+            "staking.rules differ from the launch rules: {rules:?}, expected {LAUNCH_STAKING_RULES:?}"
+        )),
+        Some(_) => {}
+    }
     if g.difficulty_bits == 0 && g.bft.mining.is_none() {
         out.push("difficulty_bits is 0 and no bft.mining: proof of work is free".to_string());
     }
@@ -473,8 +513,53 @@ mod tests {
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\"epoch_blocks\":3600,\
              \"min_self_bond\":\"{FLOOR}\",\
-             \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}]}}}}}}"
+             \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}],{RULES}}}}}}}"
         )
+    }
+
+    /// The staking rules every passing fixture writes out.
+    const RULES: &str = "\"rules\":{\"unbonding_epochs\":7,\"double_sign_slash_bps\":5000,\"downtime_slash_bps\":100,\"downtime_threshold_bps\":5000,\"jail_epochs\":2,\"max_commission_bps\":2000}";
+
+    #[test]
+    fn unwritten_staking_rules_fail() {
+        let unset = genesis(20, true, &EVEN).replace(&format!(",{RULES}"), "");
+        let found = check(&unset).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("staking.rules is unset")),
+            "{found:?}"
+        );
+        assert!(
+            !check(&genesis(20, true, &EVEN))
+                .unwrap()
+                .iter()
+                .any(|p| p.contains("staking.rules")),
+            "written rules pass"
+        );
+    }
+
+    #[test]
+    fn staking_rules_other_than_the_launch_values_fail() {
+        for (field, value) in [
+            ("double_sign_slash_bps\":5000", "double_sign_slash_bps\":0"),
+            ("downtime_slash_bps\":100", "downtime_slash_bps\":0"),
+            ("jail_epochs\":2", "jail_epochs\":0"),
+            ("unbonding_epochs\":7", "unbonding_epochs\":1"),
+            ("max_commission_bps\":2000", "max_commission_bps\":10000"),
+        ] {
+            let changed = genesis(20, true, &EVEN).replace(field, value);
+            assert_ne!(
+                changed,
+                genesis(20, true, &EVEN),
+                "{field} is in the fixture"
+            );
+            let found = check(&changed).unwrap();
+            assert!(
+                found
+                    .iter()
+                    .any(|p| p.contains("staking.rules differ from the launch rules")),
+                "{value}: {found:?}"
+            );
+        }
     }
 
     const EVEN: [(&str, u128); 7] = [
