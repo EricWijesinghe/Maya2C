@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         **Is this a vulnerability?** Stop and report it privately instead:
-        https://github.com/EricWijesinghe/Maya2C/security/advisories/new
+        https://github.com/maya2c/Maya2C/security/advisories/new
         (see SECURITY.md). A public issue tells attackers before a fix exists.
 
         Use this form only for ideas that are safe to discuss in public:
