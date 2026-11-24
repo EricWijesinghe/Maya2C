@@ -3,8 +3,9 @@
 //! The node finalises a block when a quorum of its epoch's committee attests
 //! it ([`custom_l1_node::consensus::bft::attest::Checkpoint`]). This client
 //! holds one trusted committee and checks each checkpoint against it with the
-//! node's own verifier. The quorum rule (n − f heads, or W − f stake on a
-//! weighted chain, ADR-040) is therefore not reimplemented here.
+//! node's own verifier. The quorum rule (n − f heads, and W − f stake as
+//! well on a weighted chain: the dual quorum of ADR-040's 2026-11-24
+//! amendment) is therefore not reimplemented here.
 //!
 //! # Committee rotation
 //!

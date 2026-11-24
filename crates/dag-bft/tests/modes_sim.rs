@@ -283,17 +283,57 @@ fn one_crashed_validator_of_six_does_not_stop_commits() {
 }
 
 #[test]
-fn three_cheap_absent_seats_cannot_stop_the_bonded_validator() {
-    // ADR-040: the committee-capture attack of ADR-039. By heads three of
-    // four seats are absent and nothing could commit; by stake the bonded
-    // validator is a quorum on its own and the chain goes on.
+fn three_absent_seats_of_four_halt_even_the_bonded_validator_but_never_fork() {
+    // ADR-040 amendment 2026-11-24, the price of the dual quorum: by stake
+    // the bonded validator is a quorum on its own, but one seat of four is
+    // not n − f. With three seats absent nothing commits. That is a halt,
+    // which an epoch boundary cannot clear because none is reached, never a
+    // fork. Before the amendment this test was named
+    // `three_cheap_absent_seats_cannot_stop_the_bonded_validator`.
     replay(0x0D46_BF76, |w: &mut World<Ev>| {
         let committee = Committee::weighted(vec![1_000_000_000, 1_000, 1_000, 1_000]).expect("4");
         let crashed = [1u16, 2, 3];
         let run = run_committee(w, &committee, 500, &crashed, None, 30);
+        assert!(run.orders[0].is_empty(), "one seat of four committed alone");
+    });
+}
+
+#[test]
+fn a_bonded_majority_of_seats_goes_on_without_an_absent_cheap_seat() {
+    // The live side of the same committee shape: three bonded seats of
+    // four carry both thresholds, so one absent cheap seat costs only its
+    // anchor timeouts.
+    replay(0x0D46_BF78, |w: &mut World<Ev>| {
+        let committee =
+            Committee::weighted(vec![1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000])
+                .expect("4");
+        let crashed = [3u16];
+        let run = run_committee(w, &committee, 500, &crashed, None, 30);
+        let orders = honest(&run.orders, &crashed);
+        assert_prefix_consistent(&orders);
         assert!(
-            run.orders[0].len() >= 500,
-            "the bonded validator committed its own"
+            orders.iter().all(|o| o.len() >= 500),
+            "three bonded seats of four keep committing"
+        );
+    });
+}
+
+#[test]
+fn stake_on_a_few_heavy_seats_cannot_commit_alone() {
+    // Eric 2026-11-24 (third round): one party holds 80% of the weight on
+    // four addresses of ten, each at the 20% cap. Cut off from the other
+    // six, it has W − f by weight but four seats of the seven a quorum
+    // needs, so it certifies nothing and commits nothing; the six cannot
+    // either. By weight alone the four would have gone on by themselves.
+    replay(0x0D46_BF79, |w: &mut World<Ev>| {
+        let groups = vec![(0..4).map(NodeId).collect(), (4..10).map(NodeId).collect()];
+        w.net_mut().partition(groups);
+        let committee =
+            Committee::weighted(vec![200, 200, 200, 200, 34, 33, 33, 33, 33, 34]).expect("10");
+        let run = run_committee(w, &committee, 200, &[], None, 20);
+        assert!(
+            run.orders.iter().all(Vec::is_empty),
+            "a seat minority committed"
         );
     });
 }

@@ -679,6 +679,158 @@ fn verification_cases() -> Vec<Value> {
     .collect()
 }
 
+/// CON-20: the dual quorum and dual validity, each a pair of thresholds.
+fn quorum_cases() -> Vec<Value> {
+    let strs = |v: &[u64]| v.iter().map(u64::to_string).collect::<Vec<_>>();
+    let case = |id: &str, f: &str, weights: &[u64], signers: &[u16]| {
+        let (result, (w, n)) = if f == "quorum" {
+            (
+                consensus::dual_quorum(weights, signers),
+                consensus::quorum_thresholds(weights),
+            )
+        } else {
+            (
+                consensus::dual_validity(weights, signers),
+                consensus::validity_thresholds(weights),
+            )
+        };
+        let expect = match result {
+            Ok(()) => json!({"result": "ok", "weight": w.to_string(), "seats": n.to_string()}),
+            Err(e) => json!({"result": "error", "error": e}),
+        };
+        json!({"id": id, "rules": ["CON-20"], "fn": f, "weights": strs(weights), "signers": signers, "expect": expect})
+    };
+    let capped = [200, 200, 200, 200, 34, 33, 33, 33, 33, 34];
+    let cheap = [1_000_000_000, 1_000, 1_000, 1_000];
+    let two_heavy = [1_000, 1_000, 1, 1, 1, 1, 1];
+    // A tombstone held in its seat at weight 0 (third round 5).
+    let held = [5, 5, 5, 0];
+    vec![
+        case(
+            "quorum-equal-four-three-signers",
+            "quorum",
+            &[1; 4],
+            &[0, 1, 2],
+        ),
+        case(
+            "quorum-equal-four-two-signers-short",
+            "quorum",
+            &[1; 4],
+            &[0, 1],
+        ),
+        case(
+            "quorum-equal-six-five-signers",
+            "quorum",
+            &[1; 6],
+            &[0, 1, 2, 3, 4],
+        ),
+        case("quorum-equal-six-half-short", "quorum", &[1; 6], &[0, 1, 2]),
+        case(
+            "quorum-stake-on-few-seats-short",
+            "quorum",
+            &capped,
+            &[0, 1, 2, 3],
+        ),
+        case(
+            "quorum-stake-and-seven-seats",
+            "quorum",
+            &capped,
+            &[0, 1, 2, 3, 4, 5, 6],
+        ),
+        case(
+            "quorum-seats-without-stake-short",
+            "quorum",
+            &capped,
+            &[4, 5, 6, 7, 8, 9],
+        ),
+        case("quorum-heavy-member-alone-short", "quorum", &cheap, &[0]),
+        case(
+            "quorum-cheap-seats-alone-short",
+            "quorum",
+            &cheap,
+            &[1, 2, 3],
+        ),
+        case(
+            "quorum-heavy-member-and-two-seats",
+            "quorum",
+            &cheap,
+            &[0, 1, 2],
+        ),
+        case(
+            "quorum-repeats-count-once",
+            "quorum",
+            &[1; 4],
+            &[0, 0, 0, 1],
+        ),
+        case(
+            "quorum-strangers-count-for-nothing",
+            "quorum",
+            &[1; 4],
+            &[0, 1, 9],
+        ),
+        case(
+            "quorum-zero-weight-seat-is-no-voter",
+            "quorum",
+            &held,
+            &[0, 1, 3],
+        ),
+        case(
+            "quorum-voters-around-a-zero-weight-seat",
+            "quorum",
+            &held,
+            &[0, 1, 2],
+        ),
+        case(
+            "quorum-zero-weight-seat-spends-no-seat-fault",
+            "quorum",
+            &[5, 5, 5, 5, 0],
+            &[0, 1, 2],
+        ),
+        case(
+            "validity-zero-weight-seat-is-no-second-voter",
+            "validity",
+            &[20, 1, 1, 1, 0],
+            &[0, 4],
+        ),
+        case(
+            "quorum-committee-of-zero-weights-refused",
+            "quorum",
+            &[0; 4],
+            &[0, 1, 2],
+        ),
+        case(
+            "validity-equal-four-two-signers",
+            "validity",
+            &[1; 4],
+            &[0, 1],
+        ),
+        case(
+            "validity-equal-four-one-signer-short",
+            "validity",
+            &[1; 4],
+            &[0],
+        ),
+        case(
+            "validity-weight-on-faulty-seats-short",
+            "validity",
+            &two_heavy,
+            &[0, 1],
+        ),
+        case(
+            "validity-weight-and-seats",
+            "validity",
+            &two_heavy,
+            &[0, 1, 2],
+        ),
+        case(
+            "validity-seats-without-weight-short",
+            "validity",
+            &two_heavy,
+            &[2, 3, 4, 5, 6],
+        ),
+    ]
+}
+
 fn consensus_vectors() -> Value {
     let cases: Vec<Value> = [
         retarget_cases(),
@@ -691,6 +843,7 @@ fn consensus_vectors() -> Value {
         verification_cases(),
         block_size_cases(),
         decode_fair_cases(),
+        quorum_cases(),
     ]
     .into_iter()
     .flatten()

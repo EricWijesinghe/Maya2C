@@ -567,47 +567,58 @@ fn register_absent_seats(mesh: &mut Mesh) {
     }
 }
 
-#[test]
-fn absent_cheap_seats_halt_a_one_seat_one_vote_chain() {
-    // The control for the test below. Four validators at 10,000 each; three
-    // seats bought at the 1,000 minimum never answer. Seven seats need five
-    // votes, four answer, and nothing more is ever committed.
-    let mut mesh = Mesh::with(false);
+/// The capture attack against the dual quorum (CON-20), and STK-23's answer.
+/// Without the entry limit all three absent seats join at the first
+/// boundary: four answering seats of seven are short of the five a quorum
+/// needs, so the chain halts before the boundary that would jail them, on a
+/// stake-weighted chain as on an equal-weight one. With it one joins per
+/// epoch, is jailed at the next boundary, and the chain goes on throughout.
+fn absent_seats_join_one_per_epoch_and_the_chain_goes_on(stake_weighted: bool) {
+    let mut mesh = Mesh::with(stake_weighted);
     register_absent_seats(&mut mesh);
-    mesh.run_until(|m| m.all_in_epoch(1));
-    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
-    assert_eq!(mesh.committee(0).len(), 7);
-    let h = mesh.members[0].chain.height();
-    mesh.run_until(|m| m.members[0].chain.height() >= h + 3);
-    assert!(
-        mesh.members[0].chain.height() < h + 3,
-        "an equal-weight chain kept going without a quorum"
-    );
+    let keys: Vec<[u8; 32]> = (5..8)
+        .map(|i| validator_id(&validator_key(i).verifying_key().to_bytes()))
+        .collect();
+    let absent = |m: &Mesh| m.committee(0).iter().filter(|v| keys.contains(v)).count();
+    for epoch in 1..=2 {
+        mesh.run_until(|m| m.all_in_epoch(epoch));
+        assert!(mesh.all_in_epoch(epoch), "no boundary into epoch {epoch}");
+        assert_eq!(mesh.committee(0).len(), 5, "epoch {epoch}");
+        assert_eq!(absent(&mesh), 1, "epoch {epoch}: one absent seat joined");
+        let h = mesh.members[0].chain.height();
+        mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));
+        assert!(
+            mesh.members.iter().all(|x| x.chain.height() >= h + 3),
+            "epoch {epoch}: the chain stopped with one absent seat of five"
+        );
+    }
+    mesh.agree();
 }
 
 #[test]
-fn absent_cheap_seats_cannot_halt_a_stake_weighted_chain() {
-    // ADR-040 part 2: the same attack against a genesis with stake_weighted.
-    // The four online validators hold 40,000 of 43,000 stake, a quorum by
-    // weight, so the chain goes on; the cheap seats only cost anchor
-    // timeouts until the epoch boundary jails them.
+fn absent_cheap_seats_join_one_per_epoch_so_an_equal_weight_chain_goes_on() {
+    // Was `absent_cheap_seats_halt_a_one_seat_one_vote_chain`: the halt
+    // ADR-039 described, closed for both weightings by STK-23.
+    absent_seats_join_one_per_epoch_and_the_chain_goes_on(false);
+}
+
+#[test]
+fn absent_cheap_seats_join_one_per_epoch_so_a_weighted_chain_goes_on() {
+    // Was `absent_cheap_seats_past_a_third_of_the_seats_halt_a_weighted_chain_too`,
+    // which asserted the halt (dual-quorum review 2026-11-25, issue 1).
+    absent_seats_join_one_per_epoch_and_the_chain_goes_on(true);
+}
+
+#[test]
+fn an_absent_cheap_seat_within_a_third_of_the_seats_cannot_halt_a_weighted_chain() {
+    // Normal finality under the dual quorum: one absent seat of five is
+    // within f = 1, so the four online validators carry both thresholds
+    // and the chain goes on.
     let mut mesh = Mesh::with(true);
-    register_absent_seats(&mut mesh);
+    mesh.submit(&register(5, 1_000, 0));
     mesh.run_until(|m| m.all_in_epoch(1));
     assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
-    assert_eq!(mesh.committee(0).len(), 7);
-    let weights = mesh.members[0]
-        .chain
-        .state()
-        .committee_weights(1)
-        .unwrap()
-        .expect("a stake-weighted chain records each epoch's weights");
-    let mut sorted = weights.clone();
-    sorted.sort_unstable();
-    assert_eq!(
-        sorted,
-        [1_000, 1_000, 1_000, 10_000, 10_000, 10_000, 10_000]
-    );
+    assert_eq!(mesh.committee(0).len(), 5);
     let h = mesh.members[0].chain.height();
     mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));
     assert!(
@@ -794,11 +805,13 @@ impl custom_l1_node::consensus::bft::catchup::CheckpointSource for PeerBook<'_> 
 #[test]
 fn a_node_catches_up_by_checkpoints_across_a_boundary_that_shrinks_the_committee() {
     // Pre-audit S-011 (attacknet round 8): the boundary into epoch 2 jails the
-    // three absent seats, so seven seats become four. A node that slept
-    // through it must cross by checkpoints alone: epoch 1's final checkpoint
-    // against epoch 1's committee, then epoch 2's against the four.
+    // absent seat, so five seats become four. A node that slept through it
+    // must cross by checkpoints alone: epoch 1's final checkpoint against
+    // epoch 1's committee, then epoch 2's against the four. One absent seat,
+    // not the three of round 8: STK-23 seats one newcomer per epoch, so three
+    // registrations would leave five seats at the boundary, not four.
     let mut mesh = Mesh::with(true);
-    register_absent_seats(&mut mesh);
+    mesh.submit(&register(5, 1_000, 0));
     let mut book = custom_l1_node::consensus::bft::attest::CheckpointBook::default();
     for _ in 0..600 {
         if mesh.all_in_epoch(2) && book.newest().is_some_and(|c| c.epoch >= 2) {
@@ -882,4 +895,67 @@ fn get_supply_counts_what_staking_holds() {
     );
     assert_eq!(report.total, expected);
     assert_eq!(report.circulating, expected);
+}
+
+/// Dual-quorum review 2026-11-25, issue 2: stake above the 20% operator cap
+/// carries no weight, so it costs its owner nothing to spend it on extra
+/// seats. The PR's own example (80% of the capped weight on 4 of 10 seats)
+/// plus eleven minimum-bond seats on eleven fresh payout addresses was an
+/// attacker-only quorum after one boundary: 15 of 21 seats, 811 of 675
+/// needed weight. Grouping seats by operator would not see it (every address
+/// is new); STK-23 lets the seats in at `entry_limit` per epoch, each one
+/// online through a boundary, and this measures how many epochs that takes.
+#[test]
+fn cheap_seats_added_to_capped_stake_reach_no_quorum_in_one_epoch() {
+    use maya_staking::{Amount, Participation, Staking};
+    // DEVNET: min_self_bond 1,000, max_validators 100 (free seats).
+    let mut s = Staking::new(maya_staking::Params::DEVNET).unwrap();
+    let key = |n: u8| [n; 32];
+    let payout = |n: u8| [0xC0 ^ n; 32];
+    // Honest: six seats at 33,334 (200,004 in all). Attacker: four seats at
+    // 10^7 each, capped to 20% apiece, so 80% of the weight.
+    for n in 1..=6 {
+        s.register(payout(n), key(n), Amount::from_u64(33_334), 0)
+            .unwrap();
+    }
+    for n in 7..=10 {
+        s.register(payout(n), key(n), Amount::from_u64(10_000_000), 0)
+            .unwrap();
+    }
+    s.active = (1..=10).map(key).collect();
+    for n in 20..31 {
+        s.register(payout(n), key(n), Amount::from_u64(1_000), 0)
+            .unwrap();
+    }
+    let attacker = |id: &[u8; 32]| id[0] >= 7;
+    let mut epochs = 0;
+    let quorum_after = loop {
+        // Everyone online: the attacker's seats behave until they have enough.
+        let authored = s.active.iter().map(|v| (*v, 10)).collect();
+        s.end_epoch(
+            &Participation {
+                rounds: 10,
+                expected: s.active.iter().map(|v| (*v, 10)).collect(),
+                authored,
+            },
+            Amount::ZERO,
+        )
+        .unwrap();
+        epochs += 1;
+        let weights = custom_l1_node::state::staking::stake_weights(&s, &s.active);
+        let committee = maya_dag_bft::Committee::weighted(weights).unwrap();
+        let theirs = (0..committee.size()).filter(|i| attacker(&s.active[usize::from(*i)]));
+        if committee.is_quorum(theirs) {
+            break epochs;
+        }
+        assert!(epochs < 50, "the attacker never reached a quorum");
+    };
+    println!(
+        "dual quorum + STK-23 measured: capped stake plus minimum-bond seats reached an attacker-only quorum after {quorum_after} epochs ({} seats)",
+        s.active.len()
+    );
+    assert!(
+        quorum_after > 1,
+        "one boundary of cheap seats gave an attacker-only quorum"
+    );
 }
