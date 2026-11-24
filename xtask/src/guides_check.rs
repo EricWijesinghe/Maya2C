@@ -22,37 +22,15 @@ use std::process::Command;
 
 use serde_json::Value;
 
-/// `cargo xtask` commands, as `main.rs` dispatches them.
-const XTASK_COMMANDS: &[&str] = &[
-    "disk",
-    "coverage",
-    "release-check",
-    "readiness",
-    "spec-coverage",
-    "slo-check",
-    "go-no-go",
-    "eco-metrics",
-    "claims-check",
-    "mesh-check",
-    "sdk-e2e",
-    "guides-check",
-    "eth-headers",
-    "eth-beacon",
-    "eth-exposure",
-    "hybrid-genesis",
-    "starter-stickers",
-    "brand-assets",
-    "og-card",
-    "status",
-    "sweep",
-    "pgo",
-    "localnet",
-    "up",
-    "down",
-    "kit",
-    "node",
-    "help",
-];
+/// `cargo xtask` commands, read from `main.rs`'s dispatch arms
+/// (`"name" | "alias" => …`) so a new command never needs a second list here.
+fn xtask_commands() -> impl Iterator<Item = &'static str> {
+    include_str!("main.rs")
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix('"')?.split_once("=>"))
+        .flat_map(|(arms, _)| arms.split('|'))
+        .map(|arm| arm.trim().trim_matches('"'))
+}
 /// `maya2c` subcommands (`bins/maya2c-cli/src/main.rs`).
 const CLI_COMMANDS: &[&str] = &["dev", "debug", "replay", "fork", "vault", "help"];
 const SHELL_LANGS: &[&str] = &[
@@ -161,8 +139,8 @@ fn resolve(cmd: &str, root: &Path, pkgs: &Targets) -> Option<Result<(), String>>
     };
     match words.as_slice() {
         ["cargo", "xtask", sub, ..] => Some(
-            XTASK_COMMANDS
-                .contains(sub)
+            xtask_commands()
+                .any(|c| c == *sub)
                 .then_some(())
                 .ok_or(format!("no `cargo xtask {sub}`")),
         ),
@@ -286,5 +264,18 @@ mod tests {
         ));
         assert_eq!(resolve("cargo xtask coverage", root, &pkgs), Some(Ok(())));
         assert_eq!(resolve("docker compose up", root, &pkgs), None);
+    }
+
+    #[test]
+    fn every_dispatched_xtask_command_resolves() {
+        let pkgs = Targets::new();
+        let root = Path::new(".");
+        for sub in ["bft-devnet", "proof-ratchet", "md-links", "devlog", "help"] {
+            assert_eq!(
+                resolve(&format!("cargo xtask {sub}"), root, &pkgs),
+                Some(Ok(())),
+                "{sub}"
+            );
+        }
     }
 }

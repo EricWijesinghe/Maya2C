@@ -272,3 +272,9 @@ phase that did it.
     `crates/node/tests/council_pause_tests.rs`
     (`a_council_sunset_is_scheduled_only_at_the_council_lead_and_never_as_a_version`)
     — ADR-082.
+    A passed change to a block-validity `ParameterKey` (`is_validity_rule`,
+    tags 2-8, 17, 18) is held under `g:pending:` and binds `VALIDITY_RULE_LEAD_BLOCKS`
+    (= `MIN_UPGRADE_LEAD_BLOCKS`) after its proposal executes, so a per-block
+    ceiling moves on the notice a version gets (ADR-082 amendment 2026-11-15; pinned by
+    `crates/node/tests/governance_tests.rs`
+    `a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`).
