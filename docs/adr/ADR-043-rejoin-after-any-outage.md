@@ -141,3 +141,32 @@ still needed a quorum of attested checkpoints, but it never progressed.
   only. Upgrade: decide from a block already imported and verified.
   `catch_up` also sets the driver to follow mode per attempted source; that is
   a startup-only effect and is left as it was.
+
+
+## Amendment 2026-11-24: no unanchored start in a production build (audit CON-08)
+
+Eric 2026-11-24 chose option A of the CON-08 brief (PR #680).
+
+- **The mainnet binary has no way around a checkpoint.** `--allow-unconfirmed-start`
+  is refused at argument parsing in a `--features production` build
+  (`rejoin::unconfirmed_start_permitted`). Test and lab builds keep it for a
+  halted test network or an old test genesis.
+- **A fresh mainnet node joins a running chain only through a trusted block.**
+  A production node that holds only genesis, told by any source that the chain
+  is past height 0, is refused without `--trusted-block HEIGHT:HEX`
+  (`rejoin::fresh_join`, at start-up and in every follow round). At launch,
+  while every source reports genesis or none answers, no block exists to trust
+  and none is needed: a long-range forgery needs validators that have unbonded,
+  and a chain inside its first unbonding window has none (the time rule above).
+  The pruned bootstrap already required the block (ADR-060).
+- **The guarantee:** no source, and no set of sources an attacker controls,
+  decides which chain a new mainnet node follows. The trust a new node starts
+  from is a block its operator learned somewhere else. This is a
+  weak-subjectivity checkpoint, the defence proof-of-stake chains use against
+  long-range attacks on new nodes.
+- **Node policy, not consensus.** Block validity and state roots are unchanged.
+  Pinned by `rejoin` unit tests
+  `a_fresh_production_node_joins_a_running_chain_only_through_a_trusted_block`,
+  `at_launch_a_fresh_production_node_needs_no_trusted_block`,
+  `a_non_production_build_keeps_the_operator_choices` and
+  `a_production_build_refuses_the_unconfirmed_start_flag`.

@@ -350,7 +350,8 @@ fn print_usage() {
          offline longer than about 13 days on 3,600-block epochs restores with --bootstrap-from (ADR-060)\n  \
          --allow-unconfirmed-start  start with an old tip and no source head beyond the window. Only for a\n                           \
          halted network (longer than the window) or a genesis signed long before launch. It is\n                           \
-         refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block\n  \
+         refused otherwise, because an eclipsed node looks the same. Prefer --trusted-block.\n                           \
+         Not in production builds (CON-08): a mainnet node always starts from --trusted-block\n  \
          --i-know-this-validator-never-signed  start a committee validator whose <data-dir>/bft is missing\n                           \
          on a recent chain. Only for a key that signed nothing this epoch: otherwise it can sign\n                           \
          a round twice, which is equivocation and is slashed\n  \
@@ -440,7 +441,10 @@ fn parse_args_from(arguments: impl Iterator<Item = String>) -> Result<Args, Box<
             "--snapshot-interval" => args.snapshot_interval = Some(value()?.parse()?),
             "--bootstrap-from" => args.bootstrap_from = Some(value()?),
             "--trusted-block" => args.trusted_block = Some(parse_trusted_block(&value()?)?),
-            "--allow-unconfirmed-start" => args.allow_unconfirmed_start = true,
+            "--allow-unconfirmed-start" => {
+                rejoin::unconfirmed_start_permitted(cfg!(feature = "production"))?;
+                args.allow_unconfirmed_start = true;
+            }
             "--i-know-this-validator-never-signed" => args.never_signed = true,
             "--catch-up-from" => args.catch_up_from.push(value()?),
             "--allow-private-peers" => args.allow_private_peers = true,

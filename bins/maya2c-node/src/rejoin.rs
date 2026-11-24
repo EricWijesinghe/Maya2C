@@ -11,7 +11,10 @@
 //! with no confirming head is refused unless the operator passes
 //! `--allow-unconfirmed-start`, because an eclipsed node (every source it
 //! reaches is the attacker's) looks exactly like a halted network or an old
-//! genesis from its own side. A running follower assumes at least one honest
+//! genesis from its own side. A production build has no such flag, and a
+//! fresh production node (genesis only) joining a chain that has moved past
+//! genesis starts only from a `--trusted-block` (CON-08, ADR-043 amendment
+//! 2026-11-24): a source alone never decides which chain a new node follows. A running follower assumes at least one honest
 //! source: it keeps following and warns when no head is confirmed. Heads
 //! reported by sources are unverified. The maximum decides whether the
 //! requirement applies and how recent the block must be.
@@ -242,6 +245,55 @@ pub(crate) fn check_against_tip(
     ))
 }
 
+/// Whether `--allow-unconfirmed-start` may be given: never in a production
+/// build (CON-08). There a weak-subjectivity checkpoint has no way around it.
+///
+/// # Errors
+///
+/// The refusal text, naming the flag that replaces it.
+pub(crate) fn unconfirmed_start_permitted(production: bool) -> Result<(), String> {
+    if production {
+        return Err(
+            "--allow-unconfirmed-start is not available in a production build (CON-08): start with \
+             --trusted-block HEIGHT:HEX, a recent attested block learned from somewhere other than \
+             the sources this node catches up from"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// The fresh-join rule (CON-08): a production node that holds only genesis
+/// (`local_height` 0) and is told by a source that the chain has moved past
+/// it joins only through a trusted block. At launch, while every source still
+/// reports genesis or none answers, no block exists to trust and none is
+/// needed; a long-range forgery needs validators that unbonded, and a chain
+/// still inside its first window has none (the time rule in [`decide`]).
+///
+/// # Errors
+///
+/// The refusal text.
+pub(crate) fn fresh_join(
+    local_height: u64,
+    claimed: Option<Claimed>,
+    trusted: Option<TrustedBlock>,
+    production: bool,
+) -> Result<(), String> {
+    match claimed {
+        Some(head) if production && local_height == 0 && trusted.is_none() && head.height > 0 => {
+            Err(format!(
+                "this node holds only genesis and a source reports the chain at height {}: a \
+                 production node joins a running chain only through a trusted block (CON-08). \
+                 Start with --trusted-block HEIGHT:HEX, a recent attested block learned from \
+                 somewhere other than these sources (another operator, the explorer, a release \
+                 note)",
+                head.height
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// The anchor a catch-up uses, from the pure facts.
 ///
 /// - Not stale, not time-old: [`Anchor::Unanchored`], or `Checked` with a trusted block.
@@ -466,6 +518,12 @@ pub(crate) fn round_anchor(
     claimed: Option<Claimed>,
 ) -> Result<Anchor, Box<dyn Error>> {
     let local = local_state(chain)?;
+    fresh_join(
+        chain.height(),
+        claimed,
+        pending,
+        cfg!(feature = "production"),
+    )?;
     Ok(round_decision(local, pending, claimed, clock_now())?)
 }
 
@@ -499,6 +557,7 @@ pub(crate) async fn anchor(
         return Ok(trusted.map_or(Anchor::Unanchored, Anchor::Checked));
     };
     let claimed = newest_claimed(urls).await;
+    fresh_join(tip_height, claimed, trusted, cfg!(feature = "production"))?;
     let now = clock_now();
     if let Some(ahead) = future_ahead(local, now) {
         eprintln!(
@@ -589,6 +648,35 @@ mod tests {
     /// Time past the window, and the head far beyond it in blocks.
     fn old_now() -> u64 {
         LOCAL.tip_timestamp + WINDOW_SECS + 1
+    }
+
+    #[test]
+    fn a_fresh_production_node_joins_a_running_chain_only_through_a_trusted_block() {
+        // CON-08: genesis only, and a source says the chain is at height 5,000.
+        let err = fresh_join(0, head(3, 5_000), None, true).unwrap_err();
+        assert!(err.contains("--trusted-block"), "{err}");
+        assert!(fresh_join(0, head(3, 5_000), Some(RECENT), true).is_ok());
+        // A node with history of its own is the rejoin guard's case, not this one.
+        assert!(fresh_join(10, head(3, 5_000), None, true).is_ok());
+    }
+
+    #[test]
+    fn at_launch_a_fresh_production_node_needs_no_trusted_block() {
+        // Every source still at genesis, or none answering: nothing to trust yet.
+        assert!(fresh_join(0, head(0, 0), None, true).is_ok());
+        assert!(fresh_join(0, None, None, true).is_ok());
+    }
+
+    #[test]
+    fn a_non_production_build_keeps_the_operator_choices() {
+        assert!(fresh_join(0, head(3, 5_000), None, false).is_ok());
+        assert!(unconfirmed_start_permitted(false).is_ok());
+    }
+
+    #[test]
+    fn a_production_build_refuses_the_unconfirmed_start_flag() {
+        let err = unconfirmed_start_permitted(true).unwrap_err();
+        assert!(err.contains("--trusted-block"), "{err}");
     }
 
     #[test]

@@ -923,3 +923,9 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — A mainnet node starts only from a checkpoint it trusts (audit CON-08, Eric 2026-11-24, option A)
+
+- **Guarantee:** the production binary has no `--allow-unconfirmed-start`. A fresh mainnet node that a source tells is behind a running chain joins only through `--trusted-block`, at start-up and in every follow round. No source decides which chain a new node follows. ADR-043 amendment 2026-11-24.
+- **Launch is unaffected:** while every source reports genesis, or none answers, there is no block to trust and none is required. Inside the first unbonding window no validator has unbonded, so no long-range forgery exists.
+- **Scope:** node policy in `bins/maya2c-node`, not a consensus rule. Test builds keep the flag for lab networks.

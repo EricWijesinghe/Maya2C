@@ -5,7 +5,9 @@ launch.
 
 **Rejoin guard (B49).** Validators restarted after the unbonding window with no confirming
 head need `--trusted-block` or `--bootstrap-from`. `--allow-unconfirmed-start` is only for a
-network halted longer than the window, or a genesis signed long before launch. Details:
+network halted longer than the window, or a genesis signed long before launch, and only in a
+non-production build. The mainnet binary (`--features production`) refuses it, and a fresh
+mainnet node joining a chain past genesis starts only from `--trusted-block` (CON-08). Details:
 `docs/GENESIS.md` and `docs/runbooks/hybrid-testnet-hardening.md` section 4.
 
 ---
