@@ -45,6 +45,7 @@ fn genesis(funded: [u8; 32]) -> GenesisConfig {
         }],
         suite_deprecations: Vec::new(),
         security_council: None,
+        sparse_accounts: false,
         shielded_activation_height: None,
         bft: None,
     }

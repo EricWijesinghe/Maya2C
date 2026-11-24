@@ -173,10 +173,12 @@ crate-level test makes the same claim in under a second and runs by default.
    branch on each, and `state_root()` keeps the full rebuild as the reference.
    The dense tree used before activation is still `O(N)` a block.
 6. **The RPC method's cost.** `stateless_transaction_witness` scans every
-   account per call and does not verify the transaction it is handed, the same
-   cost `account_proof` already has. Dormant today — before activation it reads
-   one record and refuses — but on activation day it wants a rate limit, or a
-   signature check before the scan.
+   account and rebuilds every record layer per call, and does not verify the
+   transaction it is handed. Every ceremony genesis is sparse from block zero
+   (BRIEF-4), so the scan is reachable; the method is therefore off unless the
+   operator enables it (`RpcContext::with_witnesses`, for a private RPC). It
+   opens to every caller once the witness is cut from the `smt:` cache, which
+   costs O(touched x log N).
 
 ## Sources
 

@@ -43,6 +43,7 @@ fn config(
         protocol_upgrades: Vec::new(),
         suite_deprecations,
         security_council: None,
+        sparse_accounts: false,
         shielded_activation_height: None,
         bft: None,
     }

@@ -24,6 +24,12 @@ serde_json.workspace = true
 maya-signer = { path = "../../crates/signer" }
 zeroize.workspace = true
 
+[dev-dependencies]
+# `ceremony_output_tests` compiles `xtask/src/genesis_check.rs` in, so the
+# launch gate judges the ceremony's own mainnet output; these are its deps.
+maya-amount = { path = "../../crates/amount" }
+serde = { workspace = true, features = ["derive"] }
+
 [[bin]]
 name = "genesis-ceremony"
 path = "src/main.rs"

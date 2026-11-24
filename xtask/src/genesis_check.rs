@@ -52,6 +52,10 @@ struct Genesis {
     /// Scheduled protocol upgrades. None may be pending at launch.
     #[serde(default)]
     protocol_upgrades: Vec<serde_json::Value>,
+    /// The sparse accounts tree from block zero (BRIEF-4, spec ROOT-6).
+    /// Absent means the address-ordered tree.
+    #[serde(default)]
+    sparse_accounts: bool,
     bft: Bft,
 }
 
@@ -311,7 +315,7 @@ fn launch_rules(g: &Genesis, now: u64) -> Vec<String> {
     out
 }
 
-fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
+pub(crate) fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
     let g: Genesis = serde_json::from_str(text).map_err(|e| format!("not a genesis file: {e}"))?;
     let mut out = launch_rules(&g, now);
     if g.bft.validators.len() < MIN_VALIDATORS {
@@ -361,6 +365,12 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
     }
     if g.shielded_activation_height != Some(u64::MAX) {
         out.push("shielded pool is not off: its circuit is unaudited (ADR-037)".to_string());
+    }
+    if !g.sparse_accounts {
+        out.push(
+            "sparse_accounts is not true: mainnet's accounts root is the sparse tree from block zero (BRIEF-4, ROOT-6)"
+                .to_string(),
+        );
     }
     if !g.bft.staking.stake_weighted {
         out.push("voting is not stake-weighted".to_string());
@@ -468,7 +478,7 @@ mod tests {
         let reserve = allocation(&mining_reserve_address(), RESERVE);
         let mining = mining();
         format!(
-            "{{\"difficulty_bits\":{difficulty},\"shielded_activation_height\":18446744073709551615,\"timestamp\":{NOW},\"allocations\":[{reserve}],\"bft\":{{\"validators\":[{validators}],\
+            "{{\"difficulty_bits\":{difficulty},\"shielded_activation_height\":18446744073709551615,\"sparse_accounts\":true,\"timestamp\":{NOW},\"allocations\":[{reserve}],\"bft\":{{\"validators\":[{validators}],\
              {mining}\
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\"epoch_blocks\":3600,\
@@ -546,6 +556,19 @@ mod tests {
         );
         let zero = genesis(20, true, &EVEN).replace("18446744073709551615", "0");
         assert!(!check(&zero).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_genesis_without_the_sparse_tree_fails() {
+        let dense = genesis(20, true, &EVEN).replace("\"sparse_accounts\":true,", "");
+        let found = check(&dense).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("sparse_accounts")),
+            "{found:?}"
+        );
+        let off = genesis(20, true, &EVEN)
+            .replace("\"sparse_accounts\":true", "\"sparse_accounts\":false");
+        assert!(!check(&off).unwrap().is_empty());
     }
 
     #[test]
@@ -662,12 +685,8 @@ mod tests {
     fn the_lifetime_emission_is_the_nodes_mainnet_figure() {
         // The node's `MiningRecord::lifetime_emission` for mining.json at
         // 3,600-block epochs, as the mainnet README and `proving.rs` record it.
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../deploy/genesis/mainnet/mining.json"
-        );
-        let mining: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let text = include_str!("../../deploy/genesis/mainnet/mining.json");
+        let mining: serde_json::Value = serde_json::from_str(text).unwrap();
         let lifetime = lifetime_emission(
             amount_of(&mining["initial_epoch_reward"]).unwrap(),
             amount_of(&mining["tail_epoch_reward"]).unwrap(),
@@ -677,8 +696,7 @@ mod tests {
         .unwrap();
         assert_eq!(lifetime.to_string(), RESERVE);
         // The rehearsal's helper reads the same file to the same figure.
-        let text = std::fs::read_to_string(path).unwrap();
-        assert_eq!(mining_reserve(&text, 3_600).unwrap(), RESERVE);
+        assert_eq!(mining_reserve(text, 3_600).unwrap(), RESERVE);
     }
 
     #[test]
@@ -761,12 +779,10 @@ mod tests {
 
     #[test]
     fn the_tail_in_the_checked_in_mainnet_mining_json_is_the_one_tested() {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../deploy/genesis/mainnet/mining.json"
-        );
-        let text = std::fs::read_to_string(path).unwrap();
-        let mining: serde_json::Value = serde_json::from_str(&text).unwrap();
+        // Relative to this file, so the ceremony's test that includes this
+        // module (`genesis-ceremony`, `ceremony_output_tests`) finds it too.
+        let text = include_str!("../../deploy/genesis/mainnet/mining.json");
+        let mining: serde_json::Value = serde_json::from_str(text).unwrap();
         assert_eq!(mining["tail_epoch_reward"], TAIL);
     }
 }

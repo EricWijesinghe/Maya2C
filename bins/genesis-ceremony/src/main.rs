@@ -451,28 +451,18 @@ fn launch_config(
         oracle: None,
         sealed: None,
         treasury,
-        // BRIEF-4 (Eric 2026-11-24): the sparse accounts tree from block zero,
-        // so no account count is a ceiling for this network's state root.
-        protocol_upgrades: vec![sparse_from_genesis()],
+        protocol_upgrades: Vec::new(),
         suite_deprecations: Vec::new(),
         security_council: None,
+        // BRIEF-4 (Eric 2026-11-24): the sparse accounts tree from block zero,
+        // so no account count is a ceiling for this network's state root.
+        sparse_accounts: true,
         shielded_activation_height: if args.shielded_never {
             Some(u64::MAX)
         } else {
             shielded_activation_for(&args.chain_id, maya_zk_stark::pool::circuit_is_audited())
         },
         bft,
-    }
-}
-
-/// The schedule entry that commits the sparse accounts tree from block zero
-/// (`GenesisConfig::sparse_accounts_at_genesis`, BRIEF-4).
-fn sparse_from_genesis() -> custom_l1_node::upgrade::ProtocolUpgrade {
-    use custom_l1_node::upgrade::{FeatureSet, ProtocolUpgrade, SUPPORTED_PROTOCOL_VERSION};
-    ProtocolUpgrade {
-        version: SUPPORTED_PROTOCOL_VERSION,
-        activation_height: 1,
-        features: FeatureSet(FeatureSet::STATELESS),
     }
 }
 
@@ -1484,5 +1474,64 @@ mod contribution_tests {
         std::os::unix::fs::symlink(&target, &link).unwrap();
         assert!(write_secret(&link, b"root").is_err());
         assert_eq!(fs::read(&target).unwrap(), b"keep");
+    }
+}
+
+/// `cargo xtask genesis-check`, the launch gate, compiled into the tests so the
+/// ceremony's own mainnet output is judged by the real rules: xtask does not
+/// link the node, and this binary does not link xtask.
+#[cfg(test)]
+#[allow(dead_code)]
+#[path = "../../../xtask/src/genesis_check.rs"]
+mod genesis_check;
+
+#[cfg(test)]
+mod ceremony_output_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::{Args, committee, genesis_check, launch_config};
+    use custom_l1_node::crypto::validator_keys as keys;
+    use custom_l1_node::state::mining::MiningGenesis;
+    use primitive_types::U256;
+
+    const MINING: &str = include_str!("../../../deploy/genesis/mainnet/mining.json");
+    /// The mainnet staking epoch the mining schedule was priced for.
+    const EPOCH_BLOCKS: u64 = 3_600;
+
+    #[test]
+    fn a_mainnet_genesis_from_the_ceremony_passes_genesis_check() {
+        // BRIEF-4: the ceremony's sparse tree must not cost the launch gate.
+        // It once arrived as a schedule entry, which genesis-check refuses
+        // ("none may be pending at launch"); it is a genesis field now, and
+        // the gate requires it.
+        let floor = U256::from(genesis_check::MIN_SELF_BOND);
+        let members: Vec<_> = (1..=7u8)
+            .map(|i| committee::Member {
+                label: format!("op{i}"),
+                key: hex::encode(
+                    keys::signing_key_from_seed(&[i; 32])
+                        .unwrap()
+                        .verifying_key()
+                        .to_bytes(),
+                ),
+                bond: Some((hex::encode([i; 32]), floor)),
+            })
+            .collect();
+        let mining: MiningGenesis = serde_json::from_str(MINING).unwrap();
+        let reserve = genesis_check::mining_reserve(MINING, EPOCH_BLOCKS).unwrap();
+        let args = Args {
+            chain_id: "maya-mainnet".into(),
+            epoch_blocks: EPOCH_BLOCKS,
+            mining: Some((mining, U256::from_dec_str(&reserve).unwrap())),
+            min_self_bond: Some(floor),
+            min_delegation: Some(U256::from(maya_amount::ONE_COIN)),
+            ..Args::default()
+        };
+        let config = launch_config(&args, Vec::new(), None, Some(&members));
+        config.validate().unwrap();
+        let text = config.to_json().unwrap();
+        let found = genesis_check::problems(&text, config.timestamp).unwrap();
+        assert!(found.is_empty(), "{found:?}");
+        assert!(config.sparse_accounts && config.protocol_upgrades.is_empty());
     }
 }

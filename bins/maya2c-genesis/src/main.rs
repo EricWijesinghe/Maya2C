@@ -209,6 +209,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         protocol_upgrades: Vec::new(),
         suite_deprecations: Vec::new(),
         security_council: None,
+        // BRIEF-4 (Eric 2026-11-24): every network this tool makes is sparse
+        // from block zero; only test fixtures keep the dense reference tree.
+        sparse_accounts: true,
         shielded_activation_height: None,
         bft: None,
     };

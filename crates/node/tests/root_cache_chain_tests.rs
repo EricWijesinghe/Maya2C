@@ -33,6 +33,15 @@ fn config() -> GenesisConfig {
     config_at(ACTIVATION)
 }
 
+/// The ceremony's shape: sparse from block zero, no schedule entry.
+fn sparse_genesis() -> GenesisConfig {
+    GenesisConfig {
+        protocol_upgrades: Vec::new(),
+        sparse_accounts: true,
+        ..config()
+    }
+}
+
 fn config_at(activation: u64) -> GenesisConfig {
     GenesisConfig {
         chain_id: "root-cache-chain".into(),
@@ -53,6 +62,7 @@ fn config_at(activation: u64) -> GenesisConfig {
         }],
         suite_deprecations: Vec::new(),
         security_council: None,
+        sparse_accounts: false,
         shielded_activation_height: None,
         bft: None,
     }
@@ -201,10 +211,10 @@ fn chain_open_rebuilds_a_damaged_cache_before_the_first_block() {
 
 #[test]
 fn a_chain_sparse_from_genesis_keeps_the_cache_equal_to_the_full_rebuild() {
-    // BRIEF-4 (Eric 2026-11-24, spec ROOT-6): switched on at height 1, the
-    // genesis is already sparse, so there is no dense block to switch from.
-    let config = config_at(1);
-    assert!(config.sparse_accounts_at_genesis().unwrap());
+    // BRIEF-4 (Eric 2026-11-24, spec ROOT-6): the genesis field makes block
+    // zero sparse, so there is no dense block to switch from and no schedule
+    // entry is needed.
+    let config = sparse_genesis();
     let dir = TempDir::new().unwrap();
     let mut chain = open_with(&dir, &config);
     let genesis = chain.get(&chain.tip()).unwrap();
@@ -218,4 +228,35 @@ fn a_chain_sparse_from_genesis_keeps_the_cache_equal_to_the_full_rebuild() {
         assert_cache_holds(&chain);
     }
     assert_eq!(chain.state().root_cache_stats().repaired, 0);
+}
+
+#[tokio::test]
+async fn the_witness_rpc_is_refused_unless_the_operator_serves_it() {
+    // A sparse genesis makes `transaction_witness` live, and it scans every
+    // account and record layer per call: an unauthenticated O(state) call.
+    // Refused by default, before any decoding; served when the operator opts in.
+    use custom_l1_node::network::Mempool;
+    use custom_l1_node::rpc::{RpcContext, build_module};
+    use jsonrpsee::rpc_params;
+    use std::sync::Mutex;
+
+    let dir = TempDir::new().unwrap();
+    let chain = open_with(&dir, &sparse_genesis());
+    let state = Arc::clone(chain.state());
+    let tx = hex::encode(transfer(0, 0, 1).to_bytes());
+    let context = RpcContext::new(Arc::new(Mutex::new(chain)), Mempool::new(state));
+
+    let public = build_module(context.clone()).unwrap();
+    let refused = public
+        .call::<_, String>("stateless_transaction_witness", rpc_params![tx.clone()])
+        .await
+        .unwrap_err();
+    assert!(refused.to_string().contains("not served"), "{refused}");
+
+    let private = build_module(context.with_witnesses()).unwrap();
+    let witness: String = private
+        .call("stateless_transaction_witness", rpc_params![tx])
+        .await
+        .unwrap();
+    assert!(!witness.is_empty());
 }

@@ -244,6 +244,13 @@ pub struct RpcContext {
     pub cert_bytes: Arc<crate::rpc::limit::RateLimiter>,
     /// The clients with a certificate page in flight: one at a time each.
     pub cert_gate: Arc<CertGate>,
+    /// Whether `stateless_transaction_witness` is served. Off unless the
+    /// operator wires it ([`Self::with_witnesses`]): a witness today is built
+    /// from a scan of every account and every record layer, so on a sparse
+    /// chain (every ceremony genesis, BRIEF-4) one unauthenticated call costs
+    /// O(state). It opens to everyone once the witness is cut from the
+    /// incremental `smt:` cache, O(touched x log N).
+    pub serves_witnesses: bool,
 }
 
 /// Bytes of certificate pages one client may take per second, sustained.
@@ -374,6 +381,17 @@ impl RpcContext {
                 CERT_BYTE_BURST,
             )),
             cert_gate: Arc::new(CertGate::default()),
+            serves_witnesses: false,
+        }
+    }
+
+    /// The same context, serving `stateless_transaction_witness`: for a node
+    /// whose RPC only its operator reaches (each call costs O(state)).
+    #[must_use]
+    pub fn with_witnesses(self) -> Self {
+        Self {
+            serves_witnesses: true,
+            ..self
         }
     }
 
@@ -943,9 +961,17 @@ pub fn build_module(context: RpcContext) -> Result<RpcModule<RpcContext>, ErrorO
 
     module
         .register_method("stateless_transaction_witness", |params, ctx, _| {
-            // Research branch: refused until stateless accounts are active,
-            // which is never on any network today. The witness is against the
-            // current tip and goes stale with the next block.
+            // Refused unless the operator opted in (`serves_witnesses`): the
+            // witness is built from a full scan of state, and a sparse genesis
+            // makes that scan live on every ceremony chain. Checked before any
+            // decoding, so a refused call costs nothing. The witness is against
+            // the current tip and goes stale with the next block.
+            if !ctx.serves_witnesses {
+                return Err(rejected(
+                    "stateless_transaction_witness is not served by this node: it scans all state per call; an operator enables it on a private RPC"
+                        .to_string(),
+                ));
+            }
             let raw: String = params.one().map_err(|e| invalid_params(e.to_string()))?;
             let bytes = hex::decode(raw.trim_start_matches("0x"))
                 .map_err(|e| invalid_params(format!("transaction is not valid hex: {e}")))?;
