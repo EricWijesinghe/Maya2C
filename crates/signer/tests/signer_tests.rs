@@ -77,8 +77,9 @@ fn signatures_cover_exactly_the_bytes_validators_verify() {
     let Response::Signed(sig) = s.handle(&r) else {
         panic!("refused")
     };
-    // ADR-033: VOTE_DOMAIN ‖ digest, the node's own message, nothing more.
-    let expected = [maya_dag_bft::VOTE_DOMAIN, r.digest.as_slice()].concat();
+    // ADR-033 as amended for CT-05: VOTE_DOMAIN ‖ round ‖ author ‖ digest,
+    // the node's own message, nothing more.
+    let expected = maya_dag_bft::slot_message(maya_dag_bft::VOTE_DOMAIN, 1, 0, &r.digest);
     assert_eq!(signed_message(&r), expected);
     let public: &[u8; validator::PUBLIC_KEY_LEN] = s.public_key().try_into().unwrap();
     let sig: &[u8; validator::SIGNATURE_LEN] = sig.as_slice().try_into().unwrap();
@@ -449,6 +450,30 @@ fn an_attestation_is_signed_once_per_height_under_its_own_domain() {
     // The signed bytes differ from a vote's on the same digest.
     let vote = req(Kind::Vote, 120, 0, b"block a");
     assert_ne!(signed_message(&block_a), signed_message(&vote));
+}
+
+#[test]
+fn an_attestation_at_a_signed_height_is_refused_under_another_committee_index() {
+    // A validator's committee index changes between epochs, and the epoch is
+    // only inside the digest. Keyed by (height, index), a compromised node
+    // could get two blocks attested at one height, one per epoch; keyed by
+    // height, it cannot.
+    let dir = TempDir::new().unwrap();
+    let mut s = service(&dir)
+        .with_attestations(SlashingDb::open(&dir.path().join("attestations.jsonl")).unwrap());
+    assert!(signed(&s.handle(&req(
+        Kind::Attestation,
+        120,
+        3,
+        b"epoch e, block 1"
+    ))));
+    assert!(
+        !signed(&s.handle(&req(Kind::Attestation, 120, 4, b"epoch e+1, block 2"))),
+        "a second digest at height 120 under another index is refused"
+    );
+    // Votes keep their per-author slots: one validator votes for every author.
+    assert!(signed(&s.handle(&req(Kind::Vote, 7, 3, b"vertex of 3"))));
+    assert!(signed(&s.handle(&req(Kind::Vote, 7, 4, b"vertex of 4"))));
 }
 
 #[test]

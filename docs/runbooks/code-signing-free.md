@@ -22,7 +22,7 @@ read, so confirm them on the form.
 1. GitHub: two-factor authentication on (Settings > Password and authentication). SignPath requires
    it for every team member.
 2. Apply at https://signpath.org/ with:
-   - Project: Maya2C, https://github.com/EricWijesinghe/Maya2C, Apache-2.0.
+   - Project: Maya2C, https://github.com/maya2c/Maya2C, Apache-2.0.
    - Signed artifacts: the Windows release binaries from `release-binaries.yml` on `node-v*` tags
      (node and CLI, Maya Wallet, Maya Chat, Maya2C Hub). Nothing built on a personal machine.
    - Build: GitHub Actions with public logs. The `sign` job runs in the `release` environment and

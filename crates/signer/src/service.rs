@@ -32,19 +32,25 @@ pub enum Response {
 /// attestation or the reverse.
 pub const ATTEST_DOMAIN: &[u8] = b"maya2c block attestation v1";
 
-/// The exact bytes signed for a request: the same `domain ‖ digest` a
-/// validator with a local key signs and every validator verifies, so a
-/// network can mix local keys and remote signers (ADR-033). The domain is
-/// [`maya_dag_bft::VOTE_DOMAIN`] for vertices and votes and [`ATTEST_DOMAIN`]
-/// for attestations. Kind, round and author decide *whether* to sign; they
-/// are not signed.
+/// The exact bytes signed for a request: `domain ‖ round ‖ author ‖ digest`
+/// ([`maya_dag_bft::slot_message`]), the same bytes a validator with a local
+/// key signs and every validator verifies, so a network can mix local keys and
+/// remote signers (ADR-033). The domain is [`maya_dag_bft::VOTE_DOMAIN`] for
+/// vertices and votes and [`ATTEST_DOMAIN`] for attestations, where the round
+/// is the height and the author the attester.
+///
+/// The round and author the protection record approves are the ones the
+/// signature commits to (CT-05, ADR-033 amendment 2026-11-24). A node that
+/// lies about them gets a signature for the slot it named, which verifies for
+/// no vertex and no block at the slot it hid. Only the kind is unsigned, and
+/// it needs no binding: the record is keyed by slot whatever the kind.
 #[must_use]
 pub fn signed_message(req: &Request) -> Vec<u8> {
     let domain = match req.kind {
         Kind::Vertex | Kind::Vote => maya_dag_bft::VOTE_DOMAIN,
         Kind::Attestation => ATTEST_DOMAIN,
     };
-    [domain, req.digest.as_slice()].concat()
+    maya_dag_bft::slot_message(domain, req.round, req.author, &req.digest)
 }
 
 /// A signer: one key, one protection database for the DAG, and optionally

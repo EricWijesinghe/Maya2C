@@ -126,7 +126,7 @@ pub fn verify_certificate(
     let auth = MlDsaAuthenticator::observer(Arc::clone(keys), tag);
     let digest = c.digest();
     for (voter, signature) in c.votes.iter().zip(&c.signatures) {
-        if !auth.verify(*voter, &digest, signature) {
+        if !auth.verify(*voter, c.vertex.round, c.vertex.author, &digest, signature) {
             return Err(refuse("bad signature"));
         }
     }

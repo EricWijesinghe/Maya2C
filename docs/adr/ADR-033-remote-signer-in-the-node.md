@@ -122,3 +122,56 @@ that pin it:
   accepts every other author's vote in the same round;
 - the signatures the signer produces verify under the node's unchanged
   `MlDsaAuthenticator::verify`.
+
+## Amendment 2026-11-24: the slot is signed (audit CT-05, option B1)
+
+Eric 2026-11-24 chose option B1 of the CT-05 brief (PR #685).
+
+**Finding.** The signer decided *whether* to sign from the `round` and
+`author` the node put in the request, but signed only `domain ‖ digest`. The
+digest commits the vertex's real round and author, and the signer cannot see
+inside it. A compromised node could label a second vertex for an already
+signed slot with another round and get it signed: two valid signatures for
+one real slot, the equivocation the signer exists to prevent. Attestations
+had the same shape (one block per height, height only in the request).
+
+**Decision.** Every consensus signature covers its slot:
+`domain ‖ round (u64 LE) ‖ author (u16 LE) ‖ digest`, built by one function,
+`maya_dag_bft::slot_message` (spec CON-14). For vertices and votes the domain
+is `VOTE_DOMAIN`, the round and author are the voted vertex's, and the digest
+is the node's chain-bound digest. For attestations the domain is
+`ATTEST_DOMAIN`, the round is the height and the author is the attester's
+committee index (ADR-038's attestation bytes change accordingly). Every
+verifier rebuilds the bytes from the vertex or attestation it holds;
+`Authenticator::verify` takes the vertex's round and author for this.
+
+**The guarantee.** What the signer's protection record approves is exactly
+what the signature commits to. A node that lies about the slot obtains a
+signature for the slot it named, which verifies for no vertex or block at the
+slot it hid. A compromised node therefore cannot make a remote-signer
+validator equivocate. Requests stay 32 bytes of digest plus the slot; the
+signer needs no batch payload and does no extra hashing per request (option A
+would have sent the full vertex each time).
+
+**Not signed:** the kind. It needs no binding: a proposal's signature is its
+author's vote, and the protection record is keyed by slot whatever the kind.
+
+**An attestation's protected slot is its height alone** (review of #693). The
+committee index is signed, but it is not a stable name for the validator: it
+changes between epochs, and the epoch is only inside the digest. Keyed by
+`(height, index)`, the record would have approved `(h, idx_e, B1)` and
+`(h, idx_e+1, B2)`, two blocks at one height, each valid under its epoch's
+committee. The attestation database therefore keys by height and refuses a
+second digest at a height under any index (`crates/signer/src/protection.rs`
+`slot`; test `an_attestation_at_a_signed_height_is_refused_under_another_committee_index`).
+Votes keep `(round, author)`, because one validator votes for every author's
+vertex in a round. The guarantee: a remote-signer validator attests at most one
+block per height, whatever indices and epochs a compromised node names.
+
+**Compatibility.** A consensus wire change, landed with the genesis format.
+Local keys and remote signers sign the same new bytes, so mixed networks keep
+working. The testnet re-genesises (runbook `docs/runbooks/regenesis-checklist.md`).
+Pinned by `crates/signer/tests/slot_label_tests.rs`, the
+`a_signature_fills_only_the_slot_it_was_made_for` unit test in
+`crates/node/src/consensus/bft/auth.rs`, `remote_signer_tests` (round and
+author negatives) and the layout vector in `crates/dag-bft/src/auth.rs`.

@@ -63,9 +63,11 @@ pub enum Kind {
     /// A vote (certificate share) on another validator's vertex.
     Vote,
     /// A block attestation (ADR-038): `round` is the block's height and
-    /// `author` the attesting validator. The vote rule applies — one digest
-    /// per slot, no watermark — which is exactly "never two blocks at one
-    /// height". Kept in a database of its own: heights run well below rounds,
+    /// `author` the attesting validator's committee index. One digest per
+    /// height, no watermark: the slot is the height alone, because the index
+    /// changes between epochs and the epoch is only inside the digest, so a
+    /// `(height, index)` slot would let two epochs' requests attest two blocks
+    /// at one height. Kept in a database of its own: heights run well below rounds,
     /// so in the round-indexed database they would fall under the floor.
     Attestation,
 }
@@ -130,6 +132,15 @@ pub enum DbError {
     Refused(#[from] Refusal),
 }
 
+/// The slot a request fills: `(round, author)`, except an attestation's,
+/// which is its height alone (see [`Kind::Attestation`]).
+fn slot(kind: Kind, round: u64, author: u16) -> (u64, u16) {
+    match kind {
+        Kind::Attestation => (round, 0),
+        Kind::Vertex | Kind::Vote => (round, author),
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Record {
     kind: Kind,
@@ -188,7 +199,10 @@ impl SlashingDb {
 
     /// Adds a record to memory; `true` if it was new.
     fn remember(&mut self, r: Record) -> bool {
-        let roots = self.slots.entry((r.round, r.author)).or_default();
+        let roots = self
+            .slots
+            .entry(slot(r.kind, r.round, r.author))
+            .or_default();
         if !roots.contains(&r.root) {
             roots.push(r.root);
         }
@@ -283,7 +297,7 @@ impl SlashingDb {
         {
             return Err(Refusal::OutOfRange { round, author }.into());
         }
-        if let Some(roots) = self.slots.get(&(round, author)) {
+        if let Some(roots) = self.slots.get(&slot(kind, round, author)) {
             // A single identical digest: an idempotent retry, or a proposal's
             // own vote. Two digests can only come from an import.
             return if roots.as_slice() == [root] {

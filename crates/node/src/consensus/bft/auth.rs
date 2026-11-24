@@ -8,7 +8,7 @@ use super::remote::ValidatorKey;
 use crate::crypto::validator_keys::SIGNATURE_LENGTH;
 use crate::crypto::validator_keys::VerifyingKey;
 
-use maya_dag_bft::VOTE_DOMAIN;
+use maya_dag_bft::{VOTE_DOMAIN, slot_message};
 
 use crate::core::ChainTag;
 
@@ -58,8 +58,9 @@ impl MlDsaAuthenticator {
     }
 
     /// The engine's digest bound to this chain. What is signed is
-    /// `VOTE_DOMAIN ‖ bound`, and a remote signer is handed `bound` as the
-    /// digest, so local keys and remote signers still sign the same bytes.
+    /// `VOTE_DOMAIN ‖ round ‖ author ‖ bound` ([`slot_message`], CT-05), and a
+    /// remote signer is handed `bound` as the digest with the slot beside it,
+    /// so local keys and remote signers still sign the same bytes.
     fn bound(&self, digest: &Digest) -> Digest {
         let mut h = blake3::Hasher::new_derive_key("maya2c dag-bft vote chain v1");
         h.update(&self.chain.0);
@@ -67,11 +68,8 @@ impl MlDsaAuthenticator {
         *h.finalize().as_bytes()
     }
 
-    fn message(bound: &Digest) -> Vec<u8> {
-        let mut m = Vec::with_capacity(VOTE_DOMAIN.len() + bound.len());
-        m.extend_from_slice(VOTE_DOMAIN);
-        m.extend_from_slice(bound);
-        m
+    fn message(round: u64, author: ValidatorId, bound: &Digest) -> Vec<u8> {
+        slot_message(VOTE_DOMAIN, round, author, bound)
     }
 }
 
@@ -95,21 +93,29 @@ impl Authenticator for MlDsaAuthenticator {
         match &self.signer {
             None => Vec::new(),
             Some(ValidatorKey::Local(key)) => key
-                .sign(&Self::message(&bound))
+                .sign(&Self::message(ctx.round, ctx.author, &bound))
                 .map(|sig| sig.to_vec())
                 .unwrap_or_default(),
             Some(ValidatorKey::Remote(remote)) => remote.sign(ctx, &bound).unwrap_or_default(),
         }
     }
 
-    fn verify(&self, signer: ValidatorId, digest: &Digest, signature: &[u8]) -> bool {
+    fn verify(
+        &self,
+        signer: ValidatorId,
+        round: u64,
+        author: ValidatorId,
+        digest: &Digest,
+        signature: &[u8],
+    ) -> bool {
         let Some(key) = self.committee.get(usize::from(signer)) else {
             return false;
         };
         let Ok(sig) = <&[u8; SIGNATURE_LENGTH]>::try_from(signature) else {
             return false;
         };
-        key.verify(&Self::message(&self.bound(digest)), sig).is_ok()
+        key.verify(&Self::message(round, author, &self.bound(digest)), sig)
+            .is_ok()
     }
 }
 
@@ -144,11 +150,42 @@ mod tests {
         let sig = auth.sign(CTX, &digest);
         assert_eq!(sig.len(), SIGNATURE_LENGTH);
         let observer = MlDsaAuthenticator::observer(committee, TAG);
-        assert!(observer.verify(1, &digest, &sig));
-        assert!(!observer.verify(0, &digest, &sig), "someone else's key");
-        assert!(!observer.verify(1, &[8u8; 32], &sig), "another digest");
-        assert!(!observer.verify(9, &digest, &sig), "outside the committee");
-        assert!(!observer.verify(1, &digest, &sig[1..]), "truncated");
+        let (r, a) = (CTX.round, CTX.author);
+        assert!(observer.verify(1, r, a, &digest, &sig));
+        assert!(
+            !observer.verify(0, r, a, &digest, &sig),
+            "someone else's key"
+        );
+        assert!(
+            !observer.verify(1, r, a, &[8u8; 32], &sig),
+            "another digest"
+        );
+        assert!(
+            !observer.verify(9, r, a, &digest, &sig),
+            "outside the committee"
+        );
+        assert!(!observer.verify(1, r, a, &digest, &sig[1..]), "truncated");
+    }
+
+    #[test]
+    fn a_signature_fills_only_the_slot_it_was_made_for() {
+        // CT-05: the slot is signed, so a signature made under one round or
+        // author label is no signature for the same digest at another slot.
+        let (signers, committee) = keys(2);
+        let auth =
+            MlDsaAuthenticator::validator(Arc::clone(&signers[0]), Arc::clone(&committee), TAG);
+        let digest = [5u8; 32];
+        let sig = auth.sign(CTX, &digest);
+        let observer = MlDsaAuthenticator::observer(committee, TAG);
+        assert!(observer.verify(0, CTX.round, CTX.author, &digest, &sig));
+        assert!(
+            !observer.verify(0, CTX.round + 1, CTX.author, &digest, &sig),
+            "another round"
+        );
+        assert!(
+            !observer.verify(0, CTX.round, CTX.author + 1, &digest, &sig),
+            "another author"
+        );
     }
 
     #[test]
@@ -171,7 +208,7 @@ mod tests {
         let mainnet = MlDsaAuthenticator::observer(committee, ChainTag([2; 32]));
         let digest = [9u8; 32];
         let sig = testnet.sign(CTX, &digest);
-        assert!(testnet.verify(0, &digest, &sig));
-        assert!(!mainnet.verify(0, &digest, &sig));
+        assert!(testnet.verify(0, CTX.round, CTX.author, &digest, &sig));
+        assert!(!mainnet.verify(0, CTX.round, CTX.author, &digest, &sig));
     }
 }

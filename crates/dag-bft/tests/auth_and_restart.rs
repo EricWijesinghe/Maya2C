@@ -38,7 +38,14 @@ impl Authenticator for Mac {
         mac(self.me, digest)
     }
 
-    fn verify(&self, signer: ValidatorId, digest: &Digest, signature: &[u8]) -> bool {
+    fn verify(
+        &self,
+        signer: ValidatorId,
+        _round: u64,
+        _author: ValidatorId,
+        digest: &Digest,
+        signature: &[u8],
+    ) -> bool {
         signer < 4 && signature == mac(signer, digest)
     }
 }

@@ -32,7 +32,9 @@ mod nakamoto;
 mod validator;
 mod vertex;
 
-pub use auth::{Authenticator, Equivocation, SignContext, SignKind, Unauthenticated, VOTE_DOMAIN};
+pub use auth::{
+    Authenticator, Equivocation, SignContext, SignKind, Unauthenticated, VOTE_DOMAIN, slot_message,
+};
 pub use commit::{Committer, SubDag};
 pub use dag::Dag;
 pub use ledger::{ACCOUNTS, Ledger, OPENING_BALANCE};

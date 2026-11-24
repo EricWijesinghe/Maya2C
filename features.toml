@@ -2071,7 +2071,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-fee-market", "crates/node/tests/fee_market_tests.rs", "crates/node/tests/fee_market_live_tests.rs"]
-note = "Live where genesis sets bft.fees (ADR-029). ADR-071 (Proposed on master): the base-fee rise is at most parent/denominator per block, and the fee is capped at MAX_BASE_FEE_PER_BYTE (7,567,158,531,971,244,797 base units: option B, 0.1 MAYA per 13,215-byte transfer, the value in limits.rs). The ceiling value awaits the economics decision; PR #293 would accept the option. Clamp tests: crates/fee-market/tests/base_fee_clamp_tests.rs."
+note = "Live where genesis sets bft.fees (ADR-029). The node burns 100% of the base fee and pools tips for stakers (spec 04-fees v0.2.0 FEE-1 with bps 0, FEE-7; no treasury share exists to vote in). ADR-071 (Proposed on master): the base-fee rise is at most parent/denominator per block, and the fee is capped at MAX_BASE_FEE_PER_BYTE (7,567,158,531,971,244,797 base units: option B, 0.1 MAYA per 13,215-byte transfer, the value in limits.rs). The ceiling value awaits the economics decision; PR #293 would accept the option. Clamp tests: crates/fee-market/tests/base_fee_clamp_tests.rs."
 
 [[subsystem]]
 id = "neural-base-fee-gain"
@@ -3402,7 +3402,7 @@ tier = "core"
 class = "REAL"
 status = "working"
 tests = ["crates/signer/tests/signer_tests.rs", "crates/node/tests/remote_signer_tests.rs"]
-note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed. Held at working (P2 red team, 2026-11-14): `maya2c-signer export`/`import` carry vertex and vote history only; the block-attestation database (ADR-038) has no interchange entries, so moving a key to a new signer machine drops its once-per-height record. The fix touches crates/signer, which the node links, so it waits for the post-genesis branch."
+note = "Master Prompt 16 §1-2. Keystore backend only (ADR-022). Called by the node with --remote-signer (ADR-033): protection per (round, author) slot, and the slot is inside the signed bytes (CT-05, spec CON-14), so a relabelled request cannot buy a second signature for one real slot; signs the node's exact bytes; `cargo xtask localnet --remote-signer` passes with one validator signing only through it. Channel and protection rule not externally reviewed. Held at working (P2 red team, 2026-11-14): `maya2c-signer export`/`import` carry vertex and vote history only; the block-attestation database (ADR-038) has no interchange entries, so moving a key to a new signer machine drops its once-per-height record. The fix touches crates/signer, which the node links, so it waits for the post-genesis branch."
 
 [[subsystem]]
 id = "sealed-validator-keys"

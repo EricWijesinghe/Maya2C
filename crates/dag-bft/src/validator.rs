@@ -448,7 +448,10 @@ impl<A: Authenticator> Validator<A> {
             return;
         }
         let digest = v.digest();
-        if !self.auth.verify(v.author, &digest, signature) {
+        if !self
+            .auth
+            .verify(v.author, v.round, v.author, &digest, signature)
+        {
             return;
         }
         if !self.record_proposal(&v, signature, digest, out) {
@@ -542,7 +545,9 @@ impl<A: Authenticator> Validator<A> {
             || self.pending_digest != Some(digest)
             || voter >= self.committee.size()
             || votes.contains_key(&voter)
-            || !self.auth.verify(voter, &digest, &signature)
+            || !self
+                .auth
+                .verify(voter, vertex.round, vertex.author, &digest, &signature)
         {
             return;
         }
@@ -586,11 +591,10 @@ impl<A: Authenticator> Validator<A> {
             }
             return;
         }
-        let authentic = c
-            .votes
-            .iter()
-            .zip(&c.signatures)
-            .all(|(voter, sig)| self.auth.verify(*voter, &digest, sig));
+        let authentic = c.votes.iter().zip(&c.signatures).all(|(voter, sig)| {
+            self.auth
+                .verify(*voter, c.vertex.round, c.vertex.author, &digest, sig)
+        });
         if authentic {
             self.accept(c, digest, from, out);
         }
