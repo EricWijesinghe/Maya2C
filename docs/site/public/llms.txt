@@ -44,6 +44,6 @@ These are offline or report on a paused network while maya-testnet-1 is stopped.
 
 ## Source
 
-- Code (Apache-2.0): https://github.com/EricWijesinghe/Maya2C
-- Releases: https://github.com/EricWijesinghe/Maya2C/releases
+- Code (Apache-2.0): https://github.com/maya2c/Maya2C
+- Releases: https://github.com/maya2c/Maya2C/releases
 - Code signing policy: https://maya2c.dev/guides/code-signing-policy/

@@ -2018,7 +2018,7 @@ paths = "`crates/vm`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
+tests = ["crate:maya-vm", "crates/node/tests/contract_tests.rs", "crates/vm/tests/cache_tests.rs", "crates/vm/tests/fuel_calibration_tests.rs", "crates/vm/tests/gas_golden_tests.rs", "crates/vm/tests/host_surface_tests.rs", "crates/vm/tests/tensor_gas_tests.rs", "crates/vm/tests/token_swap_tests.rs", "crates/vm/tests/vm_tests.rs", "crates/vm/tests/zkml_host_tests.rs"]
 
 [[subsystem]]
 id = "historical-pruning-archive-bootstrap"
@@ -2071,7 +2071,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-fee-market", "crates/node/tests/fee_market_tests.rs", "crates/node/tests/fee_market_live_tests.rs"]
-note = "Live where genesis sets bft.fees (ADR-029). ADR-071 (Proposed on master): the base-fee rise is at most parent/denominator per block, and the fee is capped at MAX_BASE_FEE_PER_BYTE (7,567,158,531,971,244,797 base units: option B, 0.1 MAYA per 13,215-byte transfer, the value in limits.rs). The ceiling value awaits the economics decision; PR #293 would accept the option. Clamp tests: crates/fee-market/tests/base_fee_clamp_tests.rs."
+note = "Live where genesis sets bft.fees (ADR-029). The node burns 100% of the base fee and pools tips for stakers (spec 04-fees v0.2.0 FEE-1 with bps 0, FEE-7; no treasury share exists to vote in). ADR-071 (Proposed on master): the base-fee rise is at most parent/denominator per block, and the fee is capped at MAX_BASE_FEE_PER_BYTE (7,567,158,531,971,244,797 base units: option B, 0.1 MAYA per 13,215-byte transfer, the value in limits.rs). The ceiling value awaits the economics decision; PR #293 would accept the option. Clamp tests: crates/fee-market/tests/base_fee_clamp_tests.rs."
 
 [[subsystem]]
 id = "neural-base-fee-gain"

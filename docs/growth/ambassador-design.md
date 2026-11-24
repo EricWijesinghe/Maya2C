@@ -88,7 +88,7 @@ body:
         listing on https://maya2c.dev/guides/contributors/.
 
         Read the ambassador code first:
-        https://github.com/EricWijesinghe/Maya2C/blob/master/docs/growth/ambassador-design.md#12-code-of-conduct-for-ambassadors
+        https://github.com/maya2c/Maya2C/blob/master/docs/growth/ambassador-design.md#12-code-of-conduct-for-ambassadors
 
         Do not put an email, phone number or real name here unless you want it public.
   - type: dropdown
