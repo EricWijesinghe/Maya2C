@@ -91,13 +91,44 @@ moving its engine is a release.
 | `shielded.max_per_block` | 1–16 | 16 | Sixteen ~0.4 MB STARKs fill most of an 8 MiB gossip frame. **Not yet read by the node**, which enforces `MAX_SHIELDED_PER_BLOCK` directly |
 | `vm.max_memory_pages` | 16–1024 | 256 | 1 MiB to 64 MiB per call |
 | `vm.max_module_bytes` | 64 KiB–2 MiB | 512 KiB | Code is stored verbatim and kept forever |
-| `vm.default_gas_limit` | 1e5–1e9 | 1e7 | Too low and nothing completes; too high and one call outlasts a block |
+| `vm.default_gas_limit` | 1e5–1e9 | 1e7 | Too low and nothing completes; too high and one call outlasts a block. **Not read by the node**: every call names its own limit, which `vm.max_tx_gas` caps |
+| `vm.max_tx_gas` | 239,979,600–3e8 | 2.5e8 | ADR-142. The most gas a call may name. The floor keeps every deployable module (≤ ≈236 M to compile cold) callable; a call is capped at the smaller of this and `vm.max_block_gas` |
+| `vm.max_block_gas` | 239,979,600–3e8 | 2.5e8 | ADR-142. A block's plaintext contract work, calls and deployments; revealed sealed actions get a further quarter of it (GAS-2). Gas is priced at ~1 ns of measured work a unit, so 2.5e8 is ~250 ms; at the 3e8 ceiling a block validates in ~375 ms of contract work and a producer spends ~675 ms |
 | `governance.proposal_deposit` | 0–1e9 | 10000 | Anti-spam; the ceiling stops governance pricing out its own participants |
 
 **No parameter can be set to zero where zero silently disables a subsystem.**
 Setting a per-block ceiling to zero does not remove a subsystem — it stops it
 while leaving every transaction that uses it apparently valid.
 `no_parameter_can_be_voted_to_zero_where_zero_disables_a_subsystem` checks this.
+
+### A block-validity rule waits a full upgrade lead
+
+A key for which `ParameterKey::is_validity_rule` is true (the DEX fill and
+order ceilings, the oracle and shielded per-block caps, the three VM bounds
+and ADR-142's per-transaction and per-block contract gas caps) decides which blocks every node accepts. A passed change to one is written to
+`g:pending:<tag>` when its proposal executes, with activation height = execution
+height + `VALIDITY_RULE_LEAD_BLOCKS` (= `MIN_UPGRADE_LEAD_BLOCKS`, 30 days at
+one block a second), and is promoted into the table at the end of the block
+before that height, so the committed table at the tip is the one the next block
+is judged by. One change waits per key: a later passed change to the same key
+replaces one still waiting. The protocol fee, the proposal deposit and the
+default signature suite apply at execution as before. ADR-082 amendment 2026-11-15
+(Eric 2026-11-14 MCQ); pinned by
+`a_block_validity_parameter_takes_effect_only_at_its_scheduled_height`, and for
+the gas caps by `a_passed_block_gas_cap_binds_only_after_the_validity_rule_lead`
+(ADR-142 amendment 4).
+
+The waiting value is on chain under `g:pending:<tag>` from execution, so
+anyone reading state can see it. No RPC lists it yet (the parameter RPC reads
+`g:params` only; follow-up in BACKLOG), so a wallet sees a waiting change only
+through a state read.
+
+A voter's stake must stay locked until the proposal's execution height, not
+until a validity change binds 30 days later. That matches `ScheduleUpgrade`
+proposals, whose entries also bind after the lock ends: the lock guards the
+decision against vote-then-sell, and the lead is notice to everyone else, so
+extending the lock by the lead would make every validity vote a 30-day longer
+commitment without changing who decided.
 
 ### The protocol fee, specifically
 
@@ -152,7 +183,8 @@ pool-participant-directed. A pool's miners contribute the hashes; the operator
 decides who is credited. The mechanism cannot fix that — attributing work to
 individual hashers needs the share data the pool holds off chain.
 
-Credit halves every 5,760 blocks (~1 day). Voting power should reflect hash power
+Credit halves every 86,400 blocks (one day at one block a second; 5,760 until
+the 2026-11-14 rescale, which was a day only at the old 15 s target). Voting power should reflect hash power
 *now*; an all-time accumulator would let a farm that ran two years ago govern
 forever. Halving is exact in integers — it is a shift — where a fractional decay
 would need a rounding rule, and a rounding rule in voting weight is a bias.

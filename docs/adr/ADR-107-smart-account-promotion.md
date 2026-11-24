@@ -71,7 +71,7 @@ account's policy from state:
 | Rule | Source | Check |
 |---|---|---|
 | Session key | `SessionScope` (`policy.rs:41-61`) | A signature by a session key counts only if every output recipient is in `recipients`, every output `amount <= max_amount`, `height <= expires_at`, and `kind` is `Transfer` (a session key never signs a key change, a recovery or an upgrade). |
-| Spending limit | `Policy` daily limit (`policy.rs:12`, `BLOCKS_PER_DAY` 43,200 at `:7`) | Sum of outputs in the window ending at `height` plus this frame's outputs `<= limit`. The window sum is a `ka:w:` record (below). |
+| Spending limit | `Policy` daily limit (`policy.rs:12`, `BLOCKS_PER_DAY` 86,400 at `:7`) | Sum of outputs in the window ending at `height` plus this frame's outputs `<= limit`. The window sum is a `ka:w:` record (below). |
 | Large-transfer delay | `Policy` | An output over the delay threshold is refused as an immediate transfer; it must go through the delayed path PR #447 already has (`Pending`, `account.rs:54`). |
 | Allow-list | `Policy` | If set, every recipient must be listed. |
 
@@ -91,7 +91,9 @@ Under PR #447's `ka:` prefix and layer, two record kinds are added:
   One record per window, `checked_add` only.
 
 `F7` from the `features.toml` note (policy day length) is settled by this ADR
-as `BLOCKS_PER_DAY = 43,200`, a block count, not a clock.
+as `BLOCKS_PER_DAY` = 86,400, a block count, not a clock: one day at one block
+a second (Eric 2026-11-14 MCQ, ADR-082 amendment 2026-11-15; it was 43,200, a
+day only at 2 s blocks).
 
 ### Relation to vault accounts
 
