@@ -459,8 +459,10 @@ fn a_genesis_names_only_valid_suite_deprecations() {
 
 /// Genesis id of a DAG-BFT genesis with no upgrade levers (ADR-082). A golden
 /// value: a change here means every existing BFT genesis changed identity.
+/// Re-pinned for ADR-155: the header is 177 bytes (a reserved extension root),
+/// and the id hashes the header.
 const PINNED_BFT_EMPTY_LEVERS_ID: &str =
-    "fb6a41f4e8bd082cb6f4cff551cb31676e06a73796da0515e982c34d820f498e";
+    "4169bb27ad6264366841e936d0c4c18463ae310b3ff053509c3851eb66fe95ab";
 
 #[test]
 fn a_bft_genesis_with_empty_levers_has_its_pinned_id() {

@@ -63,8 +63,8 @@ pub const fn header_version(version: u8) -> Result<(), &'static str> {
 /// that the node's constant is this one.
 pub const MAX_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
 
-/// CON-12: the header (145 bytes) and the transaction count (8).
-const BLOCK_OVERHEAD: u64 = 145 + 8;
+/// CON-12: the header (177 bytes) and the transaction count (8).
+const BLOCK_OVERHEAD: u64 = 177 + 8;
 
 /// CON-12: wire bytes of a block carrying transactions of these encoded
 /// lengths: the overhead plus an 8-byte length prefix per transaction.

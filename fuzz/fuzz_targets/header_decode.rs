@@ -1,13 +1,14 @@
 //! Fuzzes [`BlockHeader::from_bytes`].
 //!
-//! The header is fixed-width — 145 bytes, no length prefixes — so the decoder
+//! The header is fixed-width — 177 bytes, no length prefixes — so the decoder
 //! has a narrow surface, but it is reachable from `get_mining_candidate` over
 //! JSON-RPC as well as from block gossip, which makes it reachable by callers
 //! that never went through `Block::from_bytes`.
 //!
-//! The canonicality property is total here: exactly one 145-byte string maps to
-//! each header, and every 145-byte string ending in the ADR-063 version byte 0
-//! is a valid header. So `from_bytes`
+//! The canonicality property is total here: exactly one 177-byte string maps to
+//! each header, and every 177-byte string whose ADR-063 version byte is 0 and
+//! whose reserved extension root (ADR-155) is all zeros is a valid header. So
+//! `from_bytes`
 //! must succeed for exactly those inputs and fail for every other
 //! input — a stronger claim than round-tripping alone, and asserted as such.
 //!
@@ -20,6 +21,7 @@
 
 use custom_l1_node::BlockHeader;
 use custom_l1_node::core::HEADER_LEN;
+use custom_l1_node::core::block::{EXTENSION_ROOT_RANGE, VERSION_OFFSET};
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
@@ -38,10 +40,12 @@ fuzz_target!(|data: &[u8]| {
             );
         }
         Err(_) => {
-            // The version byte is serialized last; only version 0 exists.
+            // Only version 0 exists, and the extension root is reserved zeros.
             assert!(
-                data.len() != HEADER_LEN || data[HEADER_LEN - 1] != 0,
-                "every {HEADER_LEN}-byte version-0 string is a well-formed header, but this one was rejected"
+                data.len() != HEADER_LEN
+                    || data[VERSION_OFFSET] != 0
+                    || data[EXTENSION_ROOT_RANGE].iter().any(|b| *b != 0),
+                "every {HEADER_LEN}-byte version-0 string with a zero extension root is a well-formed header, but this one was rejected"
             );
         }
     }

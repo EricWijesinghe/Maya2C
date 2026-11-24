@@ -21,7 +21,7 @@ u8   signature_flag          0 = unsigned, 1 = signed
 
 ## Rules
 
-- **ENC-1** The first byte is the wire version. Versions 1–4 (single-signature eras) are rejected by name; 5 is a transfer, 6 a transfer with a typed payload, 7 suite-tagged, 8 multisig; any other value is rejected.
+- **ENC-1** The first byte is the wire version. Versions 1–4 (single-signature eras) are rejected by name; 5 is a transfer, 6 a transfer with a typed payload, 7 suite-tagged, 8 multisig; 14 is reserved for a transaction carrying an access list (its declared read and write set, ADR-155, B17) and is rejected by name until the rule that defines its layout activates; any other value is rejected.
 - **ENC-2** A version-5 frame is laid out exactly as above, and re-encoding a decoded frame reproduces its bytes (one encoding per transaction).
 - **ENC-3** The input/output section is `u64 count ‖ inputs ‖ u64 count ‖ outputs`, each element fixed-width. An output's amount is 32 bytes, little-endian (ADR-046).
 - **ENC-4** The signature flag is 0 or 1; any other value is rejected.

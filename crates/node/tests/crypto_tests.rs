@@ -372,12 +372,30 @@ const KAT_INPUT_LEN: usize = 112;
 const KAT_DIGEST_HEADER_144: &str =
     "5b3992c971393e4127ccd78fb00c2d82217ecdc41b3a0c3caab0629531a78e44";
 
-/// ArgonBlake over a full-length 145-byte header (ADR-063) of the same
+/// ArgonBlake over 145 bytes of the same pattern: the full header from
+/// ADR-063 (2026-10-27) until ADR-155 reserved the extension root. Kept, as the
+/// 144-byte vector was, as evidence that the function did not change.
+const KAT_DIGEST_HEADER_145: &str =
+    "7fa88db3dc219d12888934e835b970231698da402cd549c6084664b8cf144c4a";
+
+/// ArgonBlake over a full-length 177-byte header (ADR-155) of the same
 /// pattern, mirrored in `hal/cuda-miner/tests/parity.rs`, whose split hasher
 /// only accepts full-length headers. Frozen from the node's output on
-/// 2026-10-27; the GPU-side split is checked against it independently. It is
-/// never correct to update it to make a failure go away.
-const KAT_DIGEST_HEADER: &str = "7fa88db3dc219d12888934e835b970231698da402cd549c6084664b8cf144c4a";
+/// 2026-11-24, when the header grew; the 145-byte vector above still passes
+/// on its own input. It is never correct to update it to make a failure go
+/// away.
+const KAT_DIGEST_HEADER: &str = "f9750594372bea8ab9cb6a0cb5ee4fe432cda24f76112dc279bcd4f7c6fdceb5";
+
+#[test]
+fn argon_blake_matches_the_frozen_known_answer_on_the_145_byte_header() {
+    let digest = argon_blake_hash(&[0x5Au8; 145]).expect("hash must succeed");
+
+    assert_eq!(
+        hex::encode(digest),
+        KAT_DIGEST_HEADER_145,
+        "ArgonBlake over 145 bytes changed — the function changed, not a test to update"
+    );
+}
 
 #[test]
 fn argon_blake_matches_the_frozen_known_answer_on_the_144_byte_header() {
