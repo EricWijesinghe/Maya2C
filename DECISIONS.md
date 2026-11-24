@@ -1034,3 +1034,10 @@ heavier frames, so the vectors' frame recurses 1,090 deep (was 1,487) and a
 1,000-local frame 2 (was 15); a function weighing more than 32,768 slots traps
 on every call. Spec GAS-10, ADR-142 amendment 8 (revised), vectors at 1,089,
 1,090 and 1,091 levels.
+
+## 2026-11-24 — Contract gas and new contract state are paid for; failed calls pay and leave the pool (Eric 2026-11-24, R-2, R-3, R-1)
+
+- **R-2:** GAS-8 (ADR-142 amendment 5, #647) accepted: a call or deployment that fails in the VM is included, pays for the gas it used, and its moved nonce evicts it from every pool. Guarantee: spam costs the spammer.
+- **R-3:** contract gas is billed at `base_fee` per `vm.gas_per_fee_byte` (default 47 = ⌊250,000,000 / 5,242,880⌋, tag 23); calls reserve their `gas_limit` and get the unused part back; a per-sender cap `vm.max_sender_block_gas` (tag 24, default and floor tied to the tx cap so the largest module stays callable). Guarantee: a block of gas costs what a block of bytes costs, and no sender can take the block from everyone else.
+- **R-1:** new contract state pays `vm.storage_fee_bytes_per_byte` (tag 25, default 40, Ethereum's storage/calldata ratio is about 39) bytes of base fee per byte. Guarantee: state cannot balloon for a byte fee.
+- ADR-142 amendment 9; spec `10-vm-gas.md` v0.5.0 GAS-11..GAS-13. The three defaults are derivations, not measurements, and each is a governed parameter.

@@ -749,7 +749,7 @@ naming 245 M against a cap voted down to 240 M passes GAS-1 at `E + 1` and at
 `a_waiting_block_gas_cap_out_of_range_at_promotion_is_dropped`. Red captured
 with the two keys classified as immediate.
 
-## Amendment 5 (PROPOSED, needs Eric): a failed contract call is included and pays (decision brief 3, option A)
+## Amendment 5 (ACCEPTED by Eric 2026-11-24, see amendment 9): a failed contract call is included and pays (decision brief 3, option A)
 
 **Status: proposed in a draft PR, not accepted.** It changes who pays for
 failed contract work, which is an economics decision.
@@ -1200,3 +1200,53 @@ under the 1.5 bound; the exported-empty-functions shape, where the
 prologue and epilogue add the most code per unit of price, 0.916 ns/fuel;
 2,000 `return`s 0.004 ns/fuel. No price changed. Single runs on a machine
 shared with other builds; not a dedicated benchmark.
+
+## Amendment 9, 2026-11-24: contract gas and new state are paid for (Eric 2026-11-24: R-2, R-3, R-1)
+
+Eric's decisions of 2026-11-24, built together because they share one fee
+path. Each is a guarantee:
+
+- **Spam costs the spammer, and the pool stays free for real users (R-2).**
+  Amendment 5 (GAS-8) is accepted: a plaintext call or deployment that fails
+  in the VM is included, pays, and its nonce moves, so it leaves every pool
+  for good. With GAS-11 it now pays for the gas it ran, not only its bytes.
+- **Contract gas has a price, set by the same market as bytes (R-3,
+  GAS-11).** `base_fee` per `vm.gas_per_fee_byte` units, rounded up. A call
+  reserves its `gas_limit`'s price before it runs and gets back what it did
+  not use; a deployment pays its cold price after its scan. Default 47, the
+  default block gas over the block byte cap: a block of contract gas costs
+  what a block of bytes costs, so neither is the cheap way to fill a block.
+  Before this, one byte fee bought a call's whole gas, so one fee a block
+  bought that block's contract gas (the R-3 finding).
+- **No sender can take a block's contract gas from everyone else (R-3,
+  GAS-12).** `vm.max_sender_block_gas`, a validity parameter. Its floor is
+  the tx cap's own (239,979,600), because a lower one would make the largest
+  deployable module uncallable (GAS-5). At the default caps it equals the
+  block cap, so today it is the lever, not the limit: it binds once the
+  block cap is voted above it, with no new binary.
+- **State cannot balloon for a byte fee (R-1, GAS-13).** Every byte of new
+  contract state pays `vm.storage_fee_bytes_per_byte` bytes' worth of base
+  fee (default 40, in line with Ethereum's ratio of a new storage byte to a
+  calldata byte, about 39); a new entry also pays its 71-byte overhead.
+  Overwrites that do not grow pay nothing extra. A call that cannot pay for
+  the state it would add is included as failed and writes nothing.
+
+All three prices are governed parameters (tags 23, 24, 25; #644 holds 19 and
+20, ADR-155 21 and 22), so each limit moves by a vote within compiled bounds,
+never by a hard fork. All of it is base fee and burns (spec 04-fees FEE-7).
+
+**Where:** `crates/node/src/state/contract_fee.rs` (prices, reservation,
+settlement, refund, GAS-12 check), `fee_exec::charge_fee` (the reservation),
+`settlement::apply_kind` (settlement after GAS-8), `vm_exec::call_contract`
+and `deploy_contract` (GAS-12 and the GAS-13 check before staging),
+`mempool` (`admit_contract_fee`), `maya-governance` (three keys). Spec
+`10-vm-gas.md` v0.5.0, GAS-11..GAS-13.
+
+**Not covered, stated:** revealed sealed actions pay their envelope's fee and
+are not charged GAS-11/GAS-13 or counted by GAS-12; the GAS-13 existence read
+is not metered on its own (a block makes at most 50,000 at the default caps;
+time not measured); GAS-11 does not feed the base-fee step.
+
+**Evidence:** `crates/node/tests/contract_fee_tests.rs`;
+`state::contract_fee::tests`.
+
