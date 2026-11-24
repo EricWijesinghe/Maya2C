@@ -61,6 +61,25 @@ the suite policy, the mempool, and the RPC.
   governance sets may not name a suite a schedule entry already retires, and a
   proposal whose own changes would break these rules expires instead of
   stalling the chain (H2).
+- **Two families always outlive the schedule** (amendment 2026-11-24, G13).
+  Whatever the genesis and every later writer schedule, at least one permitted
+  lattice suite (`0x1_`) and one permitted hash-based suite (`0x2_`) carry no
+  sunset at all. An entry that would retire the last of either is refused in
+  `SuitePolicy::with_deprecation`, the one function genesis, governance and
+  the council all pass through. It is counted against the schedule as it will
+  stand after every window closes, not at the write height. A hybrid (`0x3_`)
+  counts toward neither: it needs both halves to verify, so it is no refuge
+  from a break of either. The guarantee: a public break of one hardness
+  assumption always leaves a live signature family to migrate to, without a
+  hard fork.
+- **The default is an allow-list** (amendment 2026-11-24, G23). The governance
+  crate range-checks `DefaultSignatureSuite` to `0x10..=0x30` (it has no
+  dependencies, invariant 12); the node accepts only a registered, permitted
+  suite of at least `MIN_DEFAULT_PQ_SECURITY_BITS` (192, NIST category 3), via
+  `SuitePolicy::may_be_default`. On mainnet that is ML-DSA-65, ML-DSA-87 and
+  SLH-DSA-SHAKE-256f. A category-1 suite (SLH-DSA-SHA2-128s, the hybrid) still
+  signs; it can never be what every new account is created under. A suite
+  registered later joins the list by its registry row alone.
 - **zkML** cannot be scheduled until `zkml::verdict` is a real verifier (M3).
   The refusal is in `UpgradeSchedule::new`, so admission and genesis both apply it.
 - **Feature bits** must be defined (`FeatureSet::is_known`).

@@ -59,7 +59,8 @@ pub fn suite_for_default(raw: maya_dex::Amount) -> Result<SuiteId> {
         .and_then(|v| u8::try_from(v).ok())
         .ok_or_else(|| NodeError::SignatureSuite(format!("default suite {raw} is not a byte")))?;
     let suite = SuiteId::try_from(byte).map_err(|e| NodeError::SignatureSuite(e.to_string()))?;
-    if SuitePolicy::genesis(Network::Mainnet).permitted(suite) {
+    // The default rule, not just "permitted": category 3 or above (G23).
+    if SuitePolicy::genesis(Network::Mainnet).may_be_default(suite) {
         Ok(suite)
     } else {
         Err(NodeError::SignatureSuite(format!(
@@ -286,6 +287,29 @@ mod tests {
             ..sunset(SuiteId::MlDsa65)
         };
         assert!(SuiteSunsets::new(&[backwards]).is_err());
+    }
+
+    #[test]
+    fn a_schedule_cannot_retire_every_hash_based_suite() {
+        // G13, through the path genesis and every upgrade take.
+        assert!(SuiteSunsets::new(&[sunset(SuiteId::SlhDsaSha2_128s)]).is_ok());
+        let both = [
+            sunset(SuiteId::SlhDsaSha2_128s),
+            sunset(SuiteId::SlhDsaShake256f),
+        ];
+        assert!(SuiteSunsets::new(&both).is_err());
+    }
+
+    #[test]
+    fn a_category_1_suite_may_not_be_the_default() {
+        // G23: the governance default is an allow-list, not the 0x10..=0x30 range.
+        let byte = |s: SuiteId| maya_dex::Amount::from_u64(u64::from(s.to_byte()));
+        for suite in [SuiteId::SlhDsaSha2_128s, SuiteId::HybridMlDsa65SlhDsa128s] {
+            assert!(suite_for_default(byte(suite)).is_err(), "{suite:?}");
+        }
+        for suite in [SuiteId::MlDsa65, SuiteId::MlDsa87, SuiteId::SlhDsaShake256f] {
+            assert_eq!(suite_for_default(byte(suite)).unwrap(), suite);
+        }
     }
 
     #[test]

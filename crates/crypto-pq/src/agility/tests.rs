@@ -255,3 +255,76 @@ fn rotation_to_a_deprecated_suite_is_refused() {
         Err(MigrationError::TargetNotActive(SuiteId::MlDsa65))
     );
 }
+
+// G13: whatever the schedule, one lattice and one hash-based suite outlive it.
+#[test]
+fn a_sunset_that_would_leave_no_hash_based_suite_is_refused() {
+    let one = SuitePolicy::genesis(Network::Mainnet)
+        .with_deprecation(SuiteId::SlhDsaSha2_128s, H, MIN_MIGRATION_WINDOW, false)
+        .expect("the other hash-based suite stays live");
+    assert!(
+        one.with_deprecation(SuiteId::SlhDsaShake256f, H, MIN_MIGRATION_WINDOW, false)
+            .is_err(),
+        "both SLH-DSA suites retired: a lattice break would leave nothing to move to"
+    );
+}
+
+#[test]
+fn a_sunset_that_would_leave_no_lattice_suite_is_refused() {
+    let hash_default = SuitePolicy::genesis(Network::Mainnet)
+        .with_default(SuiteId::SlhDsaShake256f)
+        .expect("permitted")
+        .with_deprecation(SuiteId::MlDsa65, H, MIN_MIGRATION_WINDOW, false)
+        .expect("ML-DSA-87 stays live");
+    assert!(
+        hash_default
+            .with_deprecation(SuiteId::MlDsa87, H, MIN_MIGRATION_WINDOW, false)
+            .is_err(),
+        "both ML-DSA suites retired"
+    );
+}
+
+#[test]
+fn a_hybrid_does_not_count_toward_either_family() {
+    // The hybrid stays live, but it needs its SLH-DSA half to verify, so it is
+    // no refuge once hash-based signatures fall: still refused.
+    let one = SuitePolicy::genesis(Network::Mainnet)
+        .with_deprecation(SuiteId::SlhDsaShake256f, H, MIN_MIGRATION_WINDOW, false)
+        .expect("one hash-based suite left");
+    assert!(
+        one.with_deprecation(SuiteId::SlhDsaSha2_128s, H, MIN_MIGRATION_WINDOW, false)
+            .is_err()
+    );
+    // Retiring the hybrid itself touches no floor.
+    assert!(
+        one.with_deprecation(
+            SuiteId::HybridMlDsa65SlhDsa128s,
+            H,
+            MIN_MIGRATION_WINDOW,
+            false
+        )
+        .is_ok()
+    );
+}
+
+// G23: the default is an allow-list of suites at category 3 or above.
+#[test]
+fn the_default_is_one_of_the_category_3_suites_off_devnet() {
+    for network in [Network::Mainnet, Network::Testnet] {
+        let policy = SuitePolicy::genesis(network);
+        let allowed: Vec<SuiteId> = SuiteId::ALL
+            .into_iter()
+            .filter(|s| policy.with_default(*s).is_ok())
+            .collect();
+        assert_eq!(
+            allowed,
+            [SuiteId::MlDsa65, SuiteId::MlDsa87, SuiteId::SlhDsaShake256f],
+            "{network:?}"
+        );
+    }
+    // A category-1 suite may still sign; it just cannot be what every new
+    // account is created under.
+    let mainnet = SuitePolicy::genesis(Network::Mainnet);
+    assert!(mainnet.may_sign(SuiteId::SlhDsaSha2_128s, H));
+    assert!(mainnet.may_sign(SuiteId::HybridMlDsa65SlhDsa128s, H));
+}

@@ -923,3 +923,10 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — Two signature families always live; the default suite is category 3 or above (Eric 2026-11-24, "start working on the gap items")
+
+- **Guarantee (G13):** no schedule, whoever writes it (genesis, governance, the council), can retire the last permitted lattice suite or the last permitted hash-based suite. `SuitePolicy::with_deprecation` refuses it, counted against the schedule after every window closes. A hybrid counts toward neither family, because it needs both halves to verify. A public break of one hardness assumption therefore always leaves a live family to move to, with no hard fork. Spec CRY-5.
+- **Guarantee (G23):** `DefaultSignatureSuite` is an allow-list, not a byte range: a registered, permitted suite of at least 192 claimed post-quantum bits (`MIN_DEFAULT_PQ_SECURITY_BITS`), today ML-DSA-65, ML-DSA-87 and SLH-DSA-SHAKE-256f. SLH-DSA-SHA2-128s and the hybrid still sign. Spec CRY-6.
+- **Consensus:** both change which governance and schedule entries are valid, so they land before genesis with the re-freeze. Genesis has an empty schedule and default `0x11`, so no genesis id moves. ADR-082 amendment 2026-11-24.
+- **Changed test:** `suite_parity_tests` asserted the hybrid (`0x30`) was an acceptable default; under CRY-6 it is refused, and the test now says so.
