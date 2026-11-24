@@ -12,7 +12,7 @@ carries value.
 ## Join in one command (Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/scripts/join-testnet.sh | bash
+curl -fsSL https://raw.githubusercontent.com/maya2c/Maya2C/master/scripts/join-testnet.sh | bash
 ```
 
 The script:
