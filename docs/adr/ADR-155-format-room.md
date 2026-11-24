@@ -63,8 +63,12 @@ evidence format CON-05 adds for them (open PRs #680 and #686) should use four.
 `BlockMaxBytes` and `BlockMaxTransactions` become `ParameterKey`s (tags 21
 and 22) with the block-validity lead of ADR-082 amendment b. Their ranges end at
 compiled ceilings that every transport of the same build is asserted at
-compile time to carry. Import and selection read the value in force at the
-block's height. The two contradictions the review found are removed: the epoch
+compile time to carry: one 8 MiB gossip frame with a mebibyte of framing, one
+24 MiB sync response (ceilings 7 MiB and 815,559 transactions, the byte ceiling
+at nine bytes an entry). Import (at the tip), every apply path (the state the
+block extends), selection and the DAG-BFT decode budget read the value in
+force. Raising a ceiling is a release with larger or chunked frames: a
+scheduled upgrade, not a format change. The two contradictions the review found are removed: the epoch
 sync bound is derived from the epoch length and the ceiling instead of a
 4 GiB constant a full epoch exceeds, and the contract-code decoder accepts what
 the governed `vm.max_module_bytes` range allows (2 MiB), so no passed vote can
@@ -76,15 +80,26 @@ One 32-byte extension root is reserved in the header, inside the bytes the
 block id and the proof of work cover. It is all zeros, and a header with any
 other value is refused, until an activation height defines it as the root of
 a versioned extension record: the ADR-053 ordered-set root, the body chunk
-root, the certificate root. A header stays inside three BLAKE3 blocks, so the
-GPU kernels' block count does not change. Gossip and sync of a block larger
-than one frame move to a chunked format (node-local, not consensus).
+root, the certificate root. The header is 177 bytes; it stays inside three
+BLAKE3 blocks, so the GPU kernels' block count does not change, and no earlier
+byte range moved (the root follows the version byte).
+
+Chunked gossip and sync framing is not part of this set. Framing is
+node-local, not consensus, and item 3 asserts that a block at the highest cap
+a vote can set fits one gossip frame and one sync response, so no valid block
+needs chunks; the release that raises the ceiling past one frame brings them.
 
 ### 5. Upgrades name their binary and have room for any number of features (G21, NEW-3)
 
 The upgrade record carries the 32-byte hash of the release that implements
-it, and the feature set is 256 bits wide instead of 64. Bits keep their
-numbers; the encoding widens once, now.
+it, and the feature set is 128 bits wide instead of 64. Bits keep their
+numbers. The stored `up:v` record starts with a layout byte (1), so a set
+wider than 128 bits later is a new layout of the same record, not a new
+record kind. The hash is committed (proposal, record, genesis id) for
+operators and voters to check a release against; no node compares it with
+its own executable, which cannot hash itself reliably. A sunset-only entry
+names no release. 128 rather than 256: bits 0-10 and the v4 claim 40-47 are
+the whole demand in sight, and the layout byte covers the rest.
 
 ### 6. Accounts, transactions and proofs have their version bytes (P7, B17, P3)
 
@@ -93,8 +108,13 @@ numbers; the encoding widens once, now.
   state leaf (ROOT-1). A smart-account policy or another key scheme is a new
   kind a scheduled upgrade defines, not a new record layout. A record naming
   an unknown kind is refused.
-- A transaction carries an optional access-list field (B17, pre-genesis half):
-  empty today and refused when non-empty until its gate activates.
+- Transaction wire version 14 is reserved for a transaction carrying an
+  access list, its declared read and write set (B17, pre-genesis half; the
+  next number after the v4 umbrella's claims). It is refused at decode by name
+  until the rule that defines its layout activates, so the number can never
+  mean anything else. A field in versions 5 to 8 was the alternative: it would
+  have changed every wallet, SDK and hardware-wallet encoder for a list that
+  is empty until then.
 - A STARK proof starts with a version byte (1). A later circuit, field or hash
   is a new version a verifier can tell apart from the bytes alone; an unknown
   one is refused before decoding.
@@ -129,7 +149,7 @@ numbers; the encoding widens once, now.
 
 - 24 (execution reproduces the declared root): roots change, the rule does not.
 - 25 (state under the root): the auth kind is inside the account leaf.
-- 31 (transaction wire): the access-list field is inside the signed bytes.
+- 31 (transaction wire): version 14 is reserved; versions 5 to 8 are unchanged.
 - 33 (block byte cap): the cap becomes a governed value under a compiled
   ceiling; `block_bytes_tests.rs` pins both.
 - 34 (upgrade schedule): the upgrade record layout widens.
