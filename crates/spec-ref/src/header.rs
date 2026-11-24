@@ -22,10 +22,11 @@ pub struct Header {
     pub version: u8,
 }
 
-/// CON-1: the 145-byte encoding, fields in declaration order.
+/// CON-1: the 177-byte encoding, fields in declaration order, then the
+/// reserved 32-byte extension root, all zeros (ADR-155).
 #[must_use]
 pub fn serialize(h: &Header) -> Vec<u8> {
-    let mut out = Vec::with_capacity(145);
+    let mut out = Vec::with_capacity(177);
     out.extend_from_slice(&h.prev_hash);
     out.extend_from_slice(&h.state_root);
     out.extend_from_slice(&h.timestamp.to_le_bytes());
@@ -33,6 +34,7 @@ pub fn serialize(h: &Header) -> Vec<u8> {
     out.extend_from_slice(&h.difficulty_target);
     out.extend_from_slice(&h.tx_root);
     out.push(h.version);
+    out.extend_from_slice(&[0; 32]);
     out
 }
 

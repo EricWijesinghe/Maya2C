@@ -59,6 +59,10 @@ jobs:
       - name: Install dependencies (no lifecycle scripts)
         working-directory: docs/site
         run: npm ci --ignore-scripts
+      # Runs the .ts tests with Node's built-in type stripping (Node 22.18+).
+      - name: Unit tests (page data mapping, node --test)
+        working-directory: docs/site
+        run: npm test
       - name: Build the site
         working-directory: docs/site
         run: npm run build
@@ -86,7 +90,7 @@ jobs:
           path: docs/site/dist
 
   # Signs the manifest with this run's OIDC identity (Sigstore). `gh attestation
-  # verify <manifest> --repo EricWijesinghe/Maya2C` proves which workflow and
+  # verify <manifest> --repo maya2c/Maya2C` proves which workflow and
   # commit produced the hashes that the live check trusts.
   attest:
     needs: build

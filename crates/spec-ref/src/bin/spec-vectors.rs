@@ -430,6 +430,8 @@ fn encoding_vectors(k: &BTreeMap<String, Address>) -> Value {
         good("unsigned-transfer", &unsigned),
         bad("single-signature-era-version", &["ENC-1"], vec![4]),
         bad("unknown-version", &["ENC-1"], vec![9]),
+        // ADR-155: reserved for access-list transactions, refused until defined.
+        bad("access-list-version-reserved", &["ENC-1"], vec![14]),
         bad("signature-flag-2", &["ENC-4"], flag2),
         bad("trailing-byte", &["ENC-2", "ENC-5"], trailing),
         bad("truncated", &["ENC-5"], full[..full.len() - 1].to_vec()),
@@ -599,7 +601,7 @@ fn block_size_cases() -> Vec<Value> {
         json!({"id": "block-cap-value", "rules": ["CON-12"], "fn": "block_cap", "expect": {"result": "ok", "cap": consensus::MAX_BLOCK_BYTES.to_string()}}),
     ];
     let empty: Vec<u64> = vec![];
-    cases.push(json!({"id": "block-size-empty", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&empty), "cap": consensus::MAX_BLOCK_BYTES.to_string(), "expect": {"result": "ok", "bytes": "153", "admitted": ""}}));
+    cases.push(json!({"id": "block-size-empty", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&empty), "cap": consensus::MAX_BLOCK_BYTES.to_string(), "expect": {"result": "ok", "bytes": "185", "admitted": ""}}));
     let two = vec![hybrid, hybrid];
     let exact = consensus::block_wire_bytes(&two);
     cases.push(json!({"id": "block-size-exact-cap-admits", "rules": ["CON-12"], "fn": "block_size", "tx_lens": lens(&two), "cap": exact.to_string(), "expect": {"result": "ok", "bytes": exact.to_string(), "admitted": "0,1"}}));

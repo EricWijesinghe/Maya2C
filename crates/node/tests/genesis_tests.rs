@@ -110,6 +110,22 @@ fn different_chain_ids_produce_different_genesis_blocks() {
 }
 
 #[test]
+fn a_genesis_that_names_no_shielded_activation_keeps_the_pool_off() {
+    // P4 (Eric 2026-11-24): the pool runs only where a genesis turns it on by
+    // name. A genesis file that lost the field, or a tool that never wrote it,
+    // fails closed: no join-split executes at any height.
+    let unnamed = config();
+    assert_eq!(unnamed.shielded_activation_height, None);
+    assert_eq!(
+        unnamed.shielded_activation(),
+        custom_l1_node::state::context::SHIELDED_NEVER
+    );
+    let context = custom_l1_node::state::context::BlockContext::at_height(1)
+        .with_shielded_activation(unnamed.shielded_activation());
+    assert!(!context.shielded_active(), "an unnamed pool must not run");
+}
+
+#[test]
 fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
     // ADR-037. Absent, the id is what it was before the field existed, so
     // the running testnet keeps its genesis; named, it is committed, so two
@@ -121,7 +137,7 @@ fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
     let mut never = config();
     never.shielded_activation_height = Some(u64::MAX);
 
-    assert_eq!(unnamed.shielded_activation(), 0);
+    assert_eq!(zero.shielded_activation(), 0);
     assert_eq!(never.shielded_activation(), u64::MAX);
     assert_ne!(id(&unnamed), id(&never));
     assert_ne!(id(&zero), id(&never));
@@ -459,8 +475,10 @@ fn a_genesis_names_only_valid_suite_deprecations() {
 
 /// Genesis id of a DAG-BFT genesis with no upgrade levers (ADR-082). A golden
 /// value: a change here means every existing BFT genesis changed identity.
+/// Re-pinned for ADR-155: the header is 177 bytes (a reserved extension root),
+/// and the id hashes the header.
 const PINNED_BFT_EMPTY_LEVERS_ID: &str =
-    "fb6a41f4e8bd082cb6f4cff551cb31676e06a73796da0515e982c34d820f498e";
+    "4169bb27ad6264366841e936d0c4c18463ae310b3ff053509c3851eb66fe95ab";
 
 #[test]
 fn a_bft_genesis_with_empty_levers_has_its_pinned_id() {

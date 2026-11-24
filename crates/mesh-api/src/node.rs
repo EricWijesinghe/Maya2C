@@ -6,7 +6,8 @@ use jsonrpsee::core::ClientError;
 use jsonrpsee::core::client::ClientT;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use jsonrpsee::rpc_params;
-use serde::Deserialize;
+use maya_amount::Amount;
+use serde::{Deserialize, Deserializer};
 
 /// How long one node call may take.
 pub const NODE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
@@ -49,9 +50,11 @@ pub struct Change {
     /// Hex address.
     pub address: String,
     /// Before the block.
-    pub before: u64,
+    #[serde(deserialize_with = "decimal")]
+    pub before: Amount,
     /// After it.
-    pub after: u64,
+    #[serde(deserialize_with = "decimal")]
+    pub after: Amount,
 }
 
 /// A block's balance changes.
@@ -67,11 +70,33 @@ pub struct Changes {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct AtTip {
     /// Balance.
-    pub balance: u64,
+    #[serde(deserialize_with = "decimal")]
+    pub balance: Amount,
     /// Tip height.
     pub height: u64,
     /// Hex tip id.
     pub block_id: String,
+}
+
+/// Parses a base-10 amount below 2^256: one or more ASCII digits, nothing
+/// else. An empty string is refused rather than read as zero, and a JSON
+/// number is refused because the node never sends one (ADR-046).
+#[must_use]
+pub fn parse_amount(text: &str) -> Option<Amount> {
+    if text.is_empty() {
+        return None;
+    }
+    let ten = Amount::from_u64(10);
+    text.bytes().try_fold(Amount::from_u64(0), |acc, b| {
+        let digit = b.is_ascii_digit().then(|| u64::from(b - b'0'))?;
+        acc.checked_mul(ten)?.checked_add(Amount::from_u64(digit))
+    })
+}
+
+fn decimal<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Amount, D::Error> {
+    let text = String::deserialize(deserializer)?;
+    parse_amount(&text)
+        .ok_or_else(|| serde::de::Error::custom("amount is not a base-10 256-bit integer"))
 }
 
 /// Why a node read failed.

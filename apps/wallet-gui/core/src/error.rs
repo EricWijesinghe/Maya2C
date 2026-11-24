@@ -16,6 +16,12 @@ pub enum WalletError {
     #[error("entropy: {0}")]
     Entropy(String),
 
+    /// The entropy source failed its SP 800-90B health tests, or could not
+    /// be read, while generating a key. Fails closed, never falls back; the
+    /// message carries counts and cutoffs, never a sample.
+    #[error(transparent)]
+    EntropyHealth(#[from] maya_entropy::keygen::KeygenEntropyError),
+
     /// A recovery phrase was rejected.
     #[error("recovery phrase: {0}")]
     Mnemonic(String),
@@ -85,6 +91,11 @@ pub enum WalletError {
     /// A passphrase was empty where one is required.
     #[error("a passphrase is required")]
     EmptyPassphrase,
+
+    /// A new passphrase is shorter than the minimum. Existing wallets are not
+    /// re-checked on unlock, only when a passphrase is chosen.
+    #[error("the passphrase must be at least {0} characters")]
+    PassphraseTooShort(usize),
 
     /// A QR payload could not be decoded or parsed.
     #[error("qr: {0}")]

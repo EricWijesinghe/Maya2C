@@ -21,13 +21,13 @@ use custom_l1_node::crypto::argon_blake::argon_blake_hash as node_hash;
 use maya_cuda_miner::{HEADER_LEN, argon_blake_hash as split_hash, set_nonce};
 
 /// `KAT_DIGEST_HEADER` from `tests/crypto_tests.rs`: ArgonBlake over a
-/// full-length 145-byte header. Reproduced so a divergence says *which* of the
+/// full-length 177-byte header. Reproduced so a divergence says *which* of the
 /// two implementations moved.
 ///
 /// Not the original 112-byte `KAT_DIGEST`. The split hasher only accepts
 /// full-length headers, and the node keeps that older vector to show that the
 /// function itself did not change when the header grew.
-const KAT_DIGEST: &str = "7fa88db3dc219d12888934e835b970231698da402cd549c6084664b8cf144c4a";
+const KAT_DIGEST: &str = "f9750594372bea8ab9cb6a0cb5ee4fe432cda24f76112dc279bcd4f7c6fdceb5";
 
 /// A cheap deterministic byte stream. Not cryptographic — it only has to walk
 /// the header through values a real chain would produce.
@@ -45,7 +45,7 @@ fn pseudo_random_header(seed: u64) -> [u8; HEADER_LEN] {
 
 #[test]
 fn the_header_length_agrees_with_the_node() {
-    // This crate hardcodes 145 rather than depending on the node at runtime.
+    // This crate hardcodes 177 rather than depending on the node at runtime.
     // If the header ever grows, that constant has to move with it, and this is
     // where the miner finds out.
     assert_eq!(HEADER_LEN, NODE_HEADER_LEN);

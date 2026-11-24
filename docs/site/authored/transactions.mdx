@@ -178,9 +178,9 @@ tab a security property, not a style choice.
 
 ## Amounts: 256-bit, checked
 
-Amounts are unsigned 256-bit integers in base units. [ADR-046](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md) sets
-the decimals convention; [ADR-068](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md) raised it to 24, so one coin is $10^{24}$ base units.
-[ADR-048](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-048-maya-amount.md)
+Amounts are unsigned 256-bit integers in base units. [ADR-046](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-046-universe-scale-supply.md) sets
+the decimals convention; [ADR-068](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-068-forever-mining.md) raised it to 24, so one coin is $10^{24}$ base units.
+[ADR-048](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-048-maya-amount.md)
 implements the arithmetic in the dependency-free crate `crates/amount`.
 
 | Quantity | Value |
@@ -206,7 +206,7 @@ prove that no checked operation wraps and that add and subtract are inverses.
 ## The fee rule
 
 The base fee $b_t$ is charged per byte. It is live wherever genesis sets
-`bft.fees`, which the testnet does ([ADR-029](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-029-fee-market-live.md)).
+`bft.fees`, which the testnet does ([ADR-029](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-029-fee-market-live.md)).
 The controller in `crates/fee-market` is an EIP-1559-style update. With $T$ the
 target block size in bytes, $s_t$ the parent's size and $D = 8$ the denominator:
 
@@ -225,7 +225,7 @@ b_t & s_t = T
 $$
 
 The rise is clamped to one denominator's share per block, so no block, however
-full, lifts the fee by more than 1/8 ([ADR-076](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/adr/ADR-076-base-fee-step-clamp-and-ceiling.md),
+full, lifts the fee by more than 1/8 ([ADR-076](https://github.com/maya2c/Maya2C/blob/master/docs/adr/ADR-076-base-fee-step-clamp-and-ceiling.md),
 Proposed). A block at $2T$ raises the fee by exactly 1/8, and an empty block
 lowers it by 1/8. The fee also stops at a compiled-in ceiling $B_{\max}$
 (`MAX_BASE_FEE_PER_BYTE` in `crates/fee-market/src/limits.rs`). That value is

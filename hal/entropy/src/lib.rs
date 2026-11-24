@@ -26,9 +26,14 @@
 //!
 //! A tamper event ([`tamper::TamperLine::trip`]) zeroizes every registered
 //! key store and latches the pool shut.
+//!
+//! Key tools outside the node take their seeds from [`keygen::KeygenEntropy`]:
+//! the OS source behind a 4,096-sample start-up test and the continuous tests,
+//! failing closed with a typed error (ADR-137 HW-5).
 
 pub mod drbg;
 pub mod health;
+pub mod keygen;
 pub mod pool;
 pub mod sources;
 pub mod tamper;

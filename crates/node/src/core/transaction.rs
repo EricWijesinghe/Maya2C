@@ -118,6 +118,13 @@ const WIRE_VERSION: u8 = 5;
 /// Wire format version for a transaction carrying a typed payload.
 const WIRE_VERSION_PAYLOAD: u8 = 6;
 
+/// Wire version reserved for a transaction carrying an access list, its
+/// declared read and write set (ADR-155 §6, B17; the next free version after
+/// the v4 umbrella's claims). Refused at decode, by name, until the gate that
+/// defines its layout activates, so the number can never be taken by anything
+/// else and no node reads such a frame as another version.
+pub const WIRE_VERSION_ACCESS_LIST: u8 = 14;
+
 /// Largest encoded transaction any node will decode.
 ///
 /// A transaction rides in a DAG-BFT batch (`MAX_BATCH_BYTES`, 4 MiB), so none
@@ -484,6 +491,11 @@ impl Transaction {
                  verified; it carries one signature where both an ML-DSA-65 and an \
                  SLH-DSA-SHA2-128s proof ({HYBRID_SIGNATURE_LENGTH} bytes together) are \
                  required"
+            )));
+        }
+        if version == WIRE_VERSION_ACCESS_LIST {
+            return Err(NodeError::Decode(format!(
+                "transaction wire version {version} is reserved for access-list transactions and refused until its activation (ADR-155)"
             )));
         }
         if version == suite_tx::WIRE_VERSION_SUITE {

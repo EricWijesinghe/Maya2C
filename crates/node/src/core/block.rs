@@ -170,8 +170,22 @@ const POW_SEED_CONTEXT: &str = "custom-l1-node 2026-08-31 dag pow seed v1";
 /// account leaf from the state tree, which shares the internal-node rule.
 const TX_LEAF_CONTEXT: &str = "custom-l1-node tx leaf v1";
 
-/// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32 + 32 + 1.
-pub const HEADER_LEN: usize = 145;
+/// Serialized length of a [`BlockHeader`]: 32 + 32 + 8 + 8 + 32 + 32 + 1, then
+/// the 32-byte extension root ([`EXTENSION_ROOT_RANGE`]).
+pub const HEADER_LEN: usize = 177;
+
+/// Byte range of the header's reserved extension root (ADR-155 §4: C12, B5,
+/// B6): inside the bytes the block id and the proof of work cover.
+///
+/// All zeros, and a header with any other value is refused, until an
+/// activation height defines it as the root of a versioned extension record:
+/// the ADR-053 ordered-set root, the body chunk root, the certificate root.
+/// Reserved now so that miners, Stratum V2, XDP and light clients carry the
+/// final header width from genesis and adding a root later changes a value,
+/// not the layout. Appended after the version byte for the reason `tx_root`
+/// was: no earlier range moved, and 177 bytes still hash in three BLAKE3
+/// blocks.
+pub const EXTENSION_ROOT_RANGE: std::ops::Range<usize> = 145..177;
 
 /// Header layout version a node of this build produces and accepts (ADR-063).
 ///
@@ -293,6 +307,7 @@ impl BlockHeader {
         buf[80..112].copy_from_slice(&self.difficulty_target);
         buf[TX_ROOT_RANGE].copy_from_slice(&self.tx_root);
         buf[VERSION_OFFSET] = self.version;
+        // EXTENSION_ROOT_RANGE stays zero: nothing defines it yet (ADR-155).
         buf
     }
 
@@ -309,6 +324,14 @@ impl BlockHeader {
             tx_root: reader.read_array::<HASH_LEN>()?,
             version: reader.read_u8()?,
         };
+        // The reserved extension root (ADR-155): zero is the only value this
+        // build accepts, so a header naming a root no rule defines yet is not
+        // read as one that names none.
+        if reader.read_array::<HASH_LEN>()? != [0; HASH_LEN] {
+            return Err(crate::error::NodeError::Decode(
+                "header extension root is reserved and must be zero".to_string(),
+            ));
+        }
         // Strict: a header of a layout this build does not know is not read as
         // if it were one it does (ADR-063). Layout first, so a byte wrong in
         // both nibbles keeps the error CON-10's vectors name.

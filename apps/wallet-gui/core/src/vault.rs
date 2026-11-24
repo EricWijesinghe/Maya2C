@@ -58,6 +58,25 @@ const KDF_MEMORY_KIB: u32 = 64 * 1024;
 const KDF_ITERATIONS: u32 = 3;
 const KDF_LANES: u32 = 1;
 
+/// Fewest characters a newly chosen wallet passphrase may have. Matches the
+/// signer's keystore minimum, so one passphrase policy covers both.
+pub const MIN_PASSPHRASE_CHARS: usize = 12;
+
+/// Refuses a passphrase too short to be worth sealing a seed under.
+///
+/// Called where a passphrase is chosen (create, recover), not from [`seal`]
+/// or [`unseal`], so existing wallets still unlock.
+///
+/// # Errors
+///
+/// Returns [`WalletError::PassphraseTooShort`] below [`MIN_PASSPHRASE_CHARS`].
+pub fn check_new_passphrase(passphrase: &str) -> Result<()> {
+    if passphrase.chars().count() < MIN_PASSPHRASE_CHARS {
+        return Err(WalletError::PassphraseTooShort(MIN_PASSPHRASE_CHARS));
+    }
+    Ok(())
+}
+
 /// Keychain service name.
 const SERVICE: &str = "com.maya2c.wallet";
 
@@ -218,6 +237,11 @@ impl OsKeychain {
         Self { service }
     }
 
+    // TODO(P-10, Android Keystore): keyring 4's `v1` API has no Android store;
+    // there `Entry::new` returns `Invalid("platform")` (keyring's own
+    // `test_new_before_store`), so an Android build fails closed: no wallet can
+    // be created, and nothing falls back to a plain file. Threat model and the
+    // plan (a Keystore-bound store behind this trait): apps/wallet-gui/ANDROID.md.
     fn entry(&self, name: &str) -> Result<keyring::Entry> {
         keyring::Entry::new(&self.service, name)
             .map_err(|e| WalletError::Keychain(format!("opening entry '{name}': {e}")))

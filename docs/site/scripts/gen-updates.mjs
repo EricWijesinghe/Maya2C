@@ -10,7 +10,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const REPO = "EricWijesinghe/Maya2C";
+const REPO = "maya2c/Maya2C";
 const OUT = new URL("../public/updates/", import.meta.url);
 
 // Release asset name prefix -> manifest name. Asset names have spaces
@@ -63,7 +63,15 @@ function versionOf(platforms) {
 }
 
 async function main() {
-  const releases = await json(`https://api.github.com/repos/${REPO}/releases?per_page=20`);
+  // GitHub unreachable: the build goes on without manifests (see the header).
+  // Only the listing fetch is skippable; a malformed response fails the build.
+  let releases;
+  try {
+    releases = await json(`https://api.github.com/repos/${REPO}/releases?per_page=20`);
+  } catch (error) {
+    console.warn(`updates: skipped (${error.message})`);
+    return;
+  }
   const signed = releases.find(
     (r) => r.tag_name.startsWith("node-v") && r.assets.some((a) => a.name.endsWith(".sig")),
   );
@@ -71,8 +79,11 @@ async function main() {
     console.log("updates: no signed release yet; no manifests written");
     return;
   }
+  const bundled = await bundles(signed);
+  // A signed release whose manifests cannot be written fails the build: the
+  // site must not deploy without the manifests it was asked to publish.
   await mkdir(OUT, { recursive: true });
-  for (const [app, platforms] of Object.entries(await bundles(signed))) {
+  for (const [app, platforms] of Object.entries(bundled)) {
     const version = versionOf(platforms);
     if (!version) continue;
     const manifest = {
@@ -87,4 +98,7 @@ async function main() {
   }
 }
 
-main().catch((error) => console.warn(`updates: skipped (${error.message})`));
+main().catch((error) => {
+  console.error(`updates: failed (${error.message})`);
+  process.exitCode = 1;
+});
