@@ -73,6 +73,31 @@ pub fn key_record(id: &[u8; 32]) -> Vec<u8> {
     [KEY_PREFIX, id.as_slice()].concat()
 }
 
+/// The value stored under [`key_record`]: `suite ‖ key` (NEW-2, ADR-153). The
+/// validator id stays [`validator_id`] of the key bytes alone.
+#[must_use]
+pub fn encode_key_value(key: &[u8; crate::crypto::validator_keys::PUBLIC_KEY_LEN]) -> Vec<u8> {
+    let suite = crate::crypto::validator_keys::DEFAULT_VALIDATOR_SUITE.to_byte();
+    [&[suite], key.as_slice()].concat()
+}
+
+/// The key bytes of a [`key_record`] value, after checking its suite byte.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for a value without a validator suite or of the
+/// wrong length for it.
+pub fn decode_key_value(
+    value: &[u8],
+) -> Result<[u8; crate::crypto::validator_keys::PUBLIC_KEY_LEN]> {
+    let (&suite, key) = value
+        .split_first()
+        .ok_or_else(|| NodeError::Decode("empty validator key record".to_string()))?;
+    crate::crypto::validator_keys::validator_suite(suite)?;
+    key.try_into()
+        .map_err(|_| NodeError::Decode("validator key length".to_string()))
+}
+
 /// `k:cmt:<epoch>`, big-endian so epochs sort.
 #[must_use]
 pub fn committee_record(epoch: u64) -> Vec<u8> {
