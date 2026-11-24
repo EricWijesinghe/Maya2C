@@ -27,6 +27,12 @@
 //! peer it is client-written, so the socket address is the key instead. A
 //! request that arrives without the header (a local health check) falls back
 //! to its socket address rather than failing.
+//!
+//! Loopback is not the same as "the proxy": in a header mode, any other
+//! process on this host, or anything that can make this host send a request
+//! to its own loopback, chooses its own key by writing the header. Use a
+//! header mode only on a host where the tunnel or proxy is the sole local
+//! client of the gateway port; otherwise run in [`ClientIp::Socket`] mode.
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -81,12 +87,33 @@ impl KeyExtractor for ClientKey {
 
     fn extract<T>(&self, request: &Request<T>) -> Result<IpAddr, GovernorError> {
         client_address(self.0, request.headers(), request.extensions())
+            .map(bucket_key)
             .ok_or(GovernorError::UnableToExtractKey)
     }
 }
 
-/// The client's address as the limiter keys it, for anything else that must
-/// count per client the same way (the event subscription caps).
+/// The address a client is counted as: an IPv4 address as itself (unwrapped
+/// from its IPv4-mapped IPv6 form), an IPv6 address by its /64. One IPv6 host
+/// usually holds a whole /64, so keying the full address would hand it 2^64
+/// buckets. Same rule as the node's own RPC limiter.
+#[must_use]
+pub fn bucket_key(address: IpAddr) -> IpAddr {
+    match address {
+        IpAddr::V4(_) => address,
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return IpAddr::V4(v4);
+            }
+            let mut segments = v6.segments();
+            segments[4..].fill(0);
+            IpAddr::V6(segments.into())
+        }
+    }
+}
+
+/// The client's address as the limiter sees it, before [`bucket_key`], for
+/// anything else that must count per client the same way (the event
+/// subscription caps).
 #[must_use]
 pub fn client_address(
     mode: ClientIp,

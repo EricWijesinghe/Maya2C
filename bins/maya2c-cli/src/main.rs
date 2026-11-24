@@ -67,7 +67,7 @@ enum Command {
         genesis: PathBuf,
         /// Block height to replay.
         height: u64,
-        /// Working directory, wiped on start.
+        /// Working directory, wiped on start (only if empty or made by maya2c).
         #[arg(long, default_value = ".maya2c-replay")]
         dir: PathBuf,
         /// Start from the source's snapshot at least this deep instead of
@@ -83,7 +83,7 @@ enum Command {
         /// The network's genesis file.
         #[arg(long)]
         genesis: PathBuf,
-        /// Working directory, wiped on start.
+        /// Working directory, wiped on start (only if empty or made by maya2c).
         #[arg(long, default_value = ".maya2c-fork")]
         dir: PathBuf,
         /// Local JSON-RPC port.
@@ -101,7 +101,7 @@ enum Command {
         /// Pre-funded accounts.
         #[arg(long, default_value_t = 5)]
         accounts: usize,
-        /// Working directory, wiped on start.
+        /// Working directory, wiped on start (only if empty or made by maya2c).
         #[arg(long, default_value = ".maya2c-dev")]
         dir: PathBuf,
         /// JSON-RPC port.
