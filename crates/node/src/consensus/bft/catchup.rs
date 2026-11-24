@@ -374,8 +374,11 @@ pub fn fetch_anchored(
 /// Most blocks a stale node may link across below its trusted block. Why: the
 /// whole gap is buffered before the trusted id can be compared, so the cap
 /// bounds the memory a hostile peer can make a stale node hold. 50,000 blocks
-/// is about 8.7 days at the 15 s target. A gap past it means the operator
-/// picked a trusted block far above the tip.
+/// is about 13.9 hours at one block a second (it was sized as 8.7 days at the
+/// 15 s target). Kept, not rescaled, in the 2026-11-15 rescale: it is
+/// node-local, `MAX_LINKED_GAP_BYTES` is the binding bound for non-empty
+/// blocks, and a node offline longer restores with `--bootstrap-from`. A gap
+/// past it means the operator picked a trusted block far above the tip.
 /// Shortcut: the cap counts blocks, not bytes, and the bytes per block are not
 /// bounded here. Upgrade: a byte cap once the encoded block size limit is a
 /// named constant this path can read.

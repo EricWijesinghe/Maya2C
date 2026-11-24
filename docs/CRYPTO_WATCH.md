@@ -11,12 +11,35 @@ what the chain does about each change. Master Prompt 15 §6.
 
 | Use | Primitive | Standard | Where |
 |---|---|---|---|
-| Transaction signature, lattice half | ML-DSA-65 | FIPS 204 (final, Aug 2024) | `crates/fips204`, `crates/crypto-pq` |
+| Transaction signature, lattice half | ML-DSA-65 | FIPS 204 (final, Aug 2024) | `fips204` crate via `crates/node/src/crypto/keys.rs`; `ml-dsa` crate in `crates/crypto-pq` |
 | Transaction signature, hash-based half | SLH-DSA-SHA2-128s | FIPS 205 (final, Aug 2024) | `crates/crypto-pq` |
-| P2P key agreement | ML-KEM-768 inside Noise XX (X25519) | FIPS 203 (final, Aug 2024) | `crates/node/src/network/pq/` |
+| P2P key agreement | ML-KEM-1024 preferred, ML-KEM-768 accepted, inside Noise XX (X25519) | FIPS 203 (final, Aug 2024) | `crates/node/src/network/pq/` |
 | Second KEM (optional) | HQC | selected by NIST in 2025; standard in draft | node feature `hqc` (RESEARCH gate) |
 | Ids, addresses, state root | BLAKE3 | BLAKE3 specification | everywhere |
 | Suite registry (dark) | Ed25519, ML-DSA-44/87, SLH-DSA variants | FIPS 186-5 / 204 / 205 | `crates/crypto-pq/src/suite/` |
+
+**What the P2P post-quantum layer gives, and what it does not.** The ML-KEM
+exchange runs inside a finished Noise XX session, and its keys seal a second
+ChaCha20-Poly1305 layer on top of Noise (`pq/stream.rs`). That protects gossip and sync traffic
+recorded today against decryption by a future quantum computer
+(harvest-now-decrypt-later). It is not a post-quantum authenticated key
+exchange:
+
+- Peer authentication is classical: the libp2p identity is an Ed25519 key,
+  bound to the Noise XX session's X25519 static key. A quantum adversary able to break
+  those in real time could impersonate a peer. Blocks and transactions are
+  still verified by their own post-quantum signatures, so impersonating a peer
+  does not forge chain data.
+- The ML-KEM transcript binds the protocol version, the encapsulation key and
+  the ciphertext. It is not bound to the Noise handshake hash.
+- With `--mlkem1024 preferred` (the default) a node still offers ML-KEM-768.
+  Negotiation runs inside Noise, so a recording adversary cannot force the
+  weaker set; that needs an active attacker who breaks or impersonates the
+  Noise session while it is live (`pq/mod.rs`). `required` offers ML-KEM-1024
+  and nothing else.
+- Session keys are rotated by closing connections once their rotation epoch
+  has passed (`pq/rotation.rs`), which bounds how much traffic one leaked key
+  exposes.
 
 ## 2. What to watch, and the trigger for each
 
@@ -82,3 +105,19 @@ this is a rehearsed procedure, RESEARCH.
 
 Block ids (`CON-2`) move the same way: a header past E is identified under the
 new hash, and the bridge block is identified under both.
+
+## 5. Domain separation rule for signing keys
+
+The hybrid suite signs with an empty FIPS 204 context string, byte-compatible
+with the node's original hybrid (invariant 30), so the context string does not
+separate one use of a key from another. The message bytes do:
+
+- Every signed message must start with a domain prefix unique to its purpose,
+  and no prefix may be a prefix of another (`Transaction::signing_bytes` is the
+  model: `TX_DOMAIN ‖ chain_tag ‖ body`, with both public keys inside the body).
+- A key is used under one suite only. A wallet or app must never sign with an
+  account's lattice key under a different suite id, and a new message format
+  (chat, wallet messages, attestations) gets its own domain prefix, not a raw
+  payload.
+- Adding a non-empty context string to suite `0x30` would change its bytes and
+  break invariant 30; it needs an ADR and a new suite id, not an edit.
