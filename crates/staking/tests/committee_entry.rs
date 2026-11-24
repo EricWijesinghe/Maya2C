@@ -75,7 +75,7 @@ fn absent_minimum_bond_seats_never_pass_a_third_of_the_committee() {
     let honest = |v: &[u8; 32]| v[0] <= 7;
     for epoch in 0..8 {
         epoch_where(&mut s, honest);
-        let absent = s.active.iter().filter(|v| !honest(*v)).count();
+        let absent = s.active.iter().filter(|v| !honest(v)).count();
         assert!(
             absent <= seat_faults(s.active.len()) / 2,
             "epoch {epoch}: {absent} absent seats of {}, at most half of f_n allowed",
