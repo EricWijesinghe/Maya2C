@@ -23,8 +23,10 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use crate::core::Block;
 use crate::error::{NodeError, Result};
 use crate::network::behaviour::{NodeBehaviour, NodeBehaviourEvent};
+use crate::network::dial_policy::DialPolicy;
 use crate::network::mempool::{Mempool, TxHash};
 use crate::network::peer_health::{GuardConfig, Offence, PeerHealth, PeerReport};
+use crate::network::pq::rotation::{MIN_SESSION_AGE_SWEEPS, SessionStart};
 use crate::network::pq::{EpochClock, SessionStats};
 use crate::network::sync::RateLimiter;
 use crate::network::topics::{blocks_topic, txs_topic};
@@ -172,6 +174,12 @@ enum Command {
         peer: PeerId,
         offence: Offence,
     },
+    SettleFrame {
+        id: MessageId,
+        relay: PeerId,
+        author: Option<PeerId>,
+        check: super::FrameCheck,
+    },
     RequestBlocks {
         peer: PeerId,
         ids: Vec<[u8; 32]>,
@@ -232,7 +240,7 @@ impl NodeHandle {
     /// Subscribes to DAG-BFT frames from the consensus topic, on a channel of
     /// their own so other events cannot push them out (`network::bus`).
     #[must_use]
-    pub fn subscribe_frames(&self) -> broadcast::Receiver<std::sync::Arc<Vec<u8>>> {
+    pub fn subscribe_frames(&self) -> broadcast::Receiver<std::sync::Arc<super::Frame>> {
         self.events.subscribe_frames()
     }
 
@@ -338,6 +346,22 @@ impl NodeHandle {
         self.send(Command::ReportOffence { peer, offence }).await
     }
 
+    /// Settles a frame from [`NodeHandle::subscribe_frames`]: gossip holds it
+    /// unrelayed until this says what its signatures are worth.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NodeError::Network`] if the node has stopped.
+    pub async fn settle_frame(&self, frame: &super::Frame, check: super::FrameCheck) -> Result<()> {
+        self.send(Command::SettleFrame {
+            id: frame.id.clone(),
+            relay: frame.relay,
+            author: frame.author,
+            check,
+        })
+        .await
+    }
+
     /// Asks `peer` for blocks by header id (`network::sync`).
     ///
     /// # Errors
@@ -427,6 +451,8 @@ pub struct Node {
     /// Keep non-routable learned addresses (a local network only). Off unless
     /// the operator asks for it; see [`routable`].
     allow_private_addresses: bool,
+    /// What the transport dials (`network::dial_policy`).
+    dial_policy: Arc<DialPolicy>,
 }
 
 impl Node {
@@ -435,6 +461,16 @@ impl Node {
     /// addresses are unreachable from elsewhere.
     pub fn allow_private_peer_addresses(&mut self) {
         self.allow_private_addresses = true;
+        self.dial_policy.allow_private();
+    }
+
+    /// Exempts `peer` from the connection caps, inbound and outbound. For the
+    /// operator's pinned bootnodes: an inbound flood must not refuse the links
+    /// the node was told to keep (`network::ip_limits`).
+    pub fn reserve_peer(&mut self, peer: PeerId) {
+        let behaviour = self.swarm.behaviour_mut();
+        behaviour.limits.bypass_peer_id(&peer);
+        behaviour.ip_limits.reserve(peer);
     }
 
     /// The clock driving session rotation.
@@ -510,6 +546,8 @@ impl Node {
             links: links::LinkBook::default(),
             convicted: HashSet::new(),
             allow_private_addresses: self.allow_private_addresses,
+            dial_policy: self.dial_policy,
+            recent_blocks: guard::RecentBlocks::default(),
         };
         tokio::spawn(driver.run(command_rx));
 
@@ -528,12 +566,12 @@ struct NodeDriver {
     rotation_check: Duration,
     /// Counters the metrics exporter samples.
     stats: SessionStats,
-    /// The rotation epoch each live connection was established in.
+    /// When, and in which rotation epoch, each live connection was established.
     ///
     /// Keyed by [`ConnectionId`] rather than [`PeerId`] because a peer may hold
     /// several connections opened at different times, and rotating one must not
     /// be mistaken for rotating them all.
-    sessions: HashMap<ConnectionId, u64>,
+    sessions: HashMap<ConnectionId, SessionStart>,
     /// Block store, for answering sync requests.
     state: Arc<StateDB>,
     /// Evidence and quarantines (`network::peer_health`).
@@ -552,6 +590,10 @@ struct NodeDriver {
     convicted: HashSet<PeerId>,
     /// Copied from [`Node`]: keep non-routable learned addresses (local network only).
     allow_private_addresses: bool,
+    /// Shared with the transport: what may be dialled.
+    dial_policy: Arc<DialPolicy>,
+    /// Blocks already accepted from gossip (`node::guard`).
+    recent_blocks: guard::RecentBlocks,
 }
 
 impl NodeDriver {
@@ -592,17 +634,19 @@ impl NodeDriver {
     /// negotiated with the peer, and nothing breaks if the peer disagrees about
     /// what epoch it is: see [`crate::network::pq::rotation`].
     fn rotate_stale_sessions(&mut self) {
-        let stale: Vec<ConnectionId> = self
-            .sessions
-            .iter()
-            .filter(|(_, established)| self.epoch.is_stale(**established))
-            .map(|(id, _)| *id)
-            .collect();
+        let min_age = self.rotation_check.saturating_mul(MIN_SESSION_AGE_SWEEPS);
+        let due = self.epoch.due(
+            self.sessions.iter().map(|(id, start)| (*id, *start)),
+            min_age,
+            std::time::Instant::now(),
+        );
 
-        for connection in stale {
+        for connection in due {
             // The entry is dropped here rather than waiting for
             // `ConnectionClosed`, so a connection that refuses to die is not
-            // re-closed on every tick.
+            // re-closed on every tick. `false` from `close_connection` means
+            // the connection is no longer established, and its keys went with
+            // it: there is nothing to retry.
             self.sessions.remove(&connection);
             self.stats.record_rotated();
             let _ = self.swarm.close_connection(connection);
@@ -632,6 +676,9 @@ impl NodeDriver {
                 // 10048) for minutes. Port reuse only serves NAT hole
                 // punching, which this node does not do (genesis rehearsal,
                 // 2026-10-10).
+                // The operator's address (a bootnode), so the transport dials it
+                // even if it is a DNS name or private (`network::dial_policy`).
+                self.dial_policy.trust(&address);
                 let opts = libp2p::swarm::dial_opts::DialOpts::unknown_peer_id()
                     .address(address)
                     .allocate_new_port()
@@ -663,6 +710,12 @@ impl NodeDriver {
                 let _ = reply.send(peers);
             }
             Command::ReportOffence { peer, offence } => self.punish(peer, offence),
+            Command::SettleFrame {
+                id,
+                relay,
+                author,
+                check,
+            } => self.settle_frame(&id, relay, author, check),
             Command::RequestBlocks { peer, ids, reply } => self.request_blocks(peer, ids, reply),
             Command::PeerReport { peer, reply } => {
                 let _ = reply.send(self.health.report(&peer, std::time::Instant::now()));
@@ -711,7 +764,10 @@ impl NodeDriver {
                 }
                 // Note the epoch this session's ML-KEM keys were derived in, so
                 // the rotation sweep can tell when they have aged out.
-                self.sessions.insert(connection_id, self.epoch.current());
+                self.sessions.insert(
+                    connection_id,
+                    self.epoch.session_start(std::time::Instant::now()),
+                );
                 self.stats.record_established();
 
                 // Tell gossipsub explicitly: on memory transport there is no
@@ -812,7 +868,20 @@ impl NodeDriver {
                 }
                 self.emit(NodeEvent::RoutingUpdated(peer_id));
             }
-            NodeBehaviourEvent::Kademlia(kad::Event::RoutingUpdated { peer, .. }) => {
+            NodeBehaviourEvent::Kademlia(kad::Event::RoutingUpdated {
+                peer, addresses, ..
+            }) => {
+                // The identify filter above covers what a peer claims; this
+                // covers what the DHT learned another way (audit P2P-03), so
+                // the table never hands on an address this node would not
+                // dial: a private one, or a DNS name the operator did not
+                // configure. The dial itself is refused in the transport.
+                for address in addresses.iter().filter(|a| !self.dial_policy.permits(a)) {
+                    self.swarm
+                        .behaviour_mut()
+                        .kademlia
+                        .remove_address(&peer, address);
+                }
                 self.emit(NodeEvent::RoutingUpdated(peer));
             }
             _ => {}

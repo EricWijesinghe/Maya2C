@@ -103,6 +103,14 @@ impl LinkBook {
             });
     }
 
+    /// Whether this node dialed `peer` (its first live connection is
+    /// outbound): a peer the node chose, such as a bootnode, rather than one
+    /// that chose it. Block-sync serving keeps a share of its budget for these.
+    #[must_use]
+    pub fn dialed(&self, peer: &PeerId) -> bool {
+        self.links.get(peer).is_some_and(|link| !link.inbound)
+    }
+
     /// A connection to `peer` closed, leaving `remaining` open.
     pub fn closed(&mut self, peer: PeerId, remaining: u32) {
         if remaining == 0 {
@@ -176,6 +184,21 @@ mod tests {
             Transport::of(&"/memory/7".parse().unwrap()),
             Transport::Memory
         );
+    }
+
+    #[test]
+    fn only_a_peer_this_node_dialed_first_counts_as_dialed() {
+        let (out, inn, now) = (PeerId::random(), PeerId::random(), Instant::now());
+        let mut book = LinkBook::default();
+        book.opened(out, &dialer("/ip4/10.0.0.1/tcp/1"), now);
+        book.opened(inn, &listener("/ip4/10.0.0.2/tcp/1"), now);
+        // A later outbound connection does not turn an inbound peer around.
+        book.opened(inn, &dialer("/ip4/10.0.0.2/tcp/1"), now);
+        assert!(book.dialed(&out));
+        assert!(!book.dialed(&inn));
+        assert!(!book.dialed(&PeerId::random()));
+        book.closed(out, 0);
+        assert!(!book.dialed(&out), "a gone peer is not dialed");
     }
 
     #[test]

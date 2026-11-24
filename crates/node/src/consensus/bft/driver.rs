@@ -33,6 +33,8 @@ use crate::core::{ChainTag, Transaction};
 use crate::crypto::validator_keys::VerifyingKey;
 use crate::error::{NodeError, Result};
 
+mod check;
+
 /// Everything a node needs to run one epoch of DAG-BFT.
 #[derive(Clone)]
 pub struct BftSetup {
@@ -183,6 +185,12 @@ fn tip_seal(chain: &Chain) -> Option<(u64, u64)> {
 /// One epoch's engine, its safety log, and the bookkeeping between them.
 pub struct BftDriver {
     engine: Validator<MlDsaAuthenticator>,
+    /// The committee's keys for [`BftDriver::check_frame`], with no signer.
+    checker: MlDsaAuthenticator,
+    /// The engine's view of the committee, for a certificate's quorum.
+    checked_committee: Committee,
+    /// The chain every signature is bound to, for attestations.
+    tag: ChainTag,
     id: Option<ValidatorId>,
     epoch: u64,
     store: SafetyStore,
@@ -332,24 +340,21 @@ impl BftDriver {
             }
         };
         let engine_params = Params { epoch, ..params };
+        let tag = ChainTag::from_genesis(chain.genesis());
+        // Verifies, never signs: what gossip checks before relaying a frame.
+        let checker = MlDsaAuthenticator::observer(Arc::clone(committee), tag);
+        let checked_committee = engine_committee.clone();
         let engine = match (id, &signer) {
             (Some(id), Some(key)) => Validator::with_auth(
                 id,
                 engine_committee,
                 engine_params,
-                MlDsaAuthenticator::validator(
-                    key.clone(),
-                    Arc::clone(committee),
-                    ChainTag::from_genesis(chain.genesis()),
-                ),
+                MlDsaAuthenticator::validator(key.clone(), Arc::clone(committee), tag),
             ),
             _ => Validator::observer(
                 engine_committee,
                 engine_params,
-                MlDsaAuthenticator::observer(
-                    Arc::clone(committee),
-                    ChainTag::from_genesis(chain.genesis()),
-                ),
+                MlDsaAuthenticator::observer(Arc::clone(committee), tag),
             ),
         };
         let (store, recovered) = SafetyStore::open(&dir, epoch)?;
@@ -362,6 +367,9 @@ impl BftDriver {
         }
         let mut driver = Self {
             engine,
+            checker,
+            checked_committee,
+            tag,
             id,
             epoch,
             store,
@@ -372,7 +380,7 @@ impl BftDriver {
             dir,
             committee: Arc::clone(committee),
             weights,
-            attestations: Collector::default(),
+            attestations: Collector::for_epoch(epoch),
             follower: false,
             resumed_at: 0,
             // The anchor the tip was built for, so a block that later

@@ -3,9 +3,11 @@
 
 pub mod behaviour;
 mod bus;
+pub mod dial_policy;
 pub mod evidence_tap;
 pub mod gossip_score;
 pub mod identity;
+pub mod ip_limits;
 pub mod mempool;
 pub mod node;
 pub mod peer_health;
@@ -18,6 +20,7 @@ pub mod sync;
 pub mod topics;
 
 pub use behaviour::NodeBehaviour;
+pub use bus::{Frame, FrameCheck};
 pub use evidence_tap::EvidenceTap;
 pub use identity::{NODE_KEY_FILE, load_or_create as load_or_create_identity, peer_id_at};
 pub use mempool::{Mempool, TxHash};

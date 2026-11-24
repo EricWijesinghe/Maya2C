@@ -309,6 +309,9 @@ impl PeerRecord {
 pub struct PeerHealth {
     config: GuardConfig,
     peers: HashMap<PeerId, PeerRecord>,
+    /// Quarantines `make_room` cut short, handed out by the next
+    /// `release_expired` so the swarm's block list is lifted with them.
+    evicted: Vec<PeerId>,
 }
 
 impl PeerHealth {
@@ -318,6 +321,7 @@ impl PeerHealth {
         Self {
             config,
             peers: HashMap::new(),
+            evicted: Vec::new(),
         }
     }
 
@@ -356,7 +360,9 @@ impl PeerHealth {
 
     /// Ends every quarantine due by `now`, returning the peers released.
     pub fn release_expired(&mut self, now: Instant) -> Vec<PeerId> {
-        let mut released = Vec::new();
+        let mut released = std::mem::take(&mut self.evicted);
+        // One evicted and then quarantined again since stays blocked.
+        released.retain(|peer| !self.is_quarantined(peer, now));
         for (peer, record) in &mut self.peers {
             if record.until.is_some_and(|until| until <= now) {
                 record.until = None;
@@ -416,8 +422,10 @@ impl PeerHealth {
     }
 
     /// Evicts the lowest-scored unquarantined peer if the table is full and
-    /// `incoming` is new. A quarantined peer is never evicted: forgetting it
-    /// would release it.
+    /// `incoming` is new. A quarantined peer is evicted only when every
+    /// tracked peer is quarantined, and then the one closest to release: the
+    /// cap holds, and a stream of fresh identities cannot grow the table (or
+    /// the swarm's block list) without bound.
     fn make_room(&mut self, incoming: &PeerId) {
         if self.peers.len() < self.config.max_tracked_peers || self.peers.contains_key(incoming) {
             return;
@@ -428,6 +436,15 @@ impl PeerHealth {
             .filter(|(_, record)| record.until.is_none())
             .min_by(|a, b| a.1.score.total_cmp(&b.1.score))
             .map(|(peer, _)| *peer);
+        let victim = victim.or_else(|| {
+            let jailed = self
+                .peers
+                .iter()
+                .min_by_key(|(_, record)| record.until)
+                .map(|(peer, _)| *peer)?;
+            self.evicted.push(jailed);
+            Some(jailed)
+        });
         if let Some(victim) = victim {
             self.peers.remove(&victim);
         }
@@ -534,6 +551,31 @@ mod tests {
         assert!(health.is_quarantined(&jailed, now));
         assert!(health.report(&clean, now).is_none());
         assert!(health.report(&dirty, now).is_some());
+    }
+
+    #[test]
+    fn a_table_of_quarantines_holds_its_cap_and_releases_the_soonest() {
+        let mut health = PeerHealth::new(config());
+        let now = Instant::now();
+        let mut jailed = Vec::new();
+        for step in 0..3u64 {
+            let peer = PeerId::random();
+            let at = now + Duration::from_secs(step);
+            health.record(peer, Offence::InvalidBlock, at);
+            health.record(peer, Offence::InvalidBlock, at);
+            jailed.push(peer);
+        }
+
+        let newcomer = PeerId::random();
+        health.record(newcomer, Offence::InvalidBlock, now);
+        health.record(newcomer, Offence::InvalidBlock, now);
+
+        assert_eq!(health.tracked(), 3);
+        assert!(health.is_quarantined(&newcomer, now));
+        assert!(health.report(&jailed[0], now).is_none());
+        // The evicted peer's block is lifted at the next sweep, not leaked.
+        assert_eq!(health.release_expired(now), vec![jailed[0]]);
+        assert!(health.release_expired(now).is_empty());
     }
 
     #[test]

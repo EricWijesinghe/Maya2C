@@ -16,6 +16,7 @@ use custom_l1_node::core::block::BlockHeader;
 use custom_l1_node::core::{Block, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::signing_key_from_seed;
 use custom_l1_node::crypto::pow::target_from_leading_zero_bits;
+use custom_l1_node::network::pq::rotation::MIN_SESSION_AGE_SWEEPS;
 use custom_l1_node::network::pq::{
     MlKem1024Policy, PROTOCOL, PROTOCOL_1024, PqProtocol, PqUpgrade, ROTATION_INTERVAL_BLOCKS,
 };
@@ -486,8 +487,9 @@ async fn a_rotated_session_comes_back() {
 
     // Redial explicitly. In a deployment Kademlia and gossipsub bring the peer
     // back on their own schedule; the test drives it rather than waiting on a
-    // bootstrap interval it does not control.
-    tokio::time::sleep(sweep * 3).await;
+    // bootstrap interval it does not control. A session is rotated only once
+    // it is `MIN_SESSION_AGE_SWEEPS` sweeps old, so wait past that.
+    tokio::time::sleep(sweep * (MIN_SESSION_AGE_SWEEPS + 3)).await;
     let _ = b.handle.dial(a.address.clone()).await;
 
     let handle = b.handle.clone();

@@ -7,6 +7,7 @@
 //! project's size limit; it is a child module so it can reach the driver's
 //! private state.
 
+use std::collections::{HashSet, VecDeque};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use libp2p::PeerId;
@@ -17,12 +18,12 @@ use tokio::sync::oneshot;
 use super::{NodeDriver, NodeEvent};
 use crate::core::{Block, Transaction};
 use crate::error::{NodeError, Result};
-use crate::network::evidence_tap;
 use crate::network::peer_health::{
     Action, Offence, Verdict, classify_block_frame, classify_transaction,
 };
 use crate::network::sync::{self, BlockRequest, BlockResponse, MAX_BLOCKS_PER_REQUEST};
 use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
+use crate::network::{FrameCheck, evidence_tap};
 
 /// Largest DAG-BFT frame worth buffering: a proposal carries at most
 /// `MAX_BATCH_BYTES` (4 MiB) of payload plus its signature and parents, so
@@ -30,6 +31,43 @@ use crate::network::topics::{bft_topic, blocks_topic, txs_topic};
 /// and the frame channel holds hundreds of frames, so without this bound a
 /// flood of maximum-size junk could pin gigabytes before the engine looks.
 pub(crate) const MAX_BFT_FRAME_BYTES: usize = 5 * 1024 * 1024;
+
+/// Gossiped block messages remembered, so the same one is relayed once.
+const RECENT_BLOCKS: usize = 4096;
+
+/// Digests of the block messages this node already accepted from gossip.
+///
+/// Gossipsub's message id is the author and sequence number, never the data
+/// (`network::evidence_tap`), so a block re-published under a fresh sequence
+/// number is a new message to it, and every node relayed every copy. Keyed on
+/// the whole message, not the block id: the id does not commit to multisig
+/// approvals (`Transaction::txid` leaves them out on purpose), so a copy with
+/// other approvals shares the honest block's id, and keying on the id would
+/// let whichever copy arrived first shut the other out network-wide. Bounded
+/// by count; evicted oldest first.
+#[derive(Default)]
+pub(super) struct RecentBlocks {
+    order: VecDeque<[u8; 32]>,
+    ids: HashSet<[u8; 32]>,
+}
+
+impl RecentBlocks {
+    fn contains(&self, id: &[u8; 32]) -> bool {
+        self.ids.contains(id)
+    }
+
+    fn insert(&mut self, id: [u8; 32]) {
+        if !self.ids.insert(id) {
+            return;
+        }
+        self.order.push_back(id);
+        if self.order.len() > RECENT_BLOCKS
+            && let Some(oldest) = self.order.pop_front()
+        {
+            self.ids.remove(&oldest);
+        }
+    }
+}
 
 /// The gossip verdict on a DAG-BFT topic message, before any signature.
 fn classify_bft_frame(data: &[u8]) -> Verdict {
@@ -48,6 +86,24 @@ fn classify_bft_frame(data: &[u8]) -> Verdict {
         Verdict::Accept
     } else {
         Verdict::Reject(Offence::MalformedFrame)
+    }
+}
+
+/// The gossip verdict on a held frame once the BFT loop has checked it.
+///
+/// A forgery is blamed only on a relay that also signed the gossip message,
+/// which is the one case where the frame came from the peer on the link.
+/// Never on the author alone: any keypair can sign a gossip message, and a
+/// frame an honest validator really signed can be replayed by anyone, so
+/// blaming the author let one peer get an honest validator blacklisted
+/// network-wide. Never on a relay forwarding another author's frame either: a
+/// node still on a version that relays frames on decoding alone forwards
+/// forgeries honestly.
+fn settled(check: FrameCheck, relay: PeerId, author: Option<PeerId>) -> Verdict {
+    match check {
+        FrameCheck::Authentic => Verdict::Accept,
+        FrameCheck::Forged if author == Some(relay) => Verdict::Reject(Offence::MalformedFrame),
+        FrameCheck::Forged | FrameCheck::Unjudged => Verdict::Ignore,
     }
 }
 
@@ -81,9 +137,13 @@ impl NodeDriver {
         let verdict = if message.topic == txs_topic().hash() {
             self.gossiped_transaction(data)
         } else if message.topic == blocks_topic().hash() {
-            self.gossiped_block(source, author, data, now)
+            self.gossiped_block_once(source, author, data, now)
         } else if message.topic == bft_topic().hash() {
-            self.gossiped_bft(data)
+            match self.gossiped_bft(source, id, author, data) {
+                Some(verdict) => verdict,
+                // Held: the BFT loop settles it (`NodeDriver::settle_frame`).
+                None => return,
+            }
         } else {
             Verdict::Ignore
         };
@@ -91,19 +151,50 @@ impl NodeDriver {
         self.attest(verdict, author, message.sequence_number, signature, data);
     }
 
-    /// Relays a DAG-BFT frame that decodes and hands it to whoever runs
-    /// consensus. Signatures are the engine's to check; the gossip layer
-    /// refuses what cannot be a frame (`consensus::bft` module note). It once
-    /// checked only the first byte, so every node relayed and buffered 5 MiB
-    /// of random bytes behind a valid version byte (pre-audit S-003).
-    fn gossiped_bft(&mut self, data: &[u8]) -> Verdict {
+    /// Hands a DAG-BFT frame that decodes to the BFT loop and holds its
+    /// verdict, returning `None`, until the loop has checked its signatures
+    /// (`consensus::bft::BftDriver::check_frame`). What cannot be a frame is
+    /// refused here. It once checked only the first byte, so every node
+    /// relayed and buffered 5 MiB of random bytes behind a valid version byte
+    /// (pre-audit S-003). Relayed on decoding alone, a forged frame reached
+    /// every node and could only be blamed on its gossip author, which costs
+    /// nothing to vary (audit P2P-N1).
+    fn gossiped_bft(
+        &mut self,
+        relay: PeerId,
+        id: &MessageId,
+        author: Option<PeerId>,
+        data: &[u8],
+    ) -> Option<Verdict> {
         let verdict = classify_bft_frame(data);
-        // Over the byte budget: neither kept nor relayed, and not the sender's fault.
-        if verdict == Verdict::Accept && !self.events.emit_frame(std::sync::Arc::new(data.to_vec()))
-        {
-            return Verdict::Ignore;
+        if verdict != Verdict::Accept {
+            return Some(verdict);
         }
-        verdict
+        let frame = std::sync::Arc::new(crate::network::Frame {
+            author,
+            relay,
+            id: id.clone(),
+            bytes: data.to_vec(),
+        });
+        // Over the byte budget or a share of it, or no BFT loop to check it:
+        // neither kept nor relayed, and not the relay's fault.
+        if self.events.emit_frame(frame) {
+            None
+        } else {
+            Some(Verdict::Ignore)
+        }
+    }
+
+    /// Reports the BFT loop's check of a held frame to gossipsub, which
+    /// relays it only if it is authentic.
+    pub(super) fn settle_frame(
+        &mut self,
+        id: &MessageId,
+        relay: PeerId,
+        author: Option<PeerId>,
+        check: FrameCheck,
+    ) {
+        self.report(relay, id, settled(check, relay, author));
     }
 
     fn gossiped_transaction(&mut self, data: &[u8]) -> Verdict {
@@ -119,6 +210,28 @@ impl NodeDriver {
             // Already pooled: normal in a gossip mesh, not worth an event.
             Ok(false) => {}
             Err(e) => self.emit(NodeEvent::TransactionRejected(e.to_string())),
+        }
+        verdict
+    }
+
+    /// [`NodeDriver::gossiped_block`] for the gossip topic, relaying each exact
+    /// block message once. Remembered only once accepted, and by its bytes:
+    /// neither a junk body nor other multisig approvals under an honest header
+    /// can shut the honest block out.
+    fn gossiped_block_once(
+        &mut self,
+        source: PeerId,
+        author: Option<PeerId>,
+        data: &[u8],
+        now: Instant,
+    ) -> Verdict {
+        let digest = *blake3::hash(data).as_bytes();
+        if self.recent_blocks.contains(&digest) {
+            return Verdict::Ignore;
+        }
+        let verdict = self.gossiped_block(source, author, data, now);
+        if verdict == Verdict::Accept {
+            self.recent_blocks.insert(digest);
         }
         verdict
     }
@@ -169,17 +282,21 @@ impl NodeDriver {
 
     /// Records `offence` and quarantines `peer` if it crossed the line.
     ///
-    /// Quarantine is three things at once: gossipsub drops everything the peer
+    /// Quarantine is four things at once: gossipsub drops everything the peer
     /// relays or authored, it stops being an explicit peer that messages are
-    /// always pushed to, and the block list closes its connections and refuses
-    /// new ones.
+    /// always pushed to, the block list closes its connections and refuses
+    /// new ones, and its source refuses handshakes from a fresh identity
+    /// until the quarantine ends (`network::ip_limits`, audit P2P-05).
     pub(super) fn punish(&mut self, peer: PeerId, offence: Offence) {
-        let Action::Quarantine { strikes, until } =
-            self.health.record(peer, offence, Instant::now())
-        else {
+        let now = Instant::now();
+        let Action::Quarantine { strikes, until } = self.health.record(peer, offence, now) else {
             return;
         };
+        let ip = self.addresses.ip_of(&peer);
         let behaviour = self.swarm.behaviour_mut();
+        if let Some(ip) = ip {
+            behaviour.ip_limits.ban(peer, ip, until, now);
+        }
         behaviour.gossipsub.blacklist_peer(&peer);
         behaviour.gossipsub.remove_explicit_peer(&peer);
         behaviour.block_list.block_peer(peer);
@@ -243,12 +360,19 @@ impl NodeDriver {
                 ..
             } => {
                 let now = Instant::now();
-                let allowed =
-                    !self.health.is_quarantined(&peer, now) && self.sync_limits.allow(peer, now);
-                let response = if allowed {
-                    sync::serve(&request, |id| self.state.block_bytes(id))
+                let budget = if self.health.is_quarantined(&peer, now) {
+                    None
                 } else {
-                    BlockResponse { blocks: Vec::new() }
+                    self.sync_limits.admit(peer, now, self.links.dialed(&peer))
+                };
+                let response = match budget {
+                    Some(budget) => {
+                        let response =
+                            sync::serve_within(&request, budget, |id| self.state.block_bytes(id));
+                        self.sync_limits.spend(peer, response.payload_len());
+                        response
+                    }
+                    None => BlockResponse { blocks: Vec::new() },
                 };
                 // Fails only if the requester has already gone.
                 let _ = self
@@ -330,5 +454,48 @@ mod tests {
             classify_bft_frame(&vec![WIRE_VERSION; MAX_BFT_FRAME_BYTES + 1]),
             Verdict::Ignore
         );
+    }
+
+    #[test]
+    fn a_forged_frame_is_blamed_only_on_a_relay_that_signed_it() {
+        let (relay, author) = (PeerId::random(), PeerId::random());
+        // Replayed from another chain, or signed with a throwaway key: the
+        // author proves nothing and the relay may be forwarding honestly.
+        assert_eq!(
+            settled(FrameCheck::Forged, relay, Some(author)),
+            Verdict::Ignore
+        );
+        assert_eq!(settled(FrameCheck::Forged, relay, None), Verdict::Ignore);
+        assert_eq!(
+            settled(FrameCheck::Forged, relay, Some(relay)),
+            Verdict::Reject(Offence::MalformedFrame)
+        );
+        assert_eq!(
+            settled(FrameCheck::Unjudged, relay, Some(relay)),
+            Verdict::Ignore,
+            "what was not checked is neither relayed nor blamed"
+        );
+        assert_eq!(
+            settled(FrameCheck::Authentic, relay, Some(author)),
+            Verdict::Accept
+        );
+    }
+
+    #[test]
+    fn a_block_id_is_remembered_until_the_bound_evicts_it() {
+        let mut recent = RecentBlocks::default();
+        recent.insert([1; 32]);
+        recent.insert([1; 32]);
+        assert!(recent.contains(&[1; 32]));
+        assert_eq!(recent.order.len(), 1);
+        for n in 0..RECENT_BLOCKS as u64 {
+            let mut id = [0; 32];
+            id[..8].copy_from_slice(&n.to_le_bytes());
+            id[31] = 2;
+            recent.insert(id);
+        }
+        assert!(!recent.contains(&[1; 32]), "the oldest id is evicted first");
+        assert_eq!(recent.order.len(), RECENT_BLOCKS);
+        assert_eq!(recent.ids.len(), RECENT_BLOCKS);
     }
 }
