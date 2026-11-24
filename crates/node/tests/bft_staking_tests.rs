@@ -817,11 +817,13 @@ impl custom_l1_node::consensus::bft::catchup::CheckpointSource for PeerBook<'_> 
 #[test]
 fn a_node_catches_up_by_checkpoints_across_a_boundary_that_shrinks_the_committee() {
     // Pre-audit S-011 (attacknet round 8): the boundary into epoch 2 jails the
-    // three absent seats, so seven seats become four. A node that slept
-    // through it must cross by checkpoints alone: epoch 1's final checkpoint
-    // against epoch 1's committee, then epoch 2's against the four.
+    // absent seat, so five seats become four. A node that slept through it
+    // must cross by checkpoints alone: epoch 1's final checkpoint against
+    // epoch 1's committee, then epoch 2's against the four. One absent seat,
+    // not the three of round 8: under the dual quorum (CON-20) three absent
+    // seats of seven halt the chain before it reaches the boundary.
     let mut mesh = Mesh::with(true);
-    register_absent_seats(&mut mesh);
+    mesh.submit(&register(5, 1_000, 0));
     let mut book = custom_l1_node::consensus::bft::attest::CheckpointBook::default();
     for _ in 0..600 {
         if mesh.all_in_epoch(2) && book.newest().is_some_and(|c| c.epoch >= 2) {
