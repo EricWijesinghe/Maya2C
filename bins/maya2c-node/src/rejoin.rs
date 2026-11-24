@@ -213,8 +213,15 @@ pub(crate) fn is_recent(
     window: u64,
     epoch_blocks: u64,
 ) -> bool {
-    let trusted_epoch = trusted.height / epoch_blocks.max(1);
-    claimed.saturating_sub(trusted_epoch) < window
+    claimed.saturating_sub(signing_epoch(trusted.height, epoch_blocks)) < window
+}
+
+/// The staking epoch whose committee signed the block at `height`. An epoch
+/// ends in the block at a multiple of `epoch_blocks` (`staking_exec`), so
+/// block `kE` is still epoch `k - 1`'s; `height / epoch_blocks` called it
+/// epoch `k` and loosened the recency window by one epoch at the boundary.
+fn signing_epoch(height: u64, epoch_blocks: u64) -> u64 {
+    height.saturating_sub(1) / epoch_blocks.max(1)
 }
 
 /// A trusted block at or below the local tip must be this node's block at that
@@ -317,7 +324,7 @@ fn unconfirmed_refusal(age_secs: u64) -> String {
 }
 
 fn too_old(block: TrustedBlock, claimed: u64, window: u64, epoch_blocks: u64) -> String {
-    let epoch = block.height / epoch_blocks.max(1);
+    let epoch = signing_epoch(block.height, epoch_blocks);
     format!(
         "the trusted block at height {} is in epoch {epoch}, at or more than the {window}-epoch unbonding window behind the head (epoch {claimed}, the maximum any source reports): the committee that signed it may have unbonded. Pass a RECENT trusted block, at least one epoch inside the window of the head",
         block.height
@@ -576,9 +583,9 @@ mod tests {
         id: [7; 32],
     };
     /// A recent trusted block: epoch 12, 6 behind a head of epoch 18, so one
-    /// epoch inside the window.
+    /// epoch inside the window. Height 1,201: 1,200 ends epoch 11.
     const RECENT: TrustedBlock = TrustedBlock {
-        height: 1_200,
+        height: 1_201,
         id: [7; 32],
     };
 
@@ -764,17 +771,33 @@ mod tests {
     fn recency_is_tightened_by_one_epoch() {
         // Why: a block exactly at the window's edge puts a follower straight back
         // into stale mid-catch-up. Head epoch 18, window 7: epoch 11 is exactly
-        // one window back (refused); epoch 12 is inside it (accepted).
+        // one window back (refused); epoch 12 is inside it (accepted). Block
+        // `kE` is the last block epoch k - 1 signed (the epoch ends in it), so
+        // height 1,200 is an epoch-11 block and 1,201 the first of epoch 12.
         let edge = TrustedBlock {
-            height: 1_100,
+            height: 1_101,
             id: [0; 32],
         };
-        let inside = TrustedBlock {
+        let boundary = TrustedBlock {
             height: 1_200,
             id: [0; 32],
         };
+        let inside = TrustedBlock {
+            height: 1_201,
+            id: [0; 32],
+        };
         assert!(!is_recent(edge, 18, 7, 100));
+        assert!(
+            !is_recent(boundary, 18, 7, 100),
+            "the block that ends epoch 11 was signed by epoch 11's committee"
+        );
         assert!(is_recent(inside, 18, 7, 100));
+        let genesis = TrustedBlock {
+            height: 0,
+            id: [0; 32],
+        };
+        assert!(!is_recent(genesis, 7, 7, 100));
+        assert!(is_recent(genesis, 6, 7, 100));
         assert!(
             decide(
                 LOCAL,

@@ -14,6 +14,7 @@
 use std::collections::BTreeSet;
 
 use crate::dag::Dag;
+use crate::validator::GC_DEPTH;
 use crate::vertex::{Certificate, Committee, Digest};
 
 /// One committed anchor and the causal history it ordered: the unit the node
@@ -117,9 +118,16 @@ impl Committer {
                 chain.push(earlier.clone());
             }
         }
+        // The cutoff follows the committed anchor sequence, which every
+        // honest node agrees on, and not the local garbage-collection horizon,
+        // which depends on how many anchors this node happened to commit per
+        // step. It equals the horizon a node committing one anchor per step
+        // holds, so the blocks such a node derives are unchanged.
+        let mut previous = self.last_committed_round;
         for a in chain.iter().rev() {
             let mut certificates = Vec::new();
-            self.order_history(dag, a, &mut certificates);
+            self.order_history(dag, a, previous.saturating_sub(GC_DEPTH), &mut certificates);
+            previous = a.vertex.round;
             self.anchors.push(
                 dag.digest_at(a.vertex.round, a.vertex.author)
                     .unwrap_or_else(|| a.digest()),
@@ -132,8 +140,15 @@ impl Committer {
         self.last_committed_round = anchor.vertex.round;
     }
 
-    /// Emits `anchor`'s causal history not yet ordered, by (round, author).
-    fn order_history(&mut self, dag: &Dag, anchor: &Certificate, out: &mut Vec<Certificate>) {
+    /// Emits `anchor`'s causal history not yet ordered and at or above
+    /// `cutoff`, by (round, author).
+    fn order_history(
+        &mut self,
+        dag: &Dag,
+        anchor: &Certificate,
+        cutoff: u64,
+        out: &mut Vec<Certificate>,
+    ) {
         let mut seen = BTreeSet::new();
         let mut stack = vec![
             dag.digest_at(anchor.vertex.round, anchor.vertex.author)
@@ -141,10 +156,16 @@ impl Committer {
         ];
         let mut history = Vec::new();
         while let Some(d) = stack.pop() {
+            // Not held: collected. A node only holds a certificate whose
+            // parents it held, so this is below `cutoff` except after
+            // `Validator::resume_after`, whose horizon is the resumed round.
             let Some(c) = dag.by_digest(&d) else {
-                continue; // below the GC horizon
+                continue;
             };
-            if self.ordered.contains(&(c.vertex.round, d)) || !seen.insert(d) {
+            if c.vertex.round < cutoff
+                || self.ordered.contains(&(c.vertex.round, d))
+                || !seen.insert(d)
+            {
                 continue;
             }
             stack.extend(c.vertex.parents.iter().copied());

@@ -923,6 +923,29 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+## 2026-11-21 — DAG-BFT ordering cutoff from the anchor sequence, and node-local BFT bounds (Claude, under Eric's 2026-11-17 pre-approval)
+
+An independent AI review (2026-11-19) replayed two honest engines that batched
+commits differently and derived different blocks for one anchor (57 against 61
+certificates). The ordering cutoff is now `previous committed anchor round −
+GC_DEPTH`, common to every honest node and equal to what a node committing one
+anchor per step already used, so only the batched case changes, to match. In
+the same change: the commit rule runs only after an insertion or a resume;
+proposals and certificates outside the round window or with more parents than
+members are dropped before any signature check; fetch replies share one budget;
+the safety log records each own message once and opens in bounded memory; the
+anchored bootstrap ends at the trusted block and a snapshot import is capped at
+64 GiB; rejoin recency uses the epoch that signed the trusted block. Every
+finding was checked against the code first. The ones that need an owner
+decision (equivocation punishment, weight cap, minimum active set, unconfirmed
+time-old tip) are listed in ADR-150, not changed. ADR-150, ADR-060 amendment.
+
+Follow-up from review of that PR (2026-11-22): a follower that resumed at round
+`S` builds again only when the previous committed anchor `P` satisfies
+`P − GC_DEPTH > S`, not merely when the anchor being built is past
+`S + GC_DEPTH + 2`. With skipped anchors the old window opened while the
+cutoff still reached below `S`, where the follower holds no history. Without
+skips both gates open at the same anchor. ADR-150 item 1, spec/05.
 
 ## 2026-11-24 — An unnamed shielded pool is off; the fee spec states the node's burn-all split (Eric 2026-11-24, P4 and FEE-1)
 
