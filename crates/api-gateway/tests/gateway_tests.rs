@@ -534,6 +534,68 @@ async fn a_graphql_query_past_the_depth_limit_is_refused() {
     );
 }
 
+/// `n` aliases of one root field, each a separate node call.
+fn aliased(n: usize, field: &str) -> String {
+    let fields: Vec<String> = (0..n).map(|i| format!("f{i}: {field}")).collect();
+    format!("{{ {} }}", fields.join(" "))
+}
+
+#[tokio::test]
+async fn graphql_aliases_cannot_multiply_node_calls_past_five() {
+    // One request is one rate-limit token, so the node calls it may make
+    // are bounded by the schema, not by the limiter.
+    let node = Arc::new(MockNode::default());
+    let (_, five) = post(
+        app_with(Arc::clone(&node)),
+        "/graphql",
+        serde_json::json!({ "query": aliased(5, "supply { circulating total }") }),
+    )
+    .await;
+    assert!(
+        five["errors"].is_null(),
+        "five calls must be served: {five}"
+    );
+    assert_eq!(node.calls(), 5);
+
+    for field in [
+        "supply { circulating }",
+        "block(height: 1)",
+        "account(address: \"00\") { nonce }",
+    ] {
+        let (_, six) = post(
+            app_with(Arc::clone(&node)),
+            "/graphql",
+            serde_json::json!({ "query": aliased(6, field) }),
+        )
+        .await;
+        assert!(
+            !six["errors"].is_null(),
+            "six `{field}` calls must be refused: {six}"
+        );
+    }
+    assert_eq!(node.calls(), 5, "a refused query must not reach the node");
+}
+
+#[tokio::test]
+async fn graphql_batches_are_refused_without_calling_the_node() {
+    // A batch would put each operation under the complexity limit on its
+    // own, so one request could make five node calls per operation.
+    let node = Arc::new(MockNode::default());
+    let query = serde_json::json!({ "query": aliased(5, "supply { circulating total }") });
+    let (status, body) = post(
+        app_with(Arc::clone(&node)),
+        "/graphql",
+        serde_json::json!([query.clone(), query]),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a batch must be refused: {body}"
+    );
+    assert_eq!(node.calls(), 0, "a refused batch must not reach the node");
+}
+
 #[tokio::test]
 async fn graphql_exposes_no_mutation() {
     // Writes go through REST, where the size ceilings and sealed validation

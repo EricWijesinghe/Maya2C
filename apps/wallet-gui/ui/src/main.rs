@@ -167,10 +167,32 @@ fn App() -> impl IntoView {
     // A payment link arrives while the app runs; it is applied only on the
     // Wallet screen, so it never interrupts an unlock, backup or signing step.
     let poll_pending_pay = move || {
-        if !matches!(state.screen.get_untracked(), Screen::Wallet) {
+        // Borrowed, not cloned: the Backup screen holds the recovery phrase.
+        let (before_unlock, on_wallet) = state.screen.with_untracked(|screen| {
+            (
+                matches!(
+                    screen,
+                    Screen::Setup | Screen::Recover | Screen::Backup(_) | Screen::Unlock
+                ),
+                matches!(screen, Screen::Wallet),
+            )
+        });
+        // Before unlock there is no session to lose.
+        if before_unlock {
             return;
         }
         leptos::task::spawn_local(async move {
+            // The core locks an idle wallet on its own; follow it to Unlock
+            // from any screen rather than leave one whose actions are refused.
+            if let Ok(false) = bridge::is_unlocked().await {
+                state.accounts.set(Vec::new());
+                state.screen.set(Screen::Unlock);
+                state.inform("Locked after 5 minutes without use.");
+                return;
+            }
+            if !on_wallet {
+                return;
+            }
             // A refused link (wrong network, expired) is dropped, as the OS
             // handler drops a malformed one.
             if let Ok(Some(request)) = bridge::take_pending_pay(&state.genesis()).await {

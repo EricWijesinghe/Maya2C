@@ -80,7 +80,7 @@ const EXE: &str = if cfg!(windows) { ".exe" } else { "" };
 /// What `maya2c dev` should do.
 #[derive(Clone, Debug)]
 pub struct Options {
-    /// Working directory; wiped on start.
+    /// Working directory; wiped on start (only if empty or made by maya2c).
     pub dir: PathBuf,
     /// Pre-funded accounts to create.
     pub accounts: usize,
@@ -133,9 +133,7 @@ impl Drop for Children {
 }
 
 fn prepare(o: &Options) -> anyhow::Result<(Vec<(HybridSigningKey, String)>, PathBuf)> {
-    if o.dir.exists() {
-        std::fs::remove_dir_all(&o.dir).with_context(|| format!("clearing {}", o.dir.display()))?;
-    }
+    crate::reset_scratch_dir(&o.dir)?;
     let node_dir = o.dir.join("node");
     std::fs::create_dir_all(&node_dir)?;
     // Sealed even here: a production node (the one a release ships) refuses a
