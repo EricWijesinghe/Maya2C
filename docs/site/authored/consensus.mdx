@@ -87,6 +87,15 @@ its stake over a few addresses cannot finalize anything without two thirds
 of the seats, and seats bought without stake cannot finalize anything without
 two thirds of the stake. With equal weights the two numbers are the same.
 
+**Seats join at a bounded rate** (STK-23). At most half of a committee's
+seat-fault budget, and at least one, may join per epoch. A seat that never
+comes online is jailed and slashed at the next boundary before it can stop
+finality, and a party building up seats has to keep each one online through
+a boundary to count it. Each seat costs at least the minimum bond, and more
+than the smallest seated stake once the committee is full. A tombstoned
+validator held in its seat to keep four seats votes with zero weight and
+counts for nothing by either measure.
+
 | n | f | quorum n − f | shared members, worst case | safe? |
 |---|---|---|---|---|
 | 4 | 1 | 3 | 2 | yes |
@@ -203,7 +212,8 @@ intersects on its own: $w(Q_1 \cap Q_2) \ge W - 2f_W \ge f_W + 1$ and
 $|Q_1 \cap Q_2| \ge n - 2f_n \ge f_n + 1$. So two quorums share an honest
 member whenever the faulty side holds at most $f_W$ of the weight **or** at
 most $f_n$ of the seats, and finality stays live while the honest side holds
-both $q_W$ and $q_n$ (ADR-040, amendment 2026-11-24).
+both $q_W$ and $q_n$ (ADR-040, amendment 2026-11-24). Here $n$ counts voters,
+members of positive weight.
 
 **Why the old rule was wrong.** The retired threshold $2f+1$ equals $q$ only when
 $n = 3f + 1$. At $n = 6$, $f = 1$, it gives $q = 3$ and $|Q_1 \cap Q_2| \ge 0$.

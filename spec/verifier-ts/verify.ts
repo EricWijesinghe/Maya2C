@@ -351,16 +351,22 @@ function consensus(): number {
   for (const c of doc.cases) {
     if (c.fn !== "quorum" && c.fn !== "validity") continue;
     replayed++;
-    const weights: bigint[] = c.weights.map((w: string) => (bigOf(w) === 0n ? 1n : bigOf(w)));
+    // A member of weight 0 holds a seat but is no voter: it adds to neither
+    // measure, and a committee of zero weights is refused.
+    const weights: bigint[] = c.weights.map((w: string) => bigOf(w));
+    if (weights.length > 0 && weights.every((w) => w === 0n)) {
+      check(c.expect.error === "NoCommittee", `${c.id}: zero-weight committee not refused`);
+      continue;
+    }
     const total = weights.reduce((a, b) => a + b, 0n);
-    const n = BigInt(weights.length);
+    const n = BigInt(weights.filter((w) => w > 0n).length);
     const fw = total === 0n ? 0n : (total - 1n) / 3n;
     const fn = n === 0n ? 0n : (n - 1n) / 3n;
     const [needW, needN] = c.fn === "quorum" ? [total - fw, n - fn] : [fw + 1n, fn + 1n];
     const seen = new Set<number>();
     let w = 0n;
     for (const s of c.signers as number[]) {
-      if (s < weights.length && !seen.has(s)) (seen.add(s), (w += weights[s]));
+      if (s < weights.length && weights[s] > 0n && !seen.has(s)) (seen.add(s), (w += weights[s]));
     }
     const met = w >= needW && BigInt(seen.size) >= needN;
     check(met === (c.expect.result === "ok"), `${c.id}: ${c.fn} ${met ? "met" : "not met"}`);

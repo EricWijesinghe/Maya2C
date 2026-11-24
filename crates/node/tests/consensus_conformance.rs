@@ -278,7 +278,10 @@ fn check(case: &Value) {
                 .iter()
                 .map(|v| u16::try_from(v.as_u64().unwrap()).unwrap())
                 .collect();
-            let committee = maya_dag_bft::Committee::weighted(weights).unwrap();
+            let Some(committee) = maya_dag_bft::Committee::weighted(weights) else {
+                assert_eq!(expect["error"], "NoCommittee", "{id}: refused committee");
+                return;
+            };
             let met = if f == "quorum" {
                 committee.is_quorum(signers)
             } else {

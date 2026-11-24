@@ -703,6 +703,8 @@ fn quorum_cases() -> Vec<Value> {
     let capped = [200, 200, 200, 200, 34, 33, 33, 33, 33, 34];
     let cheap = [1_000_000_000, 1_000, 1_000, 1_000];
     let two_heavy = [1_000, 1_000, 1, 1, 1, 1, 1];
+    // A tombstone held in its seat at weight 0 (third round 5).
+    let held = [5, 5, 5, 0];
     vec![
         case(
             "quorum-equal-four-three-signers",
@@ -767,7 +769,31 @@ fn quorum_cases() -> Vec<Value> {
             &[0, 1, 9],
         ),
         case(
-            "quorum-zero-weight-counts-as-one",
+            "quorum-zero-weight-seat-is-no-voter",
+            "quorum",
+            &held,
+            &[0, 1, 3],
+        ),
+        case(
+            "quorum-voters-around-a-zero-weight-seat",
+            "quorum",
+            &held,
+            &[0, 1, 2],
+        ),
+        case(
+            "quorum-zero-weight-seat-spends-no-seat-fault",
+            "quorum",
+            &[5, 5, 5, 5, 0],
+            &[0, 1, 2],
+        ),
+        case(
+            "validity-zero-weight-seat-is-no-second-voter",
+            "validity",
+            &[5, 5, 5, 5, 0],
+            &[3, 4],
+        ),
+        case(
+            "quorum-committee-of-zero-weights-refused",
             "quorum",
             &[0; 4],
             &[0, 1, 2],

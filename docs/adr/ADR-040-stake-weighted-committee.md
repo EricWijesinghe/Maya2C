@@ -315,12 +315,30 @@ and `n − f_n` of the seats, that is when the faulty or absent side holds at mo
 
 ### What it guarantees
 
-- **Stake spread over a few addresses finalizes nothing alone.** One party holding 80% of
-  the weight on four addresses of ten, each at the 20% cap, has a weight quorum and four of the
-  seven seats a quorum needs: no certificate, no checkpoint, no light-client update. Without
-  this amendment it would finalize by itself.
+Stated with its cost, after the dual-quorum review of 2026-11-25 (issue 2), which showed the
+first wording ("stake on a few addresses finalizes nothing alone") held only for a committee
+that does not grow.
+
+- **To finalize alone a party needs two thirds of the weight and two thirds of the voters.**
+  Weight alone, however concentrated, is never enough: one party holding 80% of the weight on
+  four addresses of ten, each at the 20% cap, has a weight quorum and four of the seven seats a
+  quorum needs, so no certificate, no checkpoint, no light-client update.
+- **Seats are priced and rate-limited.** Each seat costs at least `min_self_bond` while the
+  committee has free seats, and more than the smallest seated stake once it is full. Seats
+  join at most `entry_limit` per epoch (STK-23), and a seat counts only once it is in the
+  committee, so a party that adds seats to its stake must keep them online through each
+  boundary while it builds up to two thirds. Measured on the example above with eleven
+  minimum-bond seats on eleven fresh payout addresses: without STK-23 an attacker-only quorum
+  one boundary later; with it, after the number of epochs
+  `cheap_seats_added_to_capped_stake_reach_no_quorum_in_one_epoch` prints (see Evidence).
+  This is a delay with a visible, on-chain build-up, not a prohibition.
 - **Seats bought without stake finalize nothing alone.** Unchanged from part 1: cheap seats are
   heads without weight.
+- **A seat that never comes online is jailed before it can stop finality** (STK-23, from seven
+  seats up): seats that join in one epoch hold at most half of `f_n`, and the boundary that
+  follows jails and slashes the absent ones (STK-11).
+- **A held tombstone has no say** (third round 5): weight 0 is no voter, so it spends no seat
+  fault and its signature never stands in for a voter's.
 - **Normal finality is unaffected.** Equal weights give the same thresholds as before; the
   committee with a member absent still commits while the absent side is within a third by
   seats and by weight.
@@ -334,20 +352,53 @@ one-seat-one-vote chain ADR-039 described. The chain halts; it does not fork (bo
 below assert that the nodes still agree). A halted chain reaches no epoch boundary, so the
 downtime jail that would remove the seats does not run.
 
-| Committee | Before (weight only) | Now (dual) |
-|---|---|---|
-| 4 online at 10,000, 3 absent at 1,000 (7 seats, `n − f_n` = 5) | goes on: 40,000 of 43,000 | halts: 4 seats of 7 |
-| 4 online at 10,000, 1 absent at 1,000 (5 seats, `n − f_n` = 4) | goes on | goes on |
-| 1 bonded at 10^9, 3 absent at 1,000 (sim) | goes on | halts |
-| 3 bonded at 10^9, 1 absent at 1,000 (sim) | goes on | goes on |
+| Committee | Before (weight only) | Dual, as first built | Dual + STK-23 |
+|---|---|---|---|
+| 4 online at 10,000, 3 absent at 1,000 registered in one epoch | goes on: 40,000 of 43,000 | halts: 4 seats of 7 | goes on: one joins per epoch, 4 of 5 |
+| 4 online at 10,000, 1 absent at 1,000 (5 seats, `n − f_n` = 4) | goes on | goes on | goes on |
+| 1 bonded at 10^9, 3 absent at 1,000 (sim, fixed committee) | goes on | halts | halts if seated; above the four-seat floor STK-23 seats one newcomer per epoch, and only a refill below the floor seats more |
+| 3 bonded at 10^9, 1 absent at 1,000 (sim) | goes on | goes on | goes on |
 
 What bounds it: seats are the top `max_validators` eligible validators by stake (ADR-028), so
 once the committee is full a seat costs more than the smallest seated stake, not the minimum
-bond; and every seat costs at least `min_self_bond`. While the committee has empty seats, a
-third of the seats costs a third of the seated count in minimum bonds. **This is an owner
-decision to confirm before genesis**, and the PR that builds this amendment says so; the
-options that would keep the halt-resistance (for example counting only seats above a stake
-floor in the seat threshold) are not built, because they change what Eric decided.
+bond; and every seat costs at least `min_self_bond`.
+
+**STK-23, the entry limit (dual-quorum review 2026-11-25, issue 1).** The review showed the
+table's first row is a deliberate, cheap and permanent halt, not only an accident: at the
+genesis size, seven online at 10,000 and four registrations at the minimum that never run give
+`n` = 11, `n − f_n` = 8 and seven answering seats. Nothing is committed, so the epoch never
+ends, `punish_downtime` never jails them, the bonds are never slashed, and a `--trusted-block`
+restart keeps the same committee. At most `entry_limit(seated) = max(MIN_COMMITTEE − seated,
+max(1, ⌊f_n(seated) ÷ 2⌋))` validators that were not in the ending committee now join at a
+boundary (`maya_staking::entry_limit`, `Staking::next_committee`). From seven seats up the
+newcomers of one epoch hold at most half of `f_n`, so absent ones cannot stop finality, and the
+boundary after their first epoch jails and slashes them while the next one joins. Both rows
+above that halted (equal weight and stake weighted, four online and three absent) now go on
+through two boundaries (`absent_cheap_seats_join_one_per_epoch_so_*`).
+
+**What STK-23 does not close, for Eric before genesis.** A patient attacker runs its seats
+honestly until it holds more than `f_n`, then goes dark. The limit makes that take several
+epochs of service (from a seven-seat genesis, four epochs:
+`a_patient_attacker_needs_several_epochs_of_service_to_hold_a_third`), but each seat still
+costs only `min_self_bond` while seats are free, and the halt is still permanent because a
+halted chain reaches no boundary. Under weight only, the same halt needed a third of the
+weight. Options, with evidence:
+
+| Option | Closes the patient halt? | Keeps decision 3? | Evidence |
+|---|---|---|---|
+| (a) entry limit (built, STK-23) | delays it (4 epochs from 7 seats) | yes | `committee_entry.rs` |
+| (b) only seats with capped weight ≥ a floor (e.g. `W ÷ 3n`) count toward `n − f_n` | raises the cost to about an eighth of the honest weight at equal honest stakes, not a third | partly: the floor moves with `W`, so a heavy party can push many small honest seats under it and hold every counted seat | arithmetic below |
+| (c) count seats per operator (the cap's grouping) | no | yes | the operator is the payout address the registrant names; the tests above use a fresh address per seat and the weight cap treats each as a separate operator |
+| raise `min_self_bond` or a seat floor at election | in proportion to the price | yes | economics, not built |
+| weight-only quorum (part 1), decision 3 reversed | yes, back to a third of the weight | no | ADR-040 part 1 |
+
+Arithmetic for (b): with `h` honest seats at stake `H` and `k ≥ h/2` absent seats at weight `x`,
+the floor `x ≥ (hH + kx) ÷ 3(h + k)` gives `x ≥ H/4`, so the halt costs `k·x ≈ hH/8`. The same
+floor at `W ÷ n` restores a third of the weight but then the example of the first guarantee
+fails: the capped addresses are the only seats above the average and hold every counted seat.
+A seat count can only veto stake if small seats count, and if small seats count, small seats
+can halt. That trade is the owner's to make; this amendment builds (a) and does not choose
+between the rest.
 
 ### What the seat threshold does not change
 
@@ -361,10 +412,20 @@ case, stake concentrated on few seats past the per-address cap.
 ### Interaction with the held tombstone
 
 Third-round decision 5 gives a tombstoned validator held in its seat to keep the four-seat
-floor (STK-14) zero consensus weight. Under this amendment it still counts as a *seat*: four
-members, `n − f_n` = 3. That lane is built separately (the engine today counts a zero weight as
-one); whether a zero-weight member should count toward the seat threshold is for that lane to
-state, and this amendment does not change it.
+floor (STK-14) zero consensus weight. The first build of this amendment wrote the opposite into
+CON-20 ("a weight of 0 counts as 1") and still counted the held seat as a full seat, so at the
+floor (`n` = 4, `f_n` = 1) the proven equivocator used up the one seat fault and any single
+honest outage halted the chain (review 2026-11-25, issue 3). Now zero consensus weight means
+no say by either measure: `Committee::weighted` keeps a 0 as 0, `n` is the number of voters
+(members of positive weight, `Committee::voters`), a zero-weight member adds nothing to a
+tally's weight or seats, and a committee whose weights are all 0 is refused. The member keeps
+its index and its leader slot. This matches the decision-5 lane (#707, `voters`/`voters_in`,
+STK-22), which sets the held tombstone's weight to 0 in `stake_weights`; the two PRs use the
+same names so they merge as one rule. CON-20, `maya-spec-ref`, `verify.ts` and the vectors
+`quorum-zero-weight-seat-is-no-voter`, `quorum-voters-around-a-zero-weight-seat`,
+`quorum-zero-weight-seat-spends-no-seat-fault`, `validity-zero-weight-seat-is-no-second-voter`
+and `quorum-committee-of-zero-weights-refused` changed together; the vector
+`quorum-zero-weight-counts-as-one` is gone.
 
 ### Evidence
 

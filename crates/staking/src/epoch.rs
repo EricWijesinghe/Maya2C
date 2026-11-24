@@ -17,6 +17,24 @@ pub const MIN_COMMITTEE: usize = 4;
 /// budget, so the floor then has no margin for a further Byzantine member.
 pub const MAX_HELD_TOMBSTONES: usize = (MIN_COMMITTEE - 1) / 3;
 
+/// Most validators that may join a committee in which `seated` members of the
+/// ending committee stay (STK-23): half its seat-fault budget
+/// `⌊⌊(seated − 1) ÷ 3⌋ ÷ 2⌋`, at least one so the committee can grow, and
+/// enough to refill it to [`MIN_COMMITTEE`].
+///
+/// Under the dual quorum (CON-20) a third of the seats stops finality, and a
+/// chain with no commits reaches no epoch boundary to jail them. Entering at
+/// most this many per epoch, seats that never come online are jailed at the
+/// next boundary (STK-11) while they still hold at most half the faults the
+/// committee tolerates; the other half stays for honest outages.
+#[must_use]
+pub const fn entry_limit(seated: usize) -> usize {
+    let half_faults = seated.saturating_sub(1) / 3 / 2;
+    let grow = if half_faults == 0 { 1 } else { half_faults };
+    let refill = MIN_COMMITTEE.saturating_sub(seated);
+    if refill > grow { refill } else { grow }
+}
+
 /// How much each active validator took part in the ending epoch.
 ///
 /// The node counts *anchor slots*: every even round names a leader, and the

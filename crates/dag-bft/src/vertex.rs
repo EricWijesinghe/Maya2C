@@ -79,6 +79,21 @@ impl Committee {
         self.min_quorum_size
     }
 
+    /// Members with a positive weight: the `n` of the count rule. A
+    /// zero-weight seat (a tombstone the committee floor holds, Eric
+    /// 2026-11-24 third round 5) is not a voter.
+    #[must_use]
+    pub fn voters(&self) -> u16 {
+        self.voters_in(0..self.size())
+    }
+
+    /// Distinct voters among `members`; zero-weight seats, strangers and
+    /// repeats are not counted.
+    pub fn voters_in(&self, members: impl IntoIterator<Item = ValidatorId>) -> u16 {
+        // At most `size()`, which `weighted` bounds by u16::MAX.
+        u16::try_from(self.tally(members).1).unwrap_or(u16::MAX)
+    }
+
     /// Number of validators.
     #[must_use]
     pub fn size(&self) -> u16 {
@@ -493,6 +508,39 @@ mod tests {
     #[test]
     fn a_committee_larger_than_a_validator_id_can_name_is_refused() {
         assert!(Committee::weighted(vec![1; usize::from(u16::MAX) + 1]).is_none());
+    }
+
+    /// Eric 2026-11-24 third round 5: a tombstone the floor holds in its seat
+    /// has zero consensus weight. Under the dual quorum (third round 3) zero
+    /// weight is also no seat: it keeps its index and leader slot, and its
+    /// signature never stands in for a voter's, by weight or by head count.
+    #[test]
+    fn a_zero_weight_seat_is_seated_but_never_counted() {
+        let c = Committee::weighted(vec![5, 5, 5, 0]).expect("4");
+        assert_eq!(c.size(), 4, "the seat is held");
+        assert_eq!(c.weight(3), 0);
+        assert_eq!(c.voters(), 3, "the count rule's n is the three voters");
+        assert_eq!((c.quorum(), c.count_quorum()), (11, 3));
+        assert!(c.is_quorum([0, 1, 2]));
+        assert!(!c.is_quorum([0, 1, 3]), "the held seat adds no weight");
+        assert_eq!(c.voters_in([0, 1, 3, 3]), 2);
+        assert_eq!(c.leader(6), Some(3), "it keeps its leader slot");
+        // At the four-seat floor the held seat must not spend the one seat
+        // fault: with it counted, one honest outage would halt the chain.
+        let c = Committee::weighted(vec![5, 5, 5, 5, 0]).expect("5");
+        assert_eq!((c.voters(), c.count_faults()), (4, 1));
+        assert!(c.is_quorum([0, 1, 2]), "one of four voters may be down");
+        assert!(!c.is_validity([3, 4]), "the held seat is not a second voter");
+    }
+
+    #[test]
+    fn a_committee_with_no_weight_is_refused() {
+        // Every set would be a quorum of zero.
+        assert!(Committee::weighted(vec![0; 4]).is_none());
+        assert!(
+            Committee::weighted(Vec::new()).is_some(),
+            "empty stays as it was"
+        );
     }
 
     #[test]
