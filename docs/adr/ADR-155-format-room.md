@@ -65,14 +65,29 @@ and 22) with the block-validity lead of ADR-082 amendment b. Their ranges end at
 compiled ceilings that every transport of the same build is asserted at
 compile time to carry: one 8 MiB gossip frame with a mebibyte of framing, one
 24 MiB sync response (ceilings 7 MiB and 815,559 transactions, the byte ceiling
-at nine bytes an entry). Import (at the tip), every apply path (the state the
-block extends), selection and the DAG-BFT decode budget read the value in
-force. Raising a ceiling is a release with larger or chunked frames: a
-scheduled upgrade, not a format change. The two contradictions the review found are removed: the epoch
-sync bound is derived from the epoch length and the ceiling instead of a
-4 GiB constant a full epoch exceeds, and the contract-code decoder accepts what
-the governed `vm.max_module_bytes` range allows (2 MiB), so no passed vote can
-set a module size every decoder refuses.
+at nine bytes an entry). Every apply path judges a block by the values of the
+state it extends, its parent's; selection and the DAG-BFT decode budget read
+the value in force where the block is built. On arrival a block is checked
+only against the compiled ceilings, which no vote moves: checking it against
+the importing node's tip would let two honest nodes on either side of an
+activation height disagree about one side-branch or late block (PR #702
+review). Raising a ceiling is a release with larger or chunked frames: a
+scheduled upgrade, not a format change. The decoder reserves room for at most
+4,096 transactions before any has decoded, so a frame's claimed count, read
+before any proof of work or signature, never sizes an allocation.
+
+The contradictions the review found are removed. The epoch sync bound is
+derived from the epoch length and the ceiling instead of a 4 GiB constant a
+full epoch exceeds. The governed `vm.max_module_bytes` is now the value a
+deployment is held to, read from the state at execution and at mempool
+admission, and its range ends at the VM's compiled `MAX_MODULE_BYTES`
+(512 KiB), which is also the decoder's bound. Every size a vote can set is
+one each node decodes, the VM accepts, and one block's contract gas deploys
+(50,000 + 450 per byte is 235,979,600 at 512 KiB, under the lowest
+`vm.max_block_gas` a vote can set). The earlier 2 MiB range was read nowhere:
+no module over 512 KiB could deploy under any vote, and 2 MiB is past what the
+300M gas ceiling can pay for (about 666 KB). A wider range is a release that
+raises the VM cap, the decoder and the gas ceiling together.
 
 ### 4. The header has a slot for roots it does not compute yet (C12, B5, B6)
 

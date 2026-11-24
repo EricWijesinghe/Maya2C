@@ -17,6 +17,10 @@ use maya_fee_market::limits::{BLOCK_TXS_CEILING, MIN_TX_ENTRY_BYTES};
 /// transaction count, as [`Block::to_bytes`] writes them.
 const BLOCK_OVERHEAD: u64 = HEADER_LEN as u64 + 8;
 
+/// Most transactions [`Block::from_bytes`] reserves room for before any has
+/// decoded. Not a limit: a block of more still decodes, growing as it goes.
+const DECODE_RESERVE_TXS: usize = 4_096;
+
 // A maximal transaction must fit a block alone (ADR-072), or it blocks the queue.
 const _: () = assert!(MAX_BLOCK_BYTES >= BLOCK_OVERHEAD + 8 + MAX_TX_BYTES as u64);
 // The decoder's per-entry floor really is a floor: a length prefix and at
@@ -540,7 +544,11 @@ impl Block {
                 "block of {count} transactions over the ceiling {BLOCK_TXS_CEILING}"
             )));
         }
-        let mut transactions = Vec::with_capacity(count);
+        // The count is the frame's claim, decoded before any proof of work or
+        // signature: reserve a bounded start and let entries that actually
+        // decode grow it, so a frame of 1-byte entries cannot make every
+        // receiver reserve the ceiling's worth of transactions.
+        let mut transactions = Vec::with_capacity(count.min(DECODE_RESERVE_TXS));
         for _ in 0..count {
             let len = reader.read_byte_len(MAX_TX_BYTES)?;
             let frame = reader.read_slice(len)?;

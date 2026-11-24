@@ -1044,6 +1044,168 @@
       ]
     },
     {
+      "expect": {
+        "bytes": {
+          "default": "5242880",
+          "max": "7340032",
+          "min": "4259840"
+        },
+        "result": "ok",
+        "transactions": {
+          "default": "65536",
+          "max": "815559",
+          "min": "1024"
+        }
+      },
+      "fn": "block_caps_range",
+      "id": "block-caps-vote-range",
+      "rules": [
+        "CON-12"
+      ]
+    },
+    {
+      "cap": "4259840",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "block_within_cap",
+      "id": "block-at-the-floor-cap-accepted",
+      "rules": [
+        "CON-12"
+      ],
+      "tx_lens": [
+        "4259679"
+      ]
+    },
+    {
+      "cap": "4259840",
+      "expect": {
+        "error": "BlockTooLarge",
+        "result": "error"
+      },
+      "fn": "block_within_cap",
+      "id": "block-over-the-floor-cap-refused",
+      "rules": [
+        "CON-12"
+      ],
+      "tx_lens": [
+        "4259680"
+      ]
+    },
+    {
+      "cap": "7340032",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "block_within_cap",
+      "id": "block-at-the-ceiling-cap-accepted",
+      "rules": [
+        "CON-12"
+      ],
+      "tx_lens": [
+        "7339871"
+      ]
+    },
+    {
+      "cap": "7340032",
+      "expect": {
+        "error": "BlockTooLarge",
+        "result": "error"
+      },
+      "fn": "block_within_cap",
+      "id": "block-over-the-ceiling-cap-refused",
+      "rules": [
+        "CON-12"
+      ],
+      "tx_lens": [
+        "7339872"
+      ]
+    },
+    {
+      "cap": "1024",
+      "count": "1024",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "block_count_within_cap",
+      "id": "block-count-at-the-cap-accepted",
+      "rules": [
+        "CON-12"
+      ]
+    },
+    {
+      "cap": "1024",
+      "count": "1025",
+      "expect": {
+        "error": "BlockTooLarge",
+        "result": "error"
+      },
+      "fn": "block_count_within_cap",
+      "id": "block-count-over-the-cap-refused",
+      "rules": [
+        "CON-12"
+      ]
+    },
+    {
+      "count": "815559",
+      "expect": {
+        "result": "ok"
+      },
+      "fn": "block_decode_count",
+      "id": "block-decode-count-at-the-ceiling",
+      "rules": [
+        "CON-12"
+      ]
+    },
+    {
+      "count": "815560",
+      "expect": {
+        "error": "Decode",
+        "result": "error"
+      },
+      "fn": "block_decode_count",
+      "id": "block-decode-count-over-the-ceiling-refused",
+      "rules": [
+        "CON-12"
+      ]
+    },
+    {
+      "cap": "5242880",
+      "expect": {
+        "budget": "7864320",
+        "result": "ok"
+      },
+      "fn": "decode_budget",
+      "id": "decode-budget-at-the-starting-cap",
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
+      "cap": "4259840",
+      "expect": {
+        "budget": "6389760",
+        "result": "ok"
+      },
+      "fn": "decode_budget",
+      "id": "decode-budget-at-the-floor",
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
+      "cap": "7340032",
+      "expect": {
+        "budget": "11010048",
+        "result": "ok"
+      },
+      "fn": "decode_budget",
+      "id": "decode-budget-at-the-ceiling",
+      "rules": [
+        "CON-13"
+      ]
+    },
+    {
       "budget": "5",
       "expect": {
         "count": "0",

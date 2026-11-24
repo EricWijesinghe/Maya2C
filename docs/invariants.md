@@ -246,8 +246,11 @@ phase that did it.
     `the_limit_bounds_a_window_not_a_transaction`) — ADR-030.
 33. **A block whose wire form is over the governed `block.max_bytes` in force
     (starting at `MAX_BLOCK_BYTES`, 5 MiB, provisional), or that carries more
-    than `block.max_transactions`, is refused on import (the values in force
-    at the tip) and on every apply path (the values of the state it extends);
+    than `block.max_transactions`, is refused on every apply path, judged by
+    the values of the state it extends (its parent's, never the importing
+    node's tip, so a side-branch or late block gets the same verdict on every
+    node); on arrival, before it is stored, a block over the compiled ceilings
+    is refused;
     no vote can move either past its compiled ceiling (`BLOCK_BYTES_CEILING`
     7 MiB, `BLOCK_TXS_CEILING`); and the selection that builds a block passes
     over any transaction that would take it over (first-fit) and stops at the

@@ -133,7 +133,11 @@ pub const VALIDITY_RULE_LEAD_BLOCKS: u64 = crate::limits::MIN_UPGRADE_LEAD_BLOCK
 /// this crate has no dependencies (invariant 12). The node asserts the two
 /// agree (`crates/node/tests/vm_gas_tests.rs`). No block cap may sit below it,
 /// or the largest deployable contract could never be called.
-const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * 512 * 1024;
+const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * MAX_MODULE_BYTES;
+
+/// `maya_vm::MAX_MODULE_BYTES`, restated (invariant 12); the node asserts the
+/// two agree (`crates/node/tests/vm_gas_tests.rs`).
+const MAX_MODULE_BYTES: u64 = 512 * 1024;
 
 /// Most either contract gas cap may be voted to (ADR-142).
 const VM_GAS_CEILING: u64 = 300_000_000;
@@ -302,11 +306,15 @@ impl ParameterKey {
                 default: Amount::from_u64(256),
             },
             // Code is stored on chain verbatim and every node keeps it forever,
-            // so this is a storage decision as much as a validation one.
+            // so this is a storage decision as much as a validation one. The
+            // top is the VM's compiled `MAX_MODULE_BYTES` (512 KiB): every size
+            // in the range is one each node decodes, the VM accepts and one
+            // block's gas deploys (`MAX_MODULE_CALL_GAS` is under every block
+            // cap). A wider range is a release that raises all three together.
             Self::VmMaxModuleBytes => Bounds {
                 min: Amount::from_u64(64 * 1024),
-                max: Amount::from_u64(2 * 1024 * 1024),
-                default: Amount::from_u64(512 * 1024),
+                max: Amount::from_u64(MAX_MODULE_BYTES),
+                default: Amount::from_u64(MAX_MODULE_BYTES),
             },
             // A halting bound, not a price. Too low and no useful contract
             // completes; too high and one call can occupy a validator for

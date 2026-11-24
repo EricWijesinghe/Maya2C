@@ -143,6 +143,17 @@ pub(crate) fn vm_failure(error: &maya_vm::VmError) -> NodeError {
     }
 }
 
+/// A module within the governed `vm.max_module_bytes` in force (ADR-155):
+/// the length alone, so it is refused before anything is priced or scanned.
+fn admit_module_size(len: usize, max_module: u64) -> Result<()> {
+    if u64::try_from(len).unwrap_or(u64::MAX) > max_module {
+        return Err(NodeError::Vm(format!(
+            "module of {len} bytes over vm.max_module_bytes {max_module}"
+        )));
+    }
+    Ok(())
+}
+
 fn admit_block_gas(needed: u64, block_cap: u64, block_used: u64) -> Result<()> {
     let remaining = block_cap.saturating_sub(block_used);
     if needed > remaining {
@@ -204,6 +215,11 @@ impl StateDB {
         // The cold price is the length price plus the shape's, so a length
         // price that does not fit is refused whatever the shape, before the
         // scan and before anything is counted (GAS-2; as a cold call, 09 R-5).
+        // Before that, the governed module size in force, by length alone.
+        admit_module_size(
+            deploy.code.len(),
+            self.parameter_u64(overlay, ParameterKey::VmMaxModuleBytes)?,
+        )?;
         let (_, block_cap) = self.gas_caps(overlay)?;
         let length_price = gas::deploy_fuel(deploy.code.len());
         admit_deploy_gas(length_price, block_cap, overlay.vm_gas)?;
@@ -272,6 +288,10 @@ impl StateDB {
                 admit_call_gas(call.gas_limit, tx_cap, block_cap, 0)
             }
             TxKind::DeployContract(deploy) => {
+                let max_module = table
+                    .get(ParameterKey::VmMaxModuleBytes)
+                    .saturating_to_u64();
+                admit_module_size(deploy.code.len(), max_module)?;
                 admit_deployable(gas::deploy_fuel(deploy.code.len()), block_cap)
             }
             _ => Ok(()),

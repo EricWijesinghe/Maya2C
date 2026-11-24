@@ -1022,3 +1022,85 @@ fn a_later_call_to_a_contract_in_the_same_block_is_warm_by_block_order() {
     );
     assert!(matches!(result, Err(NodeError::Vm(_))), "{result:?}");
 }
+
+/// `code` grown to exactly `total` bytes by one trailing custom section, which
+/// the VM skips: a module of any size that still validates.
+fn padded(mut code: Vec<u8>, total: usize) -> Vec<u8> {
+    let leb = |mut n: usize| {
+        let mut out = Vec::new();
+        loop {
+            let byte = (n & 0x7f) as u8;
+            n >>= 7;
+            if n == 0 {
+                out.push(byte);
+                return out;
+            }
+            out.push(byte | 0x80);
+        }
+    };
+    let name = b"\x03pad";
+    // Section id, a three-byte size (any size from 16 KiB to 2 MiB), the size.
+    let size = total - code.len() - 1 - 3;
+    assert!((1 << 14..1 << 21).contains(&size));
+    code.push(0);
+    code.extend(leb(size));
+    code.extend_from_slice(name);
+    code.resize(total, 0);
+    code
+}
+
+fn module_bytes_table(cap: u64) -> Vec<u8> {
+    custom_l1_node::governance::ParameterTable::new()
+        .with(
+            ParameterKey::VmMaxModuleBytes,
+            maya_governance::Amount::from_u64(cap),
+        )
+        .encode()
+}
+
+#[test]
+fn a_module_at_the_top_of_the_governed_size_range_deploys_end_to_end() {
+    // Every size a vote can set is a size every node decodes, the VM accepts
+    // and one block's gas holds (ADR-155 §3).
+    let top = ParameterKey::VmMaxModuleBytes
+        .bounds()
+        .max
+        .saturating_to_u64();
+    // Governance restates the VM's cap (it has no dependencies); they agree.
+    assert_eq!(top, maya_vm::MAX_MODULE_BYTES as u64);
+    let key = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[key.address()]);
+    db.raw_put_for_test(b"g:params", &module_bytes_table(top))
+        .unwrap();
+    // A module with no functions: its cold price is its length price alone. A
+    // module with code at this length is refused for its shape price, by
+    // design (ADR-142: no cold call may cost more than the largest module's
+    // length price), so code tops out a few hundred bytes below it.
+    let code = padded(wasm("(module)"), usize::try_from(top).unwrap());
+    let contract = deploy(&db, &key, &code);
+    assert_eq!(db.get_code(&contract).unwrap(), Some(code));
+}
+
+#[test]
+fn a_module_over_the_voted_size_is_refused() {
+    let floor = ParameterKey::VmMaxModuleBytes
+        .bounds()
+        .min
+        .saturating_to_u64();
+    let key = generate_signing_key().unwrap();
+    let (db, _dir) = open_state(&[key.address()]);
+    db.raw_put_for_test(b"g:params", &module_bytes_table(floor))
+        .unwrap();
+    let over = usize::try_from(floor).unwrap() + 1;
+    let code = padded(wasm(WRITER_WAT), over);
+    let tx = signed(
+        TxKind::DeployContract(ContractDeploy { code: code.clone() }),
+        0,
+        &key,
+    );
+    let result = db.apply_block(&block_of(vec![tx]), BlockContext::at_height(1));
+    assert!(result.is_err(), "{result:?}");
+    // At the voted size it deploys.
+    let at = padded(wasm(WRITER_WAT), usize::try_from(floor).unwrap());
+    deploy(&db, &key, &at);
+}

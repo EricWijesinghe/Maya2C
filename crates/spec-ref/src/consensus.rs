@@ -51,6 +51,42 @@ pub const fn header_version_ok(version: u8) -> bool {
 /// that the node's constant is this one.
 pub const MAX_BLOCK_BYTES: u64 = 5 * 1024 * 1024;
 
+/// CON-12: the lowest `block.max_bytes` a vote may set (4 MiB + 64 KiB).
+pub const BLOCK_BYTES_FLOOR: u64 = 4_259_840;
+
+/// CON-12: the highest `block.max_bytes` a vote may set, `BLOCK_BYTES_CEILING`.
+pub const BLOCK_BYTES_CEILING: u64 = 7 * 1024 * 1024;
+
+/// CON-12: `block.max_transactions` a chain starts with.
+pub const DEFAULT_BLOCK_TXS: u64 = 65_536;
+
+/// CON-12: the lowest `block.max_transactions` a vote may set.
+pub const BLOCK_TXS_FLOOR: u64 = 1_024;
+
+/// CON-12: the highest `block.max_transactions` a vote may set, and the most
+/// entries a decoder reads: the byte ceiling at nine bytes an entry.
+pub const BLOCK_TXS_CEILING: u64 = BLOCK_BYTES_CEILING / 9;
+
+/// CON-12: a block of `count` transactions is within the governed
+/// `block.max_transactions` in force.
+#[must_use]
+pub const fn count_within_cap(count: u64, max_txs: u64) -> bool {
+    count <= max_txs
+}
+
+/// CON-12: a decoder reads a block frame claiming `count` transactions only up
+/// to the ceiling, whatever cap is in force.
+#[must_use]
+pub const fn decodable_count(count: u64) -> bool {
+    count <= BLOCK_TXS_CEILING
+}
+
+/// CON-13: `DECODE_BUDGET = ⌊3 × block.max_bytes / 2⌋` for the cap in force.
+#[must_use]
+pub const fn decode_budget(max_bytes: u64) -> u64 {
+    max_bytes * 3 / 2
+}
+
 /// CON-12: the header (145 bytes) and the transaction count (8).
 const BLOCK_OVERHEAD: u64 = 145 + 8;
 

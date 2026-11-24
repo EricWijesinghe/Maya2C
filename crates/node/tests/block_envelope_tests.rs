@@ -95,10 +95,22 @@ fn a_block_over_the_governed_byte_cap_is_refused_where_it_is_staged() {
     let table = ParameterTable::new().with(ParameterKey::BlockMaxBytes, floor);
     db.raw_put_for_test(b"g:params", &table.encode()).unwrap();
     // Unsigned transactions are enough: the size check runs before any other.
-    // Four deployments of 1,070,000 bytes: over the lowest cap a vote can set,
-    // under the starting 5 MiB.
-    let filler = vec![0u8; 1_070_000];
-    let txs: Vec<Transaction> = (0..4u64)
+    let block = Block::new(header(), between_floor_and_start());
+    assert!((block.to_bytes().len() as u64) < MAX_BLOCK_BYTES);
+    assert!(Amount::from_u64(block.to_bytes().len() as u64) > floor);
+    let refused = db.apply_block(&block, BlockContext::at_height(1));
+    assert!(
+        matches!(refused, Err(NodeError::BlockTooLarge { .. })),
+        "{refused:?}"
+    );
+}
+
+/// Deployments (unsigned: size is judged before signatures) whose block is
+/// over the lowest byte cap a vote can set and under the starting 5 MiB, each
+/// module within the compiled 512 KiB module ceiling.
+fn between_floor_and_start() -> Vec<Transaction> {
+    let filler = vec![0u8; 480_000];
+    (0..9u64)
         .map(|n| {
             Transaction::with_kind(
                 TxKind::DeployContract(ContractDeploy {
@@ -107,11 +119,82 @@ fn a_block_over_the_governed_byte_cap_is_refused_where_it_is_staged() {
                 n,
             )
         })
+        .collect()
+}
+
+#[test]
+fn a_side_branch_block_is_not_judged_by_the_caps_at_this_nodes_tip() {
+    use custom_l1_node::consensus::{Chain, ChainConfig, InsertOutcome};
+    use std::sync::Arc;
+    let dir = TempDir::new().unwrap();
+    let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    let genesis = Block::new(header(), vec![]);
+    let mut chain: Chain =
+        common::open_chain(state, genesis, ChainConfig::without_pow_verification()).unwrap();
+    let genesis_id = chain.genesis();
+    let child = |chain: &Chain, timestamp: u64, txs: Vec<Transaction>| {
+        let mut h = header();
+        h.prev_hash = genesis_id;
+        h.timestamp = timestamp;
+        h.difficulty_target = chain.next_target(&genesis_id).unwrap();
+        Block::new(h, txs)
+    };
+    let mut tip = child(&chain, 1_790_000_015, vec![]);
+    tip.header.state_root = chain
+        .state()
+        .preview_root(&tip, BlockContext::at_height(1))
+        .unwrap();
+    chain.insert_block(tip).unwrap();
+    // A vote lowering the byte cap is now in force at this node's tip, not at
+    // genesis, which the competing block below extends.
+    let floor = ParameterKey::BlockMaxBytes.bounds().min;
+    let table = ParameterTable::new().with(ParameterKey::BlockMaxBytes, floor);
+    chain
+        .state()
+        .raw_put_for_test(b"g:params", &table.encode())
+        .unwrap();
+    let rival = child(&chain, 1_790_000_016, between_floor_and_start());
+    let len = rival.to_bytes().len() as u64;
+    assert!(len < MAX_BLOCK_BYTES && Amount::from_u64(len) > floor);
+    let id = rival.header.id();
+    // Valid against its own parent's caps, so every node, wherever its tip is,
+    // holds it; staging judges it against the parent's table if it is applied.
+    assert_eq!(
+        chain.insert_block(rival),
+        Ok(InsertOutcome::SideBranch { id })
+    );
+}
+
+#[test]
+fn a_block_over_the_compiled_ceiling_is_refused_at_admission() {
+    use custom_l1_node::consensus::{Chain, ChainConfig};
+    use std::sync::Arc;
+    let dir = TempDir::new().unwrap();
+    let state = Arc::new(StateDB::open(dir.path()).unwrap());
+    let genesis = Block::new(header(), vec![]);
+    let mut chain: Chain =
+        common::open_chain(state, genesis, ChainConfig::without_pow_verification()).unwrap();
+    let genesis_id = chain.genesis();
+    let mut h = header();
+    h.prev_hash = genesis_id;
+    h.timestamp = 1_790_000_015;
+    h.difficulty_target = chain.next_target(&genesis_id).unwrap();
+    // More bytes than any vote could allow: refused before it is stored or
+    // waits anywhere, whatever any table says.
+    let module = vec![0u8; 512 * 1024];
+    let txs: Vec<Transaction> = (0..15u64)
+        .map(|n| {
+            Transaction::with_kind(
+                TxKind::DeployContract(ContractDeploy {
+                    code: module.clone(),
+                }),
+                n,
+            )
+        })
         .collect();
-    let block = Block::new(header(), txs);
-    assert!((block.to_bytes().len() as u64) < MAX_BLOCK_BYTES);
-    assert!(Amount::from_u64(block.to_bytes().len() as u64) > floor);
-    let refused = db.apply_block(&block, BlockContext::at_height(1));
+    let block = Block::new(h, txs);
+    assert!(block.to_bytes().len() as u64 > BLOCK_BYTES_CEILING);
+    let refused = chain.insert_block(block);
     assert!(
         matches!(refused, Err(NodeError::BlockTooLarge { .. })),
         "{refused:?}"
