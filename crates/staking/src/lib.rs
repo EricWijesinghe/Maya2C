@@ -14,6 +14,7 @@
 //! | active set: top `max_validators` by total stake, ties by id | [`Staking::end_epoch`] |
 //! | double-sign: slash, tombstone forever | [`Staking::slash_double_sign`] |
 //! | downtime: slash, jail | [`Staking::end_epoch`] with [`Participation`] |
+//! | committee floor: exits and tombstones wait for a replacement | [`Staking::unbond`], [`Staking::end_epoch`] |
 //! | epoch rewards, pro rata, commission first | [`Staking::end_epoch`] |
 //! | Nakamoto coefficient, Gini | [`concentration`] |
 //!
@@ -43,7 +44,7 @@ mod proofs;
 pub use maya_amount::Amount;
 
 pub use concentration::{Concentration, concentration};
-pub use epoch::{EpochOutcome, MIN_COMMITTEE, Participation};
+pub use epoch::{EpochOutcome, MAX_HELD_TOMBSTONES, MIN_COMMITTEE, Participation};
 pub use params::Params;
 pub use types::{
     Address, Effect, Stake, StakeError, Staking, Status, Unbonding, ValidatorId, ValidatorRecord,

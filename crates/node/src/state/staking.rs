@@ -25,6 +25,11 @@ use maya_staking::{Amount, Params, Staking, Status, Unbonding, ValidatorRecord};
 /// record is refused, not reinterpreted.
 const RECORD_VERSION: u8 = 3;
 
+/// Version 3 plus the exits waiting at the committee floor (CON-07). Written
+/// only while one waits, so a record with none keeps its version-3 bytes and
+/// every state root that never held a waiting exit is unchanged.
+const RECORD_VERSION_EXITS: u8 = 4;
+
 use crate::core::codec::ByteReader;
 use crate::error::{NodeError, Result};
 
@@ -112,8 +117,22 @@ pub fn decode_weights(bytes: &[u8]) -> Result<Vec<u64>> {
 /// member's share to within 2^-63 of the largest stake. While every stake fits
 /// a `u64` the shift is zero and the weights are the stakes, exactly as before.
 /// A member with any stake keeps a weight of at least one.
+///
+/// CON-06 (Eric 2026-11-24): no operator holds more than
+/// [`MAX_OPERATOR_WEIGHT_BPS`](crate::state::weight_cap::MAX_OPERATOR_WEIGHT_BPS)
+/// of the committee's weight, whatever stake it gathers
+/// ([`cap_operator_weights`](crate::state::weight_cap::cap_operator_weights)). Stake above the cap still earns: rewards
+/// are paid on stake (`maya-staking`), never on these weights.
 #[must_use]
 pub fn stake_weights(staking: &maya_staking::Staking, active: &[[u8; 32]]) -> Vec<u64> {
+    let operators: Vec<[u8; 32]> = active
+        .iter()
+        .map(|id| staking.validators.get(id).map_or(*id, |v| v.operator))
+        .collect();
+    crate::state::weight_cap::cap_operator_weights(&uncapped_weights(staking, active), &operators)
+}
+
+fn uncapped_weights(staking: &maya_staking::Staking, active: &[[u8; 32]]) -> Vec<u64> {
     let stakes: Vec<maya_staking::Amount> = active
         .iter()
         .map(|id| {
@@ -287,13 +306,43 @@ fn decode_pending(r: &mut ByteReader<'_>, staking: &mut Staking) -> Result<()> {
     Ok(())
 }
 
+/// The waiting exits of a version-4 record: at least one (an empty set is
+/// written as version 3), ids ascending, each a bonded, untombstoned
+/// validator, so one state has one encoding.
+fn decode_exits(r: &mut ByteReader<'_>, staking: &mut Staking) -> Result<()> {
+    let refused = || NodeError::Decode("staking exits empty, out of order or unknown".into());
+    let n = r.read_record_len(32)?;
+    if n == 0 {
+        return Err(refused());
+    }
+    let mut prev: Option<[u8; 32]> = None;
+    for _ in 0..n {
+        let id: [u8; 32] = r.read_array()?;
+        let known = staking
+            .validators
+            .get(&id)
+            .is_some_and(|v| v.status != Status::Tombstoned && !v.self_bond.is_zero());
+        if prev.is_some_and(|p| p >= id) || !known {
+            return Err(refused());
+        }
+        prev = Some(id);
+        staking.exits.insert(id);
+    }
+    Ok(())
+}
+
 impl StakingRecord {
     /// Encodes the record. Canonical: every map is written in key order.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
         let s = &self.staking;
         // Record version 2: every amount is 256-bit (ADR-046).
-        let mut out = vec![RECORD_VERSION];
+        let version = if s.exits.is_empty() {
+            RECORD_VERSION
+        } else {
+            RECORD_VERSION_EXITS
+        };
+        let mut out = vec![version];
         put_params(&mut out, &s.params);
         put_u64(&mut out, s.epoch);
         put_u64(&mut out, s.validators.len() as u64);
@@ -334,6 +383,12 @@ impl StakingRecord {
             out.extend_from_slice(v);
             put_amount(&mut out, *amount);
         }
+        if !s.exits.is_empty() {
+            put_u64(&mut out, s.exits.len() as u64);
+            for id in &s.exits {
+                out.extend_from_slice(id);
+            }
+        }
         put_u64(&mut out, self.epoch_blocks);
         put_u64(&mut out, self.last_round);
         put_counts(&mut out, &self.expected);
@@ -349,7 +404,8 @@ impl StakingRecord {
     /// parameters `maya-staking` refuses.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != RECORD_VERSION {
+        let version = r.read_u8()?;
+        if version != RECORD_VERSION && version != RECORD_VERSION_EXITS {
             return Err(NodeError::Decode("staking record version".to_string()));
         }
         let params = read_params(&mut r)?;
@@ -390,6 +446,9 @@ impl StakingRecord {
             .map(|_| r.read_array())
             .collect::<Result<BTreeSet<_>>>()?;
         decode_pending(&mut r, &mut staking)?;
+        if version == RECORD_VERSION_EXITS {
+            decode_exits(&mut r, &mut staking)?;
+        }
         let record = Self {
             staking,
             epoch_blocks: r.read_u64()?,
@@ -452,6 +511,50 @@ mod tests {
         assert!(!back.staking.pending_delegations.is_empty());
         assert_eq!(back.encode(), bytes);
         assert!(StakingRecord::decode(&bytes[..bytes.len() - 1]).is_err());
+    }
+
+    /// CON-07: a waiting exit is state. It round-trips in a version-4
+    /// record; without one the record keeps its version-3 bytes.
+    #[test]
+    fn a_waiting_exit_round_trips_and_only_its_presence_changes_the_version() {
+        let mut staking = Staking::new(Params::DEVNET).unwrap();
+        for n in 1..=4u8 {
+            staking
+                .register([n; 32], [n; 32], Amount::from_u64(5_000), 0)
+                .unwrap();
+        }
+        let record = |staking: Staking| StakingRecord {
+            staking,
+            epoch_blocks: 600,
+            last_round: 0,
+            expected: BTreeMap::new(),
+            authored: BTreeMap::new(),
+        };
+        assert_eq!(record(staking.clone()).encode()[0], RECORD_VERSION);
+        // Four eligible: the whole-bond exit waits at the floor.
+        staking
+            .unbond([4; 32], [4; 32], Amount::from_u64(5_000))
+            .unwrap();
+        assert!(staking.exits.contains(&[4; 32]));
+        let waiting = record(staking);
+        let bytes = waiting.encode();
+        assert_eq!(bytes[0], RECORD_VERSION_EXITS);
+        let back = StakingRecord::decode(&bytes).unwrap();
+        assert_eq!(back, waiting);
+        assert_eq!(back.encode(), bytes);
+        // A version-4 record must carry at least one exit: an empty section
+        // (count 0 before the 32-byte trailer of epoch length, round and two
+        // empty count maps) would be a second encoding of a version-3 state.
+        let mut empty = record(Staking::new(Params::DEVNET).unwrap()).encode();
+        empty[0] = RECORD_VERSION_EXITS;
+        let at = empty.len() - 32;
+        empty.splice(at..at, 0u64.to_le_bytes());
+        assert!(StakingRecord::decode(&empty).is_err());
+        empty[0] = RECORD_VERSION;
+        assert!(
+            StakingRecord::decode(&empty).is_err(),
+            "and v3 has no section"
+        );
     }
 
     #[test]

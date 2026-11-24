@@ -92,6 +92,7 @@ fn genesis_config(n: usize) -> GenesisConfig {
                 max_validators: 100,
                 min_delegation: primitive_types::U256::from(10),
                 stake_weighted: false,
+                rules: None,
             }),
         }),
     }

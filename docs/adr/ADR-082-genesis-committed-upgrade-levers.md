@@ -204,3 +204,29 @@ block that carries the new tag, and the upgrade schedule does not govern it.
   compiled into `limits.rs` like the other governance bounds (invariant 12).
 - **One version per feature** (the rules epoch and the feature share a number).
   Rejected: it forces every dark feature to wait for the one before it.
+
+## Amendment 2026-11-24: every governable key binds something (G4)
+
+Eric 2026-11-24. Four parameter keys could be voted on and were read by nothing:
+`ShieldedMaxPerBlock` (tag 5), `VmMaxMemoryPages` (6), `VmMaxModuleBytes` (7) and
+`VmDefaultGasLimit` (8). A vote on one of them would have passed, executed, and changed no
+rule.
+
+- **Wired:** `ShieldedMaxPerBlock`. A block's joinsplit cap is the smaller of the key and
+  the compiled `MAX_SHIELDED_PER_BLOCK` (16, also the key's ceiling), so a vote can lower the
+  cap and never raise it past what a release was measured for. The default is 16, so no
+  behaviour changes until a vote.
+- **Not offered to a vote:** the three VM keys. `ParameterKey::is_governable` is false for
+  them and `ParameterKey::check` refuses them as `UnknownParameter`, at proposal and again
+  at execution. Their tags stay reserved (never reused) and their table values stay, so no
+  state root moves. Their wiring belongs to the VM lane (ADR-142), whose `VmMaxTxGas` and
+  `VmMaxBlockGas` do what `VmDefaultGasLimit` was meant to; re-offering one is a release
+  that reads it.
+
+The guarantee: **a decision governance can take is a decision the chain carries out.**
+STK-20. Tests: `a_key_the_node_does_not_read_is_refused_and_the_rest_are_offered`
+(`crates/governance/src/params.rs`); the Kani harnesses
+`a_parameter_is_accepted_exactly_within_its_range` and `every_default_is_reachable_by_proposal`
+(`crates/governance/src/proofs.rs`) now state the refusal. Not covered by a test: the
+shielded cap below 16, since a joinsplit needs a STARK proof per transaction; the read is
+the same `parameter_u64` path the DEX and oracle caps use.

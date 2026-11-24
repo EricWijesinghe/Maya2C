@@ -13,6 +13,7 @@ use std::sync::Arc;
 use maya_dag_bft::{Equivocation, Message};
 use maya_staking::{Effect, Participation};
 
+use crate::consensus::bft::attest::{ATTEST_FRAME, Attestation};
 use crate::consensus::bft::auth::MlDsaAuthenticator;
 use crate::consensus::bft::{Envelope, unseal};
 use crate::core::block::BlockHeader;
@@ -229,7 +230,8 @@ impl StateDB {
         Ok(())
     }
 
-    /// Checks two `Propose` frames are a real equivocation by a member of the
+    /// Checks two `Propose` frames, or two attestation frames (CON-05), are a
+    /// real equivocation by a member of the
     /// committee of the epoch they name, and returns its id.
     fn verify_equivocation(
         &self,
@@ -237,6 +239,12 @@ impl StateDB {
         first: &[u8],
         second: &[u8],
     ) -> Result<[u8; 32]> {
+        // An attestation frame's first byte is never an engine frame's
+        // (`attest::ATTEST_FRAME`), so the evidence names its own kind and no
+        // pair can be read as the other kind.
+        if first.first() == Some(&ATTEST_FRAME) || second.first() == Some(&ATTEST_FRAME) {
+            return self.verify_attestation_equivocation(overlay, first, second);
+        }
         let proposal = |frame: &[u8]| -> Result<(maya_dag_bft::Vertex, Vec<u8>)> {
             match Envelope::decode(frame)?.message {
                 Message::Propose { vertex, signature } => Ok((vertex, signature)),
@@ -245,13 +253,7 @@ impl StateDB {
         };
         let (a, sa) = proposal(first)?;
         let (b, sb) = proposal(second)?;
-        let committee = self
-            .record(overlay, &committee_record(a.epoch))?
-            .map(|bytes| decode_committee(&bytes))
-            .transpose()?
-            .ok_or_else(|| {
-                NodeError::Network(format!("no committee on record for epoch {}", a.epoch))
-            })?;
+        let committee = self.evidence_committee(overlay, a.epoch)?;
         let keys: Arc<[VerifyingKey]> = self.validator_keys(&committee)?.into();
         let evidence = Equivocation {
             first: a,
@@ -266,6 +268,48 @@ impl StateDB {
             .get(usize::from(evidence.first.author))
             .copied()
             .ok_or_else(|| NodeError::Decode("evidence author outside the committee".to_string()))
+    }
+
+    /// CON-05 (Eric 2026-11-24): two attestations by one committee member to
+    /// different blocks at one height of one epoch. Slashed and tombstoned
+    /// like a proposal double-sign, at the same `double_sign_slash_bps`: two
+    /// such signatures are what two conflicting checkpoints are made of.
+    fn verify_attestation_equivocation(
+        &self,
+        overlay: &Overlay,
+        first: &[u8],
+        second: &[u8],
+    ) -> Result<[u8; 32]> {
+        let a = Attestation::decode(first)?;
+        let b = Attestation::decode(second)?;
+        if a.epoch != b.epoch || a.height != b.height || a.validator != b.validator {
+            return Err(NodeError::Decode(
+                "attestations name different slots or signers".to_string(),
+            ));
+        }
+        if a.block == b.block {
+            return Err(NodeError::Decode(
+                "attestations agree on the block".to_string(),
+            ));
+        }
+        let committee = self.evidence_committee(overlay, a.epoch)?;
+        let keys = self.validator_keys(&committee)?;
+        let chain = self.get_chain_tag()?;
+        a.verify(chain, &keys)?;
+        b.verify(chain, &keys)?;
+        committee
+            .get(usize::from(a.validator))
+            .copied()
+            .ok_or_else(|| NodeError::Decode("evidence author outside the committee".to_string()))
+    }
+
+    /// The committee frozen for `epoch`, while evidence against it is still
+    /// admissible (kept for the unbonding window, `end_epoch`).
+    fn evidence_committee(&self, overlay: &Overlay, epoch: u64) -> Result<Vec<[u8; 32]>> {
+        self.record(overlay, &committee_record(epoch))?
+            .map(|bytes| decode_committee(&bytes))
+            .transpose()?
+            .ok_or_else(|| NodeError::Network(format!("no committee on record for epoch {epoch}")))
     }
 
     /// The per-block staking pass. A no-op where staking is not configured.

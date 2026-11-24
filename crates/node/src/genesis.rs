@@ -34,6 +34,9 @@ use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
 use crate::state::{Account, Address, StateDB};
 use crate::upgrade::{ProtocolUpgrade, UpgradeSchedule};
 
+mod staking_rules;
+pub use staking_rules::{MIN_VALUE_BEARING_VALIDATORS, StakingRules, is_value_bearing};
+
 /// A 256-bit amount as the 32 little-endian bytes the genesis id hashes.
 fn amount_bytes(value: U256) -> [u8; 32] {
     let mut out = [0u8; 32];
@@ -321,6 +324,12 @@ pub struct StakingGenesis {
     /// about it disagree about block zero. Mainnet sets it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stake_weighted: bool,
+    /// Slashing, jail, unbonding, downtime and commission, every value
+    /// written out and hashed into the genesis id. Absent, the devnet values
+    /// apply and the id is the one it always was; a value-bearing chain is
+    /// refused without it (`staking_rules::check_committee`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rules: Option<StakingRules>,
 }
 
 /// One genesis validator's bond.
@@ -349,6 +358,7 @@ impl StakingGenesis {
             max_validators: Self::default_max_validators(),
             min_delegation: Self::default_min_delegation(),
             stake_weighted: false,
+            rules: None,
         }
     }
 
@@ -371,12 +381,15 @@ impl StakingGenesis {
     /// Staking parameters.
     #[must_use]
     pub fn params(&self) -> maya_staking::Params {
-        maya_staking::Params {
+        let params = maya_staking::Params {
             min_self_bond: to_amount(self.min_self_bond),
             min_delegation: to_amount(self.min_delegation),
             max_validators: self.max_validators,
             ..maya_staking::Params::DEVNET
-        }
+        };
+        self.rules
+            .as_ref()
+            .map_or(params, |rules| rules.apply(params))
     }
 
     /// Sum of the genesis bonds.
@@ -714,14 +727,7 @@ impl GenesisConfig {
                     "bft.anchor_timeout_ms must be at least {MIN_ANCHOR_TIMEOUT_MS}"
                 )));
             }
-            if bft.staking.as_ref().is_some_and(|staking| {
-                usize::from(staking.max_validators) > crate::consensus::bft::store::MAX_COMMITTEE
-            }) {
-                return Err(NodeError::Decode(format!(
-                    "bft.staking.max_validators must be at most {}",
-                    crate::consensus::bft::store::MAX_COMMITTEE
-                )));
-            }
+            staking_rules::check_committee(&self.chain_id, bft)?;
         }
         self.upgrade_schedule()?;
         self.suite_sunsets()?;
@@ -1181,7 +1187,18 @@ impl GenesisConfig {
         } else {
             base
         };
-        self.delegation_commitment(base)
+        self.rules_commitment(self.delegation_commitment(base))
+    }
+
+    /// Folds written staking rules into the id, so operators who disagree
+    /// about a penalty disagree about block zero; a genesis without them
+    /// keeps the id it always had.
+    fn rules_commitment(&self, base: [u8; 32]) -> [u8; 32] {
+        self.bft
+            .as_ref()
+            .and_then(|b| b.staking.as_ref())
+            .and_then(|s| s.rules.as_ref())
+            .map_or(base, |rules| rules.commitment(base))
     }
 
     /// Folds a non-default `min_delegation` into the id, so operators who

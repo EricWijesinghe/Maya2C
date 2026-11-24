@@ -19,9 +19,11 @@ These are **fixed numbers, not fractions of host memory**. A limit that varied
 with the machine would let the same call succeed on one validator and trap on
 another, which is a state divergence rather than a performance difference.
 
-`MAX_MODULE_BYTES` and `MAX_MEMORY_PAGES` are governable — they appear in the
-parameter table as `VmMaxModuleBytes` and `VmMaxMemoryPages`. The values above
-are the defaults; a live chain reads them from state.
+`MAX_MODULE_BYTES` and `MAX_MEMORY_PAGES` are compiled limits. The parameter
+table keeps the tags `VmMaxModuleBytes` and `VmMaxMemoryPages`, but the node
+does not read them yet, so governance does not offer them to a vote: every
+change a vote can make is one the chain carries out (ADR-082 amendment
+2026-11-24). Raising either is a release.
 
 ## Gas is a halting bound, not a price
 

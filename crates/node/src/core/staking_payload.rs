@@ -78,9 +78,10 @@ pub enum StakingAction {
         /// Amount.
         amount: primitive_types::U256,
     },
-    /// Two conflicting signed proposals by one validator. Anyone may submit.
+    /// Two conflicting signed proposals, or two attestations to different
+    /// blocks at one height (CON-05), by one validator. Anyone may submit.
     ReportEquivocation {
-        /// The first `Propose` frame.
+        /// The first `Propose` or attestation frame.
         first: Vec<u8>,
         /// The second.
         second: Vec<u8>,

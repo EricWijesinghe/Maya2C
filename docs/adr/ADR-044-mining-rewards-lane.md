@@ -194,3 +194,20 @@ is not true as built. The decision above (the lane is meant to carry other
 work, activated at a written height after its own ADR) is unchanged. ADR-129
 (branch `docs/adr-125-130-gaps`, PR #470) proposes `TxKind::ClaimCompute` as the
 carrier instead of a `kind` byte on `WorkClaim`.
+
+## Amendment 2026-11-24: governance weight is locked stake, by rule (G6)
+
+Eric 2026-11-24 (plan O21, option a). The launch decision above made voting stake-only by
+refusing work claims below `WORK_CLAIM_ACTIVATION_HEIGHT = u64::MAX`; the weight function
+itself still added decayed work credit, so setting that height would have handed claimed
+work a vote again. Now `voting_power`, a ballot's weight in `cast_vote`, and the electorate
+a quorum is measured against (`settle_governance`) are locked stake only (STK-19). Work
+credit is still recorded where claims are active and never counted. The guarantee:
+**a vote is backed by coin locked until the decision binds, and nothing else.** A later
+weight rule for verified work needs its own consensus ADR.
+
+Test: `claimed_work_neither_votes_nor_counts_toward_the_quorum`
+(`crates/node/tests/governance_tests.rs`), which replaces
+`work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator`: the same
+absent miner whose credit used to sit in the denominator and reject the proposal now
+changes nothing, and the proposal executes.

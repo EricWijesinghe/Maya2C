@@ -2050,6 +2050,7 @@ tier = "core"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya-governance", "crates/governance/tests/limits_tests.rs", "crates/node/tests/governance_tests.rs", "crates/node/tests/treasury_tests.rs"]
+note = "Re-freeze 2026-11-24 (Eric): a vote weighs locked stake only, never work credit (G6, STK-19); every key a vote can change is read by the node: ShieldedMaxPerBlock is wired, the three unread VM keys are refused as unknown (G4, STK-20)."
 
 [[subsystem]]
 id = "amount-256"
@@ -3562,12 +3563,12 @@ note = "Master Prompt 30 §1. Four apps compose existing crates and pass their u
 id = "staking-and-slashing"
 name = "Staking, delegation, committee selection and slashing (ADR-028)"
 domain = "Consensus and execution"
-paths = "`crates/staking`, `crates/node/src/state/staking.rs`, `crates/node/src/state/staking_exec.rs`"
+paths = "`crates/staking`, `crates/node/src/state/staking.rs`, `crates/node/src/state/staking_exec.rs`, `crates/node/src/state/weight_cap.rs`, `crates/node/src/genesis/staking_rules.rs`"
 tier = "core"
 class = "REAL"
 status = "verified"
-tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/node/tests/bft_staking_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
-note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. S-033 committee floor (ADR-070, amended 2026-11-21 for the re-freeze): counted before the downtime slash, and a kept validator is not slashed below min_self_bond, so the floor holds at mainnet bonds (docs/audit/FINDINGS.md). Not an external audit."
+tests = ["crate:maya-staking", "crates/staking/tests/scenario.rs", "crates/staking/tests/committee_exits.rs", "crates/node/tests/bft_staking_tests.rs", "crates/node/tests/bft_follower_tests.rs"]
+note = "Self-run pre-audit 2026-10-29 (S-001, S-006): records decode past the wire count cap, dust undelegations refused, same-epoch unbonding merged, and growth past 8 MiB refused per transaction, never for evidence. S-033 committee floor (ADR-070, amended 2026-11-21; option A chosen by Eric 2026-11-24): counted before the downtime slash, and a kept validator is not slashed below min_self_bond, so the floor holds at mainnet bonds (docs/audit/FINDINGS.md). Re-freeze 2026-11-24 (Eric): a whole-bond exit or a tombstone at the floor waits for a replacement (CON-07, STK-13/14), attestation double-signs are slashable at the proposal rate (CON-05, STK-15), no operator holds more than 20% of the committee weight (CON-06, STK-16), the node refuses a genesis over max_validators or a value-bearing one under seven seats or without written staking rules, and those rules are hashed into the genesis id (STK-17/18). Not an external audit."
 
 [[subsystem]]
 id = "security-council-pause"

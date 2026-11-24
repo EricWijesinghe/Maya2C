@@ -18,6 +18,12 @@ fn amount(n: u64) -> Amount {
 fn registered() -> Staking {
     let mut s = Staking::new(Params::DEVNET).unwrap();
     s.register(OPERATOR, OFFENDER, amount(BOND), 0).unwrap();
+    // Four bystanders keep the committee floor without the offender, so its
+    // exit starts at once (CON-07 holds an exit that would break the floor).
+    for n in 0..u8::try_from(maya_staking::MIN_COMMITTEE).unwrap() {
+        s.register([0xC0 | n; 32], [0x10 | n; 32], amount(BOND), 0)
+            .unwrap();
+    }
     s
 }
 

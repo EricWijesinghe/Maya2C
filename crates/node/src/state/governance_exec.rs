@@ -28,7 +28,6 @@
 //! It cannot reach native code at all. There is no key whose value is a
 //! program.
 
-use maya_governance::Amount;
 use maya_governance::error::GovernanceError;
 use maya_governance::params::{ParameterChange, ParameterKey};
 use maya_governance::proposal::{Proposal, ProposalState};
@@ -137,18 +136,20 @@ impl StateDB {
         }
     }
 
-    /// One address's total voting weight at `height`.
+    /// One address's total voting weight at `height`: its locked stake,
+    /// 256-bit (ADR-046), and nothing else.
     ///
-    /// Locked stake plus decayed work credit, 256-bit (ADR-046). Saturating,
-    /// because a weight past 2^256 − 1 is already more than the tally accepts
-    /// and wrapping would hand the wrapper either nothing or everything.
+    /// G6 (Eric 2026-11-24, plan O21 option a): governance weight is coin put
+    /// at risk until the decision binds. Work credit is still recorded where
+    /// claims are active, but it never votes, so no amount of claimed work
+    /// can outvote locked stake. `height` is kept so a later, separately
+    /// decided weight rule needs no signature change.
     ///
     /// # Errors
     ///
     /// Returns [`NodeError::Storage`] on a read failure.
-    pub fn voting_power(&self, address: &Address, height: u64) -> Result<U256> {
-        let locked = self.stake_lock(address)?.amount;
-        Ok(locked.saturating_add(U256::from(self.work_credit(address, height)?)))
+    pub fn voting_power(&self, address: &Address, _height: u64) -> Result<U256> {
+        Ok(self.stake_lock(address)?.amount)
     }
 
     // ------------------------------------------------------- overlay access
@@ -507,7 +508,6 @@ impl StateDB {
         // acquire weight, vote, and be gone before the decision binds anyone.
         let required = record.proposal.lock_required_until();
         let lock = self.lock_through(overlay, sender)?;
-        let work = self.work_through(overlay, sender)?.value_at(context.height);
         if !lock.amount.is_zero() && lock.unlock_height < required {
             return Err(governance_error(GovernanceError::LockExpiresTooSoon {
                 unlock_height: lock.unlock_height,
@@ -515,8 +515,8 @@ impl StateDB {
             }));
         }
 
-        // Locked coin is 256-bit (ADR-046); work credit is a u128 count.
-        let weight = to_amount(lock.amount).saturating_add(Amount::from_u128(work));
+        // Locked coin only (G6); 256-bit (ADR-046).
+        let weight = to_amount(lock.amount);
         record.proposal = record
             .proposal
             .vote(choice, weight, context.height)
@@ -577,14 +577,10 @@ impl StateDB {
         overlay: &mut Overlay,
         context: BlockContext,
     ) -> Result<()> {
-        // Everyone who can cast a vote: locked stake and decayed work credit,
-        // the same two terms a ballot's weight is made of.
+        // Everyone who can cast a vote: locked stake, the one term a
+        // ballot's weight is made of (G6).
         let totals = self.totals_through(overlay)?;
-        let eligible = to_amount(
-            totals
-                .locked
-                .saturating_add(U256::from(totals.work.value_at(context.height))),
-        );
+        let eligible = to_amount(totals.locked);
         let quorum_bps = maya_governance::limits::MIN_QUORUM_BPS;
         let approval_bps = maya_governance::limits::MIN_APPROVAL_BPS;
 

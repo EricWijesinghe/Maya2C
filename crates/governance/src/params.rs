@@ -212,9 +212,10 @@ impl ParameterKey {
             // A joinsplit carries a ~0.4 MB STARK. The ceiling is what an
             // 8 MiB gossip frame holds beside the rest of a block, and zero
             // would silently disable the shielded pool rather than removing it.
-            // Not yet read by the node: `MAX_SHIELDED_PER_BLOCK` enforces the
-            // cap directly, and these bounds only keep a proposal from
-            // recording a value the node would not honour.
+            // Read by the node (G4): the block cap is the smaller of this and
+            // the compiled `MAX_SHIELDED_PER_BLOCK`, which is also the ceiling
+            // here, so a vote can lower the cap but never past what a release
+            // was measured for.
             Self::ShieldedMaxPerBlock => Bounds {
                 min: Amount::from_u64(1),
                 max: Amount::from_u64(16),
@@ -285,14 +286,37 @@ impl ParameterKey {
         }
     }
 
+    /// Whether a proposal may change this key.
+    ///
+    /// G4 (Eric 2026-11-24): a key the node does not read is not offered to a
+    /// vote, because a decision that binds nothing is a decision voters were
+    /// misled about. The three VM keys keep their tags, so no tag is ever
+    /// reused, and their table values, so no state root moves; the VM lane
+    /// (ADR-142) owns their wiring and its `VmMaxTxGas` /
+    /// `VmMaxBlockGas` do what `VmDefaultGasLimit` was meant to. Re-enabling
+    /// one is a release that reads it.
+    #[must_use]
+    pub const fn is_governable(self) -> bool {
+        !matches!(
+            self,
+            Self::VmMaxMemoryPages | Self::VmMaxModuleBytes | Self::VmDefaultGasLimit
+        )
+    }
+
     /// Checks a proposed value against this parameter's range.
     ///
     /// # Errors
+    ///
+    /// [`GovernanceError::UnknownParameter`] for a key that is not
+    /// governable ([`Self::is_governable`]).
     ///
     /// Returns [`GovernanceError::ParameterOutOfRange`] with the range, so the
     /// rejection says what would have been acceptable rather than only that
     /// this was not.
     pub fn check(self, value: Amount) -> Result<()> {
+        if !self.is_governable() {
+            return Err(GovernanceError::UnknownParameter { tag: self.tag() });
+        }
         let bounds = self.bounds();
         if bounds.contains(value) {
             Ok(())
@@ -397,6 +421,34 @@ mod tests {
         }
     }
 
+    /// G4: a key nothing reads cannot be voted on at any value, its default
+    /// included; every key the node reads still can.
+    #[test]
+    fn a_key_the_node_does_not_read_is_refused_and_the_rest_are_offered() {
+        for key in ALL_KEYS {
+            let default = key.bounds().default;
+            if key.is_governable() {
+                assert!(key.check(default).is_ok(), "{}", key.label());
+            } else {
+                assert_eq!(
+                    key.check(default),
+                    Err(GovernanceError::UnknownParameter { tag: key.tag() }),
+                    "{}",
+                    key.label()
+                );
+            }
+        }
+        let retired: Vec<_> = ALL_KEYS.iter().filter(|k| !k.is_governable()).collect();
+        assert_eq!(
+            retired,
+            [
+                &ParameterKey::VmMaxMemoryPages,
+                &ParameterKey::VmMaxModuleBytes,
+                &ParameterKey::VmDefaultGasLimit
+            ]
+        );
+    }
+
     #[test]
     fn a_value_outside_the_range_is_refused_at_both_ends() {
         let key = ParameterKey::DexProtocolFeeBps;
@@ -455,7 +507,6 @@ mod tests {
             ParameterKey::ShieldedMaxPerBlock,
             ParameterKey::DexMaxFillsPerBlock,
             ParameterKey::DexMaxOrdersPerBook,
-            ParameterKey::VmMaxMemoryPages,
         ] {
             assert!(
                 key.check(Amount::from_u64(0)).is_err(),

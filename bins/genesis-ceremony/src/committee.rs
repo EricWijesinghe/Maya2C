@@ -24,10 +24,24 @@ use custom_l1_node::genesis::{BftGenesis, FeesGenesis, GenesisBond, StakingGenes
 const VALIDATOR_KEY_HEX: usize = 2 * custom_l1_node::crypto::validator_keys::PUBLIC_KEY_LEN;
 /// Hex characters in an address.
 const ADDRESS_HEX: usize = 64;
-/// Fewest validators a launch committee may have: DAG-BFT tolerates `f`
-/// faults among `3f + 1`, so below four a single fault halts the chain
-/// (mainnet gate 4).
-pub const MIN_LAUNCH_VALIDATORS: usize = 4;
+/// Fewest validators a value-bearing launch committee may have: the node's
+/// own floor (C5, Eric 2026-11-24), seven seats that survive two faults. The
+/// node refuses a smaller value-bearing genesis whatever tool wrote it; this
+/// check only says so before a ceremony starts.
+pub const MIN_LAUNCH_VALIDATORS: usize = custom_l1_node::genesis::MIN_VALUE_BEARING_VALIDATORS;
+
+/// The staking rules a value-bearing genesis writes out and hashes into its
+/// id (Eric 2026-11-24): the values the node has run since ADR-028, written
+/// as literals so a change to the devnet defaults can never move a mainnet.
+pub const LAUNCH_STAKING_RULES: custom_l1_node::genesis::StakingRules =
+    custom_l1_node::genesis::StakingRules {
+        unbonding_epochs: 7,
+        double_sign_slash_bps: 5_000,
+        downtime_slash_bps: 100,
+        downtime_threshold_bps: 5_000,
+        jail_epochs: 2,
+        max_commission_bps: 2_000,
+    };
 /// Blocks per staking epoch unless the coordinator says otherwise; the
 /// testnet's value.
 pub const DEFAULT_EPOCH_BLOCKS: u64 = 3_600;
@@ -330,8 +344,8 @@ mod tests {
     }
 
     #[test]
-    fn mainnet_needs_four_validators_a_testnet_does_not() {
-        let three: Vec<Member> = ['a', 'b', 'c']
+    fn mainnet_needs_seven_validators_a_testnet_does_not() {
+        let six: Vec<Member> = ['a', 'b', 'c', 'd', 'e', 'f']
             .iter()
             .map(|c| Member {
                 label: c.to_string(),
@@ -339,14 +353,24 @@ mod tests {
                 bond: None,
             })
             .collect();
-        assert!(check_launch_size(true, &three).is_err());
-        assert!(check_launch_size(false, &three).is_ok());
-        let mut four = three.clone();
-        four.push(Member {
-            label: "d".into(),
-            key: key('d'),
+        assert_eq!(MIN_LAUNCH_VALIDATORS, 7);
+        assert!(check_launch_size(true, &six).is_err());
+        assert!(check_launch_size(false, &six).is_ok());
+        let mut seven = six.clone();
+        seven.push(Member {
+            label: "g".into(),
+            key: key('0'),
             bond: None,
         });
-        assert!(check_launch_size(true, &four).is_ok());
+        assert!(check_launch_size(true, &seven).is_ok());
+    }
+
+    #[test]
+    fn the_launch_rules_are_the_values_the_node_has_always_run() {
+        // Written out, not inherited: equal today, independent from now on.
+        assert_eq!(
+            LAUNCH_STAKING_RULES,
+            custom_l1_node::genesis::StakingRules::DEVNET
+        );
     }
 }

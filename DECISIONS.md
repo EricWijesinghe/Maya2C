@@ -931,3 +931,17 @@ recommended option A, "merge the fix before the freeze".
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-24 — Staking and decentralization guarantees (Eric 2026-11-24)
+
+Eric 2026-11-24 approved the recommended option for each item; each is built and described as a guarantee.
+
+- **S-033: option A alone.** The floor is counted before the downtime slash and a validator it keeps stays eligible (ADR-070 amendment 2026-11-21, STK-11). Option B, the genesis bond margin of the 2026-11-22 draft, is not taken: mainnet seats still bond exactly the minimum. *The committee can never shrink below four seats by punishment alone.*
+- **CON-07: exits wait for a replacement.** A whole-bond unbond at the four-seat floor is accepted and deferred; a tombstone keeps its seat (at most one) until a replacement bonds; the slash is never deferred (ADR-070 amendment 2026-11-24, STK-13, STK-14).
+- **CON-05: attestation double-signs are slashable at the proposal rate** (ADR-028 amendment 2026-11-24, STK-15).
+- **CON-06: no operator holds more than 20% of the committee's voting weight**, enforced inside `stake_weights` in integers; stake above the cap still earns (ADR-040 amendment 2026-11-24, STK-16).
+- **C4, C5:** the node refuses a genesis with more validators than `max_validators`, and a value-bearing genesis with fewer than seven (STK-17). The ceremony floor is the same constant.
+- **Staking rules in the genesis id:** slashing, jail, unbonding, downtime and commission are written in `bft.staking.rules` and hashed into the id; a value-bearing genesis must carry them; the launch values equal today's compiled values (ADR-028 amendment 2026-11-24, STK-18).
+- **G6: governance weight is locked stake only**, in the weight function itself (ADR-044 amendment 2026-11-24, STK-19).
+- **G4:** `ShieldedMaxPerBlock` is wired; the three VM keys nothing reads are no longer offered to a vote (ADR-082 amendment 2026-11-24, STK-20).
+- **Recorded in:** the ADR amendments above, `spec/06-staking.md`, `features.toml`, `docs/architecture-vision.md`. Consensus-visible: re-freeze, re-genesis.

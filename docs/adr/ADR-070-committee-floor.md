@@ -95,3 +95,50 @@ validators are gone for good, no quorum exists that could sign a change of commi
 That follows from the quorum rule (2f + 1 of n = 3f + 1, ADR-027; W − f by weight,
 ADR-039/ADR-040), not from a test here. Recovery stays the social re-genesis in
 `docs/runbooks/chain-halt.md` (`docs/audit/KNOWN_ISSUES.md` #18, "recovery open").
+
+## Amendment 2026-11-24: Eric chooses option A; no exit breaks the floor (CON-07)
+
+**S-033 decided (Eric 2026-11-24).** Option A of decision brief 1, the rule built in the
+amendment of 2026-11-21 above, is the rule: the floor is counted before the slash, and a
+validator the floor keeps stays eligible. Option B (a genesis bond margin, the 2026-11-22
+draft) is not taken, so every mainnet seat still bonds exactly the minimum. STK-11 in
+`spec/06-staking.md` states the rule. The guarantee: **punishment alone never shrinks the
+committee below four seats.**
+
+**CON-07 (Eric 2026-11-24, recommendation B, pros and cons seen).** The downtime path was
+the only one floored. Two others could still take the set below `MIN_COMMITTEE`:
+
+- **A whole-bond unbond waits for a replacement.** `Staking::unbond` of the whole self bond,
+  while the validator is eligible and at most four are, is accepted but deferred: the
+  validator joins `Staking::exits`, stays bonded, seated, slashable and paid, and its bond
+  starts the normal unbonding delay at the first epoch boundary where four others are
+  eligible (`process_exits`, before the epoch advances, so the release is
+  `unbonding_epochs` after that boundary). Nothing is refused, so no stake is trapped on a
+  small network; the exit only waits. A partial unbond (remainder at or above the minimum)
+  never waits. A second unbond while waiting is refused (`StakeError::Leaving`). STK-13.
+- **A tombstone keeps its seat until a replacement exists.** The slash and the tombstone are
+  immediate and permanent. Only the removal from the committee is deferred: while fewer than
+  four validators are eligible, `next_committee` refills from the ending committee's
+  tombstones, **at most one** (`MAX_HELD_TOMBSTONES = (MIN_COMMITTEE − 1) / 3`). Four seats
+  survive one Byzantine member; seating a second equivocator would trade safety for
+  liveness, so a second tombstone at the floor leaves the committee at three. A held
+  tombstone earns nothing. STK-14.
+
+Waiting exits are state: the staking record is version 4, with an `exits` section, only
+while one waits; a record with none keeps its version-3 bytes, so no existing state root
+moves. Consensus-visible (committee, bonds, unbonding queue, state root): re-freeze work.
+
+Tests (red: with the deferral and the hold disabled, `cargo test -p maya-staking --test
+committee_exits` gave `FAILED. 2 passed; 4 failed`):
+
+- `crates/staking/tests/committee_exits.rs`: `a_whole_bond_exit_at_the_floor_waits_for_a_replacement`,
+  `an_exit_above_the_floor_leaves_at_once`, `a_partial_unbond_at_the_floor_is_not_delayed`,
+  `a_tombstone_at_the_floor_is_slashed_now_and_keeps_its_seat_until_a_replacement`,
+  `the_floor_never_holds_more_tombstones_than_the_one_fault_it_survives`,
+  `a_waiting_exit_that_is_then_tombstoned_is_dropped_from_the_queue`.
+- `crates/node/src/state/staking.rs`: `a_waiting_exit_round_trips_and_only_its_presence_changes_the_version`.
+- `crates/staking/tests/offender_unbond.rs` now seats four bystanders, so its lone offender's
+  exit is above the floor and starts at once, as those tests assume.
+
+Not covered: the floor counts validators, not stake. On a stake-weighted chain a held
+tombstone votes with what is left of its stake after the slash.

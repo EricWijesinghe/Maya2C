@@ -1,7 +1,34 @@
-# 6. Staking and slashing — v0.0.0
+# 6. Staking and slashing — v0.0.2
 
-**Not built.** There is no staking, bonding, delegation or slashing code in
-this tree (`features.toml`, `docs/architecture-vision.md`). The econ
-simulator (`econ/`) models validator economics for parameter choice; it is
-not a consensus rule. This section gets rule IDs when a MIP specifies the
-design, not before.
+Staking is built (`crates/staking`, ADR-028), but most of its rules have no ID
+here yet: registration, delegation, rewards and the record layouts get theirs
+with the per-delegation records (ADR-062 amendment, PR #555, STK-1 to STK-10;
+STK-12 is claimed by the dust-floor draft). The econ simulator (`econ/`)
+models validator economics for parameter choice; it is not a consensus rule.
+
+The rules below are written as guarantees: what no sequence of transactions,
+outages or offences can do to the committee, its weights or its penalties.
+
+## Downtime and the committee floor
+
+- **STK-11** At an epoch boundary a seated validator is down when it authored fewer than `downtime_threshold_bps` of the anchor slots it led (authored × 10,000 < threshold × expected, in integers); a validator with no slots is never down, and one still serving a jail term is unpaid but not punished again. Down validators that are eligible now are ordered worst first (authored ÷ expected, compared as authored_a × expected_b against authored_b × expected_a), ties by id. The floor keeps the last `min(down eligible, max(0, MIN_COMMITTEE − (eligible validators not down)))` of them, `MIN_COMMITTEE` = 4, counted **before** any slash. A kept validator is unpaid and not jailed, and is slashed `downtime_slash_bps` of its self bond only when what is left is at or above `min_self_bond`. Every other down validator is slashed and jailed; one already ineligible is always jailed. (ADR-070 and its amendments 2026-11-21 and 2026-11-24; Eric 2026-11-24 chose this, option A, alone.) *(external vectors: crates/staking/tests/scenario.rs)*
+- **STK-13** An `Unbond` of a validator's whole self bond, sent while the validator is eligible and at most `MIN_COMMITTEE` validators are eligible, is accepted and waits: the bond stays bonded, seated and slashable, and the validator joins the ordered set `exits`. A partial unbond, or one sent above the floor, starts at once. A second `Unbond` by a waiting validator is refused (`Leaving`). At each epoch boundary, after rewards and before the epoch number advances, every waiting exit is taken in id order: one whose validator is no longer eligible starts at once, one whose validator is eligible starts only while more than `MIN_COMMITTEE` validators are eligible (counting down as each starts), and the rest keep waiting. An exit that starts moves the whole current self bond into the unbonding queue with release epoch `epoch + unbonding_epochs`. A tombstone leaves `exits`. The staking record is version 4, with `exits` after the pending sections, only while `exits` is non-empty; otherwise version 3, byte for byte. (CON-07, ADR-070 amendment 2026-11-24.) *(external vectors: crates/staking/tests/committee_exits.rs)*
+- **STK-14** A double-sign slash and the tombstone are never deferred. A tombstoned validator leaves `active` at once unless fewer than `MIN_COMMITTEE` validators are eligible without it. At an epoch boundary the next committee is the top `max_validators` eligible validators by stake, ties by id; while it has fewer than `min(MIN_COMMITTEE, max_validators)` members, it is filled from the ending committee's tombstoned members that still hold stake, in committee order, at most `MAX_HELD_TOMBSTONES` = `(MIN_COMMITTEE − 1) ÷ 3` = 1 of them, so the floor never seats more equivocators than the one fault it is sized to survive. A held tombstone earns no reward. (CON-07.) *(external vectors: crates/staking/tests/committee_exits.rs)*
+
+## Evidence
+
+- **STK-15** `ReportEquivocation` carries two frames. When either begins with the attestation byte `0xA7`, both must be attestation frames (1 + 8 + 8 + 32 + 2 + signature bytes) naming the same epoch, height and committee index and different blocks, each signed over the attestation bytes of its own block by the key at that index of the epoch's frozen committee (`k:cmt:<epoch>`); the validator is then slashed `double_sign_slash_bps` and tombstoned exactly as for two conflicting `Propose` frames. A pair that agrees on the block, names two slots or two indices, or fails a signature is refused and slashes nobody. (CON-05, ADR-028 amendment 2026-11-24.) *(external vectors: crates/node/tests/bft_staking_tests.rs)*
+
+## Committee weights
+
+- **STK-16** On a stake-weighted chain each member's weight is its stake (self bond plus delegations), shifted right by the same number of bits for every member until the largest fits a `u64`, at least 1 for any stake. The weights are then summed per operator (the record's `operator` address) and capped by water-filling: operators ordered by summed weight descending, ties by address; for k = 0, 1, … while k < 5 and k < operators, `c = 2,000 × rest_k ÷ (10,000 − 2,000 × k)` rounded down, where `rest_k` is the sum of all but the k heaviest; at the first k where the (k+1)-th heaviest is at most c, every operator above c has each member's weight replaced by `w × c ÷ (operator total)`, rounded down, at least 1. If no k qualifies (fewer than five operators), the weights are unchanged. Every operator then holds at most 20% of the committee's weight, to within one unit of weight per key. Rewards are paid on stake, never on these weights. (CON-06, ADR-040 amendment 2026-11-24.) *(external vectors: crates/node/src/state/weight_cap.rs)*
+
+## Genesis
+
+- **STK-17** A DAG-BFT genesis with staking is refused when it names more validators than `max_validators`. A genesis whose chain id contains `mainnet` (case and surrounding space ignored) is refused when it names fewer than `MIN_VALUE_BEARING_VALIDATORS` = 7 validators, has no staking section, or has no `staking.rules`. (C4, C5.) *(external vectors: crates/node/tests/bft_staking_tests.rs)*
+- **STK-18** `staking.rules` names `unbonding_epochs`, `double_sign_slash_bps`, `downtime_slash_bps`, `downtime_threshold_bps`, `jail_epochs` and `max_commission_bps`, every one required and no other field allowed. When present they replace the compiled defaults and are folded into the genesis id as `blake3_derive_key("maya2c genesis staking rules v1")` over the previous id commitment followed by the six values little-endian in that order (u64, u16, u16, u16, u64, u16). When absent the compiled defaults apply and the id is unchanged. (ADR-028 amendment 2026-11-24.) *(external vectors: crates/node/tests/bft_staking_tests.rs)*
+
+## Governance weight
+
+- **STK-19** A ballot's weight, and the electorate a quorum is measured against, are locked stake only. Work credit, where claims are active, is recorded and never counted. (G6, ADR-044 amendment 2026-11-24.) *(external vectors: crates/node/tests/governance_tests.rs)*
+- **STK-20** A proposal, or the execution of one, that changes `VmMaxMemoryPages` (tag 6), `VmMaxModuleBytes` (7) or `VmDefaultGasLimit` (8) is refused as an unknown parameter: no node reads them. Their tags stay reserved and their table values unchanged. `ShieldedMaxPerBlock` (5) is read: a block's joinsplit cap is the smaller of its value and the compiled 16. (G4, ADR-082 amendment 2026-11-24.) *(external vectors: crates/governance/src/params.rs)*

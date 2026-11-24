@@ -119,7 +119,11 @@ governance decision applied only to pools created afterwards, which is not what
 
 ## Voting power
 
-Locked stake **plus** decaying work credit.
+Locked stake, and nothing else (Eric 2026-11-24, ADR-044 amendment 2026-11-24).
+A vote is backed by coin locked until the decision binds. Work credit below is
+still recorded where claims are active, but it never weighs a ballot or the
+quorum; the sections on it describe the mechanism, not today's weight. Claims
+themselves stay refused at launch (`WORK_CLAIM_ACTIVATION_HEIGHT = u64::MAX`).
 
 ### Locked stake
 
@@ -157,9 +161,10 @@ Credit halves every 5,760 blocks (~1 day). Voting power should reflect hash powe
 forever. Halving is exact in integers — it is a shift — where a fractional decay
 would need a rounding rule, and a rounding rule in voting weight is a bias.
 
-### Quorum is measured against locked stake plus work credit
+### Quorum is measured against locked stake (until 2026-11-24: plus work credit)
 
-A ballot weighs locked stake plus decayed work credit, so the electorate quorum is
+Since 2026-11-24 a ballot weighs locked stake only, and so does the electorate.
+The history: a ballot weighed locked stake plus decayed work credit, so the electorate quorum is
 measured against must hold both (decided 2026-10-27, DECISIONS.md; it was locked
 stake alone, and a small credit then met quorum on a chain where most work was held
 by miners who did not vote).

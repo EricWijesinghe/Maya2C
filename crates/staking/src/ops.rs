@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 
 use maya_amount::Amount;
 
+use crate::epoch::MIN_COMMITTEE;
 use crate::params::bps_of;
 use crate::types::{
     Address, Effect, StakeError, Staking, Status, Unbonding, ValidatorId, ValidatorRecord,
@@ -72,10 +73,16 @@ impl Staking {
     /// be zero or at least the minimum: a validator is either properly bonded
     /// or leaving.
     ///
+    /// A whole-bond exit that would leave fewer than [`MIN_COMMITTEE`]
+    /// eligible validators waits instead (CON-07): the validator stays bonded,
+    /// seated and slashable, and its bond starts unbonding at the first epoch
+    /// boundary where the set keeps `MIN_COMMITTEE` without it. Nothing is
+    /// refused, so no stake is trapped; the exit only waits for a replacement.
+    ///
     /// # Errors
     ///
-    /// Unknown, not the operator, more than bonded, or a remainder below the
-    /// minimum.
+    /// Unknown, not the operator, more than bonded, a remainder below the
+    /// minimum, or an exit already waiting.
     pub fn unbond(
         &mut self,
         operator: Address,
@@ -86,7 +93,6 @@ impl Staking {
             return Err(StakeError::BelowMinimum);
         }
         let min = self.params.min_self_bond;
-        let release_epoch = self.release_epoch()?;
         let v = self.operated_mut(operator, &id)?;
         let rest = v
             .self_bond
@@ -95,15 +101,49 @@ impl Staking {
         if !rest.is_zero() && rest < min {
             return Err(StakeError::BelowMinimum);
         }
-        v.self_bond = rest;
+        // Everything is leaving at the next boundary that allows it already.
+        if self.exits.contains(&id) {
+            return Err(StakeError::Leaving);
+        }
+        if rest.is_zero() && self.holds_the_floor(&id) {
+            self.exits.insert(id);
+            return Ok(Vec::new());
+        }
+        self.start_self_unbond(operator, id, amount)?;
+        Ok(Vec::new())
+    }
+
+    /// Whether `id` is eligible and the eligible set would fall below
+    /// [`MIN_COMMITTEE`] without it.
+    pub(crate) fn holds_the_floor(&self, id: &ValidatorId) -> bool {
+        self.validators.get(id).is_some_and(|v| self.is_eligible(v))
+            && self.ranked().len() <= MIN_COMMITTEE
+    }
+
+    /// Moves `amount` of `id`'s self bond into the unbonding queue. The caller
+    /// has checked the amount against the bond.
+    pub(crate) fn start_self_unbond(
+        &mut self,
+        owner: Address,
+        id: ValidatorId,
+        amount: Amount,
+    ) -> Result<(), StakeError> {
+        let release_epoch = self.release_epoch()?;
+        let v = self
+            .validators
+            .get_mut(&id)
+            .ok_or(StakeError::UnknownValidator)?;
+        v.self_bond = v
+            .self_bond
+            .checked_sub(amount)
+            .ok_or(StakeError::InsufficientStake)?;
         drain_pending(&mut self.pending_self, id, amount);
         self.push_unbonding(Unbonding {
-            owner: operator,
+            owner,
             validator: id,
             amount,
             release_epoch,
-        })?;
-        Ok(Vec::new())
+        })
     }
 
     /// Delegates `amount` from `delegator` to `id`.
@@ -240,7 +280,13 @@ impl Staking {
             v.status = Status::Tombstoned;
         }
         self.retired.insert(id);
-        self.active.retain(|a| *a != id);
+        self.exits.remove(&id);
+        // CON-07: the slash and the tombstone are immediate, but at the floor
+        // the seat is held until a replacement exists (`end_epoch`), so one
+        // offence cannot shrink the committee below `MIN_COMMITTEE`.
+        if self.ranked().len() >= MIN_COMMITTEE {
+            self.active.retain(|a| *a != id);
+        }
         Ok(vec![Effect::Burn(burned)])
     }
 

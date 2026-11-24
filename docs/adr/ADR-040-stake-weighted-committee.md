@@ -195,3 +195,34 @@ Accepted for v1, from the security review:
 
 Still open (gate 10): recovery from a halt caused by more than a third of
 the stake going offline.
+
+## Amendment 2026-11-24: no operator holds more than a fifth of the vote (CON-06)
+
+Eric 2026-11-24: cap consensus weight per operator at 20%, below the third that could stop
+finality; stake above the cap still earns. Before this the 20% cap was a genesis check
+(`cargo xtask genesis-check`) only, and `BondMore` or `Delegate` could move any share of the
+weight onto one operator after launch.
+
+`stake_weights` now ends in `state::weight_cap::cap_operator_weights`: weights are summed per
+operator (the `operator` address the stake pays out to, so one operator running several keys
+is one operator), and the heaviest are cut by integer water-filling to the level `c` at
+which each holds at most 20% of the new total (STK-16 gives the arithmetic). A cut
+operator's keys are scaled alike. Integer math only, `BTreeMap` order, ties by address.
+Rewards are paid on stake by `maya-staking` and never read these weights, so excess stake
+still earns in full; it just cannot dominate a vote.
+
+The cap is a property of every epoch's weights, whatever path the stake took. It needs at
+least five operators (five times 20% is all of it); with fewer, no weights can satisfy it and
+they are left as stakes. A value-bearing genesis seats at least seven validators
+(ADR-028 amendment 2026-11-24) and genesis-check holds each operator to 20% at launch.
+With equal bonds, as at mainnet launch, the cap moves nothing.
+
+What it does not stop: one party registering under several operator addresses. No chain
+can tell two addresses of one owner apart from the ledger; the cap bounds what any one
+address can hold.
+
+Tests (`crates/node/src/state/weight_cap.rs`): `equal_bonds_are_left_exactly_as_they_are`,
+`a_whale_is_cut_to_a_fifth_of_the_new_total_and_nobody_else_moves`,
+`one_operator_running_many_keys_is_capped_as_one`,
+`below_five_operators_no_cap_is_satisfiable_so_none_is_applied`, and the 2,000-committee
+sweep `no_operator_ever_holds_more_than_the_cap`.

@@ -427,6 +427,9 @@ fn launch_config(
         && let Some(staking) = bft.as_mut().and_then(|b| b.staking.as_mut())
     {
         staking.stake_weighted = true;
+        // Every penalty written out and hashed into the id (Eric 2026-11-24);
+        // the node refuses a value-bearing genesis without them.
+        staking.rules = Some(committee::LAUNCH_STAKING_RULES);
     }
     let difficulty_bits = if bft.is_some() {
         0
@@ -1259,7 +1262,7 @@ mod mining_tests {
 
     #[test]
     fn zero_supply_mints_only_the_reserve_and_the_bonds() {
-        // The genesis money must be exactly the reserve plus the four bonds.
+        // The genesis money must be exactly the reserve plus the seven bonds.
         let config = launch_config(&mainnet_args(0), Vec::new(), None, Some(&members()));
         let addresses: Vec<String> = config
             .allocations
@@ -1267,7 +1270,7 @@ mod mining_tests {
             .map(|a| a.address.clone())
             .collect();
         assert_eq!(addresses, vec![hex::encode(MINING_RESERVE)]);
-        let bonds = primitive_types::U256::from(4_000_000);
+        let bonds = primitive_types::U256::from(7_000_000);
         assert_eq!(
             config.total_supply().unwrap(),
             primitive_types::U256::from(5_000_000) + bonds
@@ -1329,8 +1332,9 @@ mod mining_tests {
         assert!(split_supply(zero, 1_000).is_err());
     }
 
+    /// Seven seats: the node's floor for a value-bearing genesis (C5).
     fn members() -> Vec<committee::Member> {
-        (1..=4u8)
+        (1..=7u8)
             .map(|i| committee::Member {
                 label: format!("op{i}"),
                 // Real keys: the state root decodes every validator key.

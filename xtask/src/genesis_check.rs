@@ -131,6 +131,10 @@ struct Staking {
     /// Prices the mining reserve: the schedule counts epochs to the last height.
     #[serde(default)]
     epoch_blocks: Option<u64>,
+    /// The written staking rules (Eric 2026-11-24). Their values are checked
+    /// by the node when it loads the file; here only their presence.
+    #[serde(default)]
+    rules: Option<serde::de::IgnoredAny>,
 }
 
 fn units_opt<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u128>, D::Error> {
@@ -365,6 +369,12 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
     if !g.bft.staking.stake_weighted {
         out.push("voting is not stake-weighted".to_string());
     }
+    if g.bft.staking.rules.is_none() {
+        out.push(
+            "staking.rules is unset: slashing, jail, unbonding and downtime would be the devnet defaults, outside the genesis id"
+                .to_string(),
+        );
+    }
     if g.difficulty_bits == 0 && g.bft.mining.is_none() {
         out.push("difficulty_bits is 0 and no bft.mining: proof of work is free".to_string());
     }
@@ -473,8 +483,28 @@ mod tests {
              \"fees\":{{\"min_base_fee\":\"1000000\"}},\
              \"staking\":{{\"stake_weighted\":{weighted},\"epoch_blocks\":3600,\
              \"min_self_bond\":\"{FLOOR}\",\
-             \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}]}}}}}}"
+             \"min_delegation\":\"1000000000000000000000000\",\"bonds\":[{bonds}],{RULES}}}}}}}"
         )
+    }
+
+    /// The staking rules every passing fixture writes out.
+    const RULES: &str = "\"rules\":{\"unbonding_epochs\":7,\"double_sign_slash_bps\":5000,\"downtime_slash_bps\":100,\"downtime_threshold_bps\":5000,\"jail_epochs\":2,\"max_commission_bps\":2000}";
+
+    #[test]
+    fn unwritten_staking_rules_fail() {
+        let unset = genesis(20, true, &EVEN).replace(&format!(",{RULES}"), "");
+        let found = check(&unset).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("staking.rules is unset")),
+            "{found:?}"
+        );
+        assert!(
+            !check(&genesis(20, true, &EVEN))
+                .unwrap()
+                .iter()
+                .any(|p| p.contains("staking.rules")),
+            "written rules pass"
+        );
     }
 
     const EVEN: [(&str, u128); 7] = [

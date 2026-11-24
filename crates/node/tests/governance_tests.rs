@@ -598,35 +598,16 @@ fn a_proposal_that_misses_quorum_is_rejected_and_changes_nothing() {
     assert_eq!(fixture.parameter(ParameterKey::DexProtocolFeeBps), 0);
 }
 
+/// G6 (Eric 2026-11-24): governance weight is locked stake only. Work credit
+/// claimed with claims switched on neither votes nor dilutes the quorum, so a
+/// miner who stays home cannot block a decision and one who votes adds
+/// nothing. Before the change the absent miner's credit sat in the quorum
+/// denominator and this proposal was rejected (audit H-2's rule).
 #[test]
-fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
-    // Vote weight is locked stake plus work credit, so the electorate quorum is
-    // measured against must be both. Measured against locked stake alone, one
-    // miner's small credit meets quorum on a chain where a great deal more work
-    // is held by miners who did not vote (audit H-2).
+fn claimed_work_neither_votes_nor_counts_toward_the_quorum() {
     let fixture = fixture();
-    fixture
-        .act_with_claims(
-            0,
-            TxKind::ClaimWork(WorkClaim {
-                beneficiary: fixture.address(0),
-            }),
-            1,
-        )
-        .expect("claim");
-    let credit = u64::try_from(
-        fixture
-            .db
-            .work_credit(&fixture.address(0), 1)
-            .expect("credit"),
-    )
-    .expect("small");
-    assert!(credit > 0);
-
-    // Exactly the 10% quorum of the locked stake alone.
-    fixture.lock(1, credit * 10, 200_000, 2);
-    // A second miner earns twenty times as much and never votes.
-    for height in 3..23 {
+    // A miner earns a great deal of work credit and locks nothing.
+    for height in 1..21 {
         fixture
             .act_with_claims(
                 2,
@@ -637,13 +618,35 @@ fn work_credit_held_by_those_who_stay_home_counts_in_the_quorum_denominator() {
             )
             .expect("claim");
     }
+    let credit = u64::try_from(
+        fixture
+            .db
+            .work_credit(&fixture.address(2), 21)
+            .expect("credit"),
+    )
+    .expect("small");
+    assert!(credit >= 20, "credit {credit}");
+    assert_eq!(
+        fixture
+            .db
+            .voting_power(&fixture.address(2), 21)
+            .expect("power"),
+        primitive_types::U256::zero()
+    );
+    // A voter locking a twentieth of the miner's credit: under 10% of stake
+    // plus credit, and all of the locked stake.
+    fixture.lock(1, credit / 20, 200_000, 21);
 
-    let (id, executable) = fixture.propose(ParameterKey::DexProtocolFeeBps, 25, 23);
-    fixture.vote(0, id, Choice::For, 24).expect("vote");
+    let (id, executable) = fixture.propose(ParameterKey::DexProtocolFeeBps, 25, 22);
+    assert!(
+        fixture.vote(2, id, Choice::Against, 23).is_err(),
+        "work credit alone carries no vote"
+    );
+    fixture.vote(1, id, Choice::For, 24).expect("vote");
 
     fixture.apply(vec![], executable).expect("settle");
-    assert_eq!(fixture.state_of(&id), ProposalState::Rejected);
-    assert_eq!(fixture.parameter(ParameterKey::DexProtocolFeeBps), 0);
+    assert_eq!(fixture.state_of(&id), ProposalState::Executed);
+    assert_eq!(fixture.parameter(ParameterKey::DexProtocolFeeBps), 25);
 }
 
 #[test]
