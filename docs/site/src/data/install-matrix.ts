@@ -25,7 +25,7 @@ import {
 
 type MethodId = "oneline" | "manual";
 
-const RAW = "https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master";
+const RAW = "https://raw.githubusercontent.com/maya2c/Maya2C/master";
 const PS_ONE_LINE = `irm ${RAW}/scripts/join-testnet.ps1 | iex`;
 const SH_ONE_LINE = `curl -fsSL ${RAW}/scripts/join-testnet.sh | bash`;
 const PS_FILE = "$env:USERPROFILE\\Downloads\\join-validator.ps1";
