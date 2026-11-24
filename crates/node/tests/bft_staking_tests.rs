@@ -121,8 +121,11 @@ impl Mesh {
     }
 
     fn with(stake_weighted: bool) -> Self {
+        Self::from_config(&genesis_with(stake_weighted))
+    }
+
+    fn from_config(config: &GenesisConfig) -> Self {
         let root = TempDir::new().unwrap();
-        let config = genesis_with(stake_weighted);
         let committee: Arc<[VerifyingKey]> = config
             .bft
             .as_ref()
@@ -451,6 +454,136 @@ fn a_registration_joins_the_committee_and_evidence_removes_an_equivocator() {
     );
     let h = mesh.members[0].chain.height();
     mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 3));
+    mesh.agree();
+}
+
+fn staked(mesh: &Mesh) -> maya_staking::Staking {
+    mesh.members[0]
+        .chain
+        .state()
+        .committed_staking()
+        .unwrap()
+        .unwrap()
+        .staking
+}
+
+/// STK-21 (Eric 2026-11-24, third round 4), through consensus: double-sign
+/// evidence is admissible for the whole unbonding period and no longer. With
+/// a two-epoch period, validator 3 signs twice in epoch 0 and unbonds its
+/// whole bond in that same epoch; evidence filed in epoch 1, the last before
+/// its funds are released, still burns half of them. Evidence of epoch 0
+/// filed in epoch 2 against validator 2, which never left, is refused.
+#[test]
+fn evidence_reaches_an_unbonded_validator_until_the_unbonding_period_ends() {
+    let mut config = genesis();
+    let staking = config.bft.as_mut().unwrap().staking.as_mut().unwrap();
+    staking.rules = Some(StakingRules {
+        unbonding_epochs: 2,
+        ..StakingRules::DEVNET
+    });
+    let mut mesh = Mesh::from_config(&config);
+    let keys0: Arc<[VerifyingKey]> = config
+        .bft
+        .as_ref()
+        .unwrap()
+        .verifying_keys()
+        .unwrap()
+        .into();
+    let tag = ChainTag::from_genesis(mesh.members[0].chain.genesis());
+    let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
+    let bystander = validator_id(&validator_key(2).verifying_key().to_bytes());
+
+    // A fifth seat first, so the whole-bond exit starts at once (CON-07).
+    mesh.submit(&register(4, 20_000, 0));
+    mesh.submit(&staking_tx(
+        StakingAction::Unbond {
+            validator: offender,
+            amount: primitive_types::U256::from(10_000),
+        },
+        1,
+    ));
+    let unbonding = |m: &Mesh| {
+        staked(m)
+            .unbonding
+            .iter()
+            .filter(|u| u.validator == offender)
+            .map(|u| u.amount)
+            .collect::<Vec<_>>()
+    };
+    mesh.run_until(|m| !unbonding(m).is_empty());
+    assert_eq!(
+        staked(&mesh).epoch,
+        0,
+        "the exit must start in the offence epoch"
+    );
+    assert_eq!(
+        unbonding(&mesh),
+        vec![maya_ledger_math::Amount::from_u64(10_000)]
+    );
+
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    mesh.submit(&staking_tx(double_proposal(3, &keys0, tag), 2));
+    let retired = |m: &Mesh, who: [u8; 32]| staked(m).retired.contains(&who);
+    mesh.run_until(|m| retired(m, offender));
+    let record = staked(&mesh);
+    assert!(record.retired.contains(&offender), "evidence never landed");
+    assert_eq!(record.epoch, 1, "landed in the last epoch of the period");
+    assert_eq!(
+        unbonding(&mesh),
+        vec![maya_ledger_math::Amount::from_u64(5_000)],
+        "the unbonding funds lost the double-sign share"
+    );
+
+    mesh.run_until(|m| m.all_in_epoch(2));
+    assert!(mesh.all_in_epoch(2));
+    assert!(
+        unbonding(&mesh).is_empty(),
+        "the rest was released at the boundary"
+    );
+    mesh.submit(&staking_tx(double_proposal(2, &keys0, tag), 3));
+    let h = mesh.members[0].chain.height();
+    mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 4));
+    assert!(staked(&mesh).epoch >= 2);
+    assert!(
+        !retired(&mesh, bystander),
+        "evidence older than the unbonding period slashed someone"
+    );
+    mesh.agree();
+}
+
+/// STK-22 (Eric 2026-11-24, third round 5), through consensus: four seats,
+/// one double-signs, and the floor holds its seat into the next epoch with
+/// weight zero. The three others carry every quorum and blocks keep coming.
+#[test]
+fn a_held_tombstone_votes_with_zero_weight_and_the_chain_runs_on() {
+    let mut mesh = Mesh::with(true);
+    let keys0: Arc<[VerifyingKey]> = genesis().bft.unwrap().verifying_keys().unwrap().into();
+    let tag = ChainTag::from_genesis(mesh.members[0].chain.genesis());
+    let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
+    mesh.submit(&staking_tx(double_proposal(3, &keys0, tag), 0));
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    let record = staked(&mesh);
+    assert!(record.retired.contains(&offender), "evidence never landed");
+    assert_eq!(
+        record.active.len(),
+        GENESIS_VALIDATORS,
+        "the floor holds four seats"
+    );
+    let state = mesh.members[0].chain.state();
+    let seats = state.committee_ids(record.epoch).unwrap().unwrap();
+    let weights = state.committee_weights(record.epoch).unwrap().unwrap();
+    let held = seats.iter().position(|id| *id == offender).expect("held");
+    for (i, w) in weights.iter().enumerate() {
+        assert_eq!(*w == 0, i == held, "weights {weights:?}, held seat {held}");
+    }
+    let h = mesh.members[0].chain.height();
+    mesh.run_until(|m| m.members.iter().all(|x| x.chain.height() >= h + 4));
+    assert!(
+        mesh.members.iter().all(|x| x.chain.height() >= h + 4),
+        "the three voters stopped carrying the chain"
+    );
     mesh.agree();
 }
 

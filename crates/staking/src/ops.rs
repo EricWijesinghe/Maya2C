@@ -291,6 +291,31 @@ impl Staking {
         Ok(vec![Effect::Burn(burned)])
     }
 
+    /// Slashes `id` for a double sign committed in `offence_epoch`, the way
+    /// the node applies evidence: [`Self::slash_double_sign`] once the
+    /// evidence is inside the unbonding period (STK-21, Eric 2026-11-24 third
+    /// round), epochs `offence_epoch ..= offence_epoch + unbonding_epochs − 1`.
+    ///
+    /// That is exactly as long as a stake that backed the offence epoch can
+    /// still be in the unbonding queue: stake leaving in that epoch is
+    /// released at the boundary into `offence_epoch + unbonding_epochs`, and
+    /// evidence in any block before it reaches those funds.
+    ///
+    /// # Errors
+    ///
+    /// [`StakeError::EvidenceOutsideWindow`] for an older or a future epoch;
+    /// otherwise as [`Self::slash_double_sign`].
+    pub fn report_double_sign(
+        &mut self,
+        id: ValidatorId,
+        offence_epoch: u64,
+    ) -> Result<Vec<Effect>, StakeError> {
+        match self.epoch.checked_sub(offence_epoch) {
+            Some(age) if age < self.params.unbonding_epochs => self.slash_double_sign(id),
+            _ => Err(StakeError::EvidenceOutsideWindow),
+        }
+    }
+
     /// Takes `bps` of everything bonded to `id`, including unbonding funds.
     pub(crate) fn slash(&mut self, id: ValidatorId, bps: u16) -> Result<Amount, StakeError> {
         let mut burned = Amount::ZERO;

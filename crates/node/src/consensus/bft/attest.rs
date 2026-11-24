@@ -240,7 +240,9 @@ fn has_quorum(
         }
         None => u16::try_from(size).ok().map(Committee::new),
     }
-    .ok_or_else(|| NodeError::Decode("committee larger than u16".to_string()))?;
+    .ok_or_else(|| {
+        NodeError::Decode("committee larger than u16 or carrying no weight".to_string())
+    })?;
     Ok(committee.is_quorum(signers))
 }
 
@@ -595,6 +597,41 @@ mod tests {
             collector.newest().is_none(),
             "the forged one must not have counted"
         );
+    }
+
+    #[test]
+    fn two_voters_beside_a_held_seat_never_make_conflicting_checkpoints() {
+        // STK-22 with CON-20: [9000, 5000, 3000, 0], member 3 a held
+        // tombstone. {0, 1} and {0, 2} each clear W − f by weight and share
+        // only member 0, so weight alone would let member 0 finalize two
+        // blocks at one height. Counted over voters, every checkpoint needs
+        // all three, with or without the tombstone's signature.
+        let (signing, committee) = keys(4);
+        let weights = [9_000, 5_000, 3_000, 0];
+        for (signers, block) in [([0u16, 1, 3], 1u8), ([0, 2, 3], 2)] {
+            let forged = Checkpoint {
+                epoch: 0,
+                height: 5,
+                block: [block; 32],
+                signatures: signers
+                    .iter()
+                    .map(|v| (*v, attest(&signing, *v, 5, block).signature))
+                    .collect(),
+            };
+            assert!(
+                forged.verify(&CHAIN, &committee, Some(&weights)).is_err(),
+                "{signers:?} finalized block {block}"
+            );
+        }
+        let all = Checkpoint {
+            epoch: 0,
+            height: 5,
+            block: [1; 32],
+            signatures: (0..3)
+                .map(|v| (v, attest(&signing, v, 5, 1).signature))
+                .collect(),
+        };
+        all.verify(&CHAIN, &committee, Some(&weights)).unwrap();
     }
 
     #[test]

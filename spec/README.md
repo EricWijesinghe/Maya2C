@@ -11,7 +11,7 @@ so and lists the rule as a gap instead of specifying behaviour no code has.
 | 3 | [03-state.md](03-state.md) | protocol | 0.1.1 | `tests/state_transitions.json` |
 | 4 | [04-fees.md](04-fees.md) | economics | 0.1.0 | `tests/fees.json` |
 | 5 | [05-consensus.md](05-consensus.md) | consensus | 0.1.0 | none yet — every rule is a listed gap |
-| 6 | [06-staking.md](06-staking.md) | consensus | 0.0.2 | built; STK-11, STK-13 to STK-20 with external vectors, the rest with #555 |
+| 6 | [06-staking.md](06-staking.md) | consensus | 0.0.2 | built; STK-11, STK-13 to STK-22 with external vectors, the rest with #555 |
 | 7 | [07-networking.md](07-networking.md) | networking | 0.1.0 | none (not consensus) |
 | 8 | [08-crypto.md](08-crypto.md) | cryptography | 0.1.0 | FIPS KATs in `crates/crypto-pq/tests/` |
 | 9 | [09-mining.md](09-mining.md) | economics | 0.1.0 | `tests/mining.json` |

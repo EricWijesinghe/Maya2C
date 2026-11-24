@@ -553,6 +553,24 @@ mod tests {
         assert!(c.is_validity([0, 1]));
     }
 
+    /// Third round 3 + 5 together (review of #707): with unequal stakes
+    /// beside a held seat, two voters carry W − f by weight alone
+    /// ([9000, 5000, 3000, 0]: {0, 1} and {0, 2} both clear 11,334 and share
+    /// one voter). The seat rule, counted over voters, needs all three, and
+    /// the held tombstone's signature never stands in for the missing one.
+    #[test]
+    fn unequal_stakes_beside_a_held_seat_need_every_voter() {
+        let c = Committee::weighted(vec![9_000, 5_000, 3_000, 0]).expect("4");
+        assert!(c.weight_of([0, 1]) >= c.quorum() && c.weight_of([0, 2]) >= c.quorum());
+        assert_eq!((c.voters(), c.count_faults(), c.count_quorum()), (3, 0, 3));
+        assert_eq!(c.min_quorum_size(), 3);
+        for split in [&[0, 1][..], &[0, 2], &[0, 1, 3], &[0, 2, 3], &[1, 2, 3]] {
+            assert!(!c.is_quorum(split.iter().copied()), "{split:?} is a quorum");
+        }
+        assert!(c.is_quorum([0, 1, 2]));
+        assert!(!c.is_validity([3]), "the held seat alone supports nothing");
+    }
+
     #[test]
     fn a_committee_with_no_weight_is_refused() {
         // Every set would be a quorum of zero.

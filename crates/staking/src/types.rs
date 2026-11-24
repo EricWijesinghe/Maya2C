@@ -97,6 +97,9 @@ pub enum StakeError {
     Tombstoned,
     /// The validator's whole bond is already waiting to leave (CON-07).
     Leaving,
+    /// Evidence of an offence outside the unbonding period: older than
+    /// `unbonding_epochs`, or in an epoch not yet reached (STK-21).
+    EvidenceOutsideWindow,
     /// Arithmetic would overflow.
     Overflow,
 }

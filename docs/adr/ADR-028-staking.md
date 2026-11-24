@@ -173,3 +173,41 @@ be beyond reach about eight hours later, and a checkpoint older than that has no
 stake behind it. Cosmos Hub unbonds over 21 days; Ethereum's withdrawal delay is about 27
 hours or more. Changing it is one line each in `LAUNCH_STAKING_RULES`, the `genesis-check`
 copy and `xtask/src/proving.rs`, before genesis.
+
+## Amendment 2026-11-24 (third round): evidence is admissible for exactly the unbonding period
+
+Eric 2026-11-24, third round, decision 4: double-sign evidence stays valid for the whole
+unbonding period. Before this the window was a side effect of pruning: evidence was
+refused once its committee record was gone, `unbonding_epochs + 1` epochs later, and in
+the last of those epochs the stake that left in the offence epoch had already been
+released, so the evidence still landed but no longer reached it.
+
+**The rule (STK-21).** Evidence of an offence in epoch `e` is admissible in epochs
+`e ..= e + unbonding_epochs − 1` and refused outside them (`EvidenceOutsideWindow`), a
+future epoch included. It is checked in the staking state machine itself
+(`Staking::report_double_sign`), the one path the node takes. **The guarantee:** stake
+that backed epoch `e` and starts unbonding in epoch `e` or later is released at the
+boundary into `e + unbonding_epochs` or later, after every transaction of that boundary
+block (`stage_block` runs transactions before `settle_staking`). Evidence filed in any
+admissible epoch therefore reaches every such stake, unbonding funds and delegations
+included: unbonding does not escape evidence filed in time.
+
+**Retention.** Everything verification reads outlives the window. `k:cmt:<epoch>` is
+kept one epoch past it (deleted at the boundary into `epoch + unbonding_epochs + 1`, as
+before, so no state root moves on that account). `k:key:<id>` is never deleted.
+Evidence carries its own signed frames (vertices, or attestations naming their block
+hash) and reads no header or body, so block pruning (invariant 27) removes nothing it
+needs. A validator whose funds are still unbonding keeps its record (`end_epoch`), so it
+is never `UnknownValidator` inside the window.
+
+**Not changed: the length.** `unbonding_epochs` stays 7 in `LAUNCH_STAKING_RULES`, the
+`genesis-check` copy and `xtask/src/proving.rs` (7 × 3,600 blocks; at one block a second,
+seven hours). The decision ties the evidence window to the unbonding period; it names no
+new period, and a new period is an economics decision. The window now moves with it: one
+value in those three places, before genesis, changes both.
+
+Tests: `evidence_filed_in_the_last_epoch_of_the_unbonding_period_reaches_the_unbonded_funds`,
+`evidence_older_than_the_unbonding_period_is_refused`,
+`evidence_naming_an_epoch_not_yet_reached_is_refused` (`crates/staking/tests/offender_unbond.rs`);
+`evidence_reaches_an_unbonded_validator_until_the_unbonding_period_ends`
+(`crates/node/tests/bft_staking_tests.rs`, five real chains, a two-epoch period).
