@@ -255,3 +255,146 @@ fn rotation_to_a_deprecated_suite_is_refused() {
         Err(MigrationError::TargetNotActive(SuiteId::MlDsa65))
     );
 }
+
+// G13: whatever the schedule, one lattice and one hash-based suite outlive it.
+#[test]
+fn a_sunset_that_would_leave_no_hash_based_suite_is_refused() {
+    let one = SuitePolicy::genesis(Network::Mainnet)
+        .with_deprecation(SuiteId::SlhDsaSha2_128s, H, MIN_MIGRATION_WINDOW, false)
+        .expect("the other hash-based suite stays live");
+    assert!(
+        one.with_deprecation(SuiteId::SlhDsaShake256f, H, MIN_MIGRATION_WINDOW, false)
+            .is_err(),
+        "both SLH-DSA suites retired: a lattice break would leave nothing to move to"
+    );
+}
+
+#[test]
+fn a_sunset_that_would_leave_no_lattice_suite_is_refused() {
+    let hash_default = SuitePolicy::genesis(Network::Mainnet)
+        .with_default(SuiteId::SlhDsaShake256f)
+        .expect("permitted")
+        .with_deprecation(SuiteId::MlDsa65, H, MIN_MIGRATION_WINDOW, false)
+        .expect("ML-DSA-87 stays live");
+    assert!(
+        hash_default
+            .with_deprecation(SuiteId::MlDsa87, H, MIN_MIGRATION_WINDOW, false)
+            .is_err(),
+        "both ML-DSA suites retired"
+    );
+}
+
+#[test]
+fn a_hybrid_does_not_count_toward_either_family() {
+    // The hybrid stays live, but it needs its SLH-DSA half to verify, so it is
+    // no refuge once hash-based signatures fall: still refused.
+    let one = SuitePolicy::genesis(Network::Mainnet)
+        .with_deprecation(SuiteId::SlhDsaShake256f, H, MIN_MIGRATION_WINDOW, false)
+        .expect("one hash-based suite left");
+    assert!(
+        one.with_deprecation(SuiteId::SlhDsaSha2_128s, H, MIN_MIGRATION_WINDOW, false)
+            .is_err()
+    );
+    // Retiring the hybrid itself touches no floor.
+    assert!(
+        one.with_deprecation(
+            SuiteId::HybridMlDsa65SlhDsa128s,
+            H,
+            MIN_MIGRATION_WINDOW,
+            false
+        )
+        .is_ok()
+    );
+}
+
+// G23: the default is an allow-list of suites at category 3 or above.
+#[test]
+fn the_default_is_one_of_the_category_3_suites_off_devnet() {
+    for network in [Network::Mainnet, Network::Testnet] {
+        let policy = SuitePolicy::genesis(network);
+        let allowed: Vec<SuiteId> = SuiteId::ALL
+            .into_iter()
+            .filter(|s| policy.with_default(*s).is_ok())
+            .collect();
+        assert_eq!(
+            allowed,
+            [SuiteId::MlDsa65, SuiteId::MlDsa87, SuiteId::SlhDsaShake256f],
+            "{network:?}"
+        );
+    }
+    // A category-1 suite may still sign; it just cannot be what every new
+    // account is created under.
+    let mainnet = SuitePolicy::genesis(Network::Mainnet);
+    assert!(mainnet.may_sign(SuiteId::SlhDsaSha2_128s, H));
+    assert!(mainnet.may_sign(SuiteId::HybridMlDsa65SlhDsa128s, H));
+}
+
+// G13 and a real break: the floor must not stand in the way of the response.
+#[test]
+fn an_emergency_may_retire_a_broken_lattice_family_but_a_schedule_may_not() {
+    let moved = SuitePolicy::genesis(Network::Mainnet)
+        .with_default(SuiteId::SlhDsaShake256f)
+        .expect("hash-based default");
+    let emergency = |p: &SuitePolicy, s| p.with_deprecation(s, H, MIN_EMERGENCY_WINDOW, true);
+    let lattice_gone = emergency(&moved, SuiteId::MlDsa65)
+        .and_then(|p| emergency(&p, SuiteId::MlDsa87))
+        .expect("ML-DSA broken: an emergency retires the whole family");
+    assert!(!lattice_gone.may_sign(SuiteId::MlDsa87, H + MIN_EMERGENCY_WINDOW));
+    assert!(lattice_gone.may_sign(SuiteId::SlhDsaShake256f, H + MIN_EMERGENCY_WINDOW));
+
+    let ordinary = moved
+        .with_deprecation(SuiteId::MlDsa65, H, MIN_MIGRATION_WINDOW, false)
+        .expect("ML-DSA-87 stays live");
+    assert_eq!(
+        ordinary.with_deprecation(SuiteId::MlDsa87, H, MIN_MIGRATION_WINDOW, false),
+        Err(PolicyError::LastOfFamily {
+            suite: SuiteId::MlDsa87,
+            family: SuiteFamily::Lattice
+        }),
+        "an ordinary schedule never retires the last lattice suite"
+    );
+}
+
+#[test]
+fn the_floor_verdict_does_not_depend_on_the_order_of_entries() {
+    // Admission sees entries in the order they were voted; a replaying node
+    // sees them in key order. Both must agree, or the schedule is a fork.
+    let moved = SuitePolicy::genesis(Network::Mainnet)
+        .with_default(SuiteId::SlhDsaShake256f)
+        .expect("hash-based default");
+    let apply = |entries: &[(SuiteId, bool)]| {
+        entries.iter().try_fold(moved.clone(), |p, &(s, e)| {
+            let window = if e {
+                MIN_EMERGENCY_WINDOW
+            } else {
+                MIN_MIGRATION_WINDOW
+            };
+            p.with_deprecation(s, H, window, e)
+        })
+    };
+    let voted = apply(&[(SuiteId::MlDsa87, false), (SuiteId::MlDsa65, true)]);
+    let keyed = apply(&[(SuiteId::MlDsa65, true), (SuiteId::MlDsa87, false)]);
+    assert!(voted.is_ok());
+    assert_eq!(voted, keyed);
+}
+
+#[test]
+fn an_emergency_never_retires_both_families() {
+    // Devnet lets a classical suite be the default, so nothing else keeps a
+    // post-quantum family alive: the other-family check is the only guard.
+    let classical = SuitePolicy::genesis(Network::Devnet)
+        .with_default(SuiteId::Ed25519)
+        .expect("devnet default");
+    let emergency = |p: &SuitePolicy, s| p.with_deprecation(s, H, MIN_EMERGENCY_WINDOW, true);
+    let hash_gone = emergency(&classical, SuiteId::SlhDsaSha2_128s)
+        .and_then(|p| emergency(&p, SuiteId::SlhDsaShake256f))
+        .expect("lattice suites still live");
+    let one_lattice = emergency(&hash_gone, SuiteId::MlDsa65).expect("ML-DSA-87 left");
+    assert_eq!(
+        emergency(&one_lattice, SuiteId::MlDsa87),
+        Err(PolicyError::LastOfFamily {
+            suite: SuiteId::MlDsa87,
+            family: SuiteFamily::Lattice
+        })
+    );
+}

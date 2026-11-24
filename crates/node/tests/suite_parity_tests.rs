@@ -211,10 +211,14 @@ fn governance_default_suite_is_ml_dsa_87_and_is_checked_by_the_node() {
         suites::default_suite(&table).expect("default"),
         SuiteId::MlDsa87
     );
+    // A registered, permitted suite below category 3 is refused as the
+    // default (G23): the hybrid's weaker half is category 1.
     let hybrid = table.with(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x30));
+    assert!(suites::default_suite(&hybrid).is_err());
+    let slh = table.with(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x21));
     assert_eq!(
-        suites::default_suite(&hybrid).expect("0x30"),
-        SuiteId::HybridMlDsa65SlhDsa128s
+        suites::default_suite(&slh).expect("0x21"),
+        SuiteId::SlhDsaShake256f
     );
     // Inside the governance range, but no suite: refused by the node.
     let hole = table.with(ParameterKey::DefaultSignatureSuite, Amount::from_u64(0x12));

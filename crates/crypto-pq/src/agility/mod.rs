@@ -20,10 +20,16 @@ pub mod migration;
 
 use std::collections::BTreeMap;
 
-use crate::suite::SuiteId;
+use crate::suite::{SuiteFamily, SuiteId};
 
 /// The floor below which the audit flags a suite: NIST category 1.
 pub const MIN_PQ_SECURITY_BITS: u16 = 128;
+
+/// The floor for the *default* suite, the one new accounts are created under:
+/// NIST category 3 (ADR-082 amendment, G23). Above [`MIN_PQ_SECURITY_BITS`]
+/// on purpose: a suite at the category-1 floor may still sign, but governance
+/// can never make it what every new account gets.
+pub const MIN_DEFAULT_PQ_SECURITY_BITS: u16 = 192;
 
 /// The shortest ordinary migration window: sized as about 30 days at 15 s
 /// blocks, which is 2 days at the measured DAG-BFT rate of about one block a
@@ -90,6 +96,11 @@ pub enum PolicyError {
     /// A deprecated or sunset suite cannot become the default.
     #[error("{0:?} is deprecated")]
     DefaultDeprecated(SuiteId),
+    /// Retiring the suite would leave no undeprecated permitted suite of its
+    /// family (G13). Only a family with an emergency sunset among its entries
+    /// may go, and only while the other family keeps a live suite.
+    #[error("{suite:?} is the last live {family:?} suite")]
+    LastOfFamily { suite: SuiteId, family: SuiteFamily },
 }
 
 /// The default suite and the deprecation schedule for one network.
@@ -166,13 +177,32 @@ impl SuitePolicy {
         )
     }
 
+    /// Whether `suite` may be the default here: permitted, and off devnet at
+    /// least [`MIN_DEFAULT_PQ_SECURITY_BITS`]. With the registry this is the
+    /// allow-list (G23): on mainnet today ML-DSA-65, ML-DSA-87 and
+    /// SLH-DSA-SHAKE-256f.
+    #[must_use]
+    pub fn may_be_default(&self, suite: SuiteId) -> bool {
+        self.permitted(suite)
+            && (self.network == Network::Devnet
+                || suite.info().pq_security_bits >= MIN_DEFAULT_PQ_SECURITY_BITS)
+    }
+
+    /// Whether some permitted suite of `family` has no deprecation at all,
+    /// so it outlives every scheduled sunset.
+    fn family_survives(&self, family: SuiteFamily) -> bool {
+        SuiteId::ALL.into_iter().any(|s| {
+            s.family() == family && self.permitted(s) && !self.deprecations.contains_key(&s)
+        })
+    }
+
     /// A policy with `suite` as the default.
     ///
     /// # Errors
     ///
     /// [`PolicyError::DefaultNotPermitted`] or [`PolicyError::DefaultDeprecated`].
     pub fn with_default(&self, suite: SuiteId) -> Result<Self, PolicyError> {
-        if !self.permitted(suite) {
+        if !self.may_be_default(suite) {
             return Err(PolicyError::DefaultNotPermitted(suite));
         }
         if self.deprecations.contains_key(&suite) {
@@ -189,8 +219,10 @@ impl SuitePolicy {
     ///
     /// # Errors
     ///
-    /// Deprecating the default, a window below the minimum, or a suite that is
-    /// already deprecated.
+    /// Deprecating the default, a window below the minimum, a suite that is
+    /// already deprecated, or the last live lattice or hash-based suite
+    /// (allowed only when the family has an emergency sunset and the other
+    /// family stays live).
     pub fn with_deprecation(
         &self,
         suite: SuiteId,
@@ -224,10 +256,35 @@ impl SuitePolicy {
                 emergency,
             },
         );
-        Ok(Self {
+        let next = Self {
             deprecations,
             ..self.clone()
-        })
+        };
+        // Counted against the schedule as it stands after every sunset, not at
+        // `height`: a floor that held only until the next window closed would
+        // not be a floor. Ordinary sunsets alone never retire a whole family;
+        // one that has an emergency sunset among its entries may go, because
+        // that family is the one broken, but never both: the other family
+        // must outlive the schedule too. Both tests read the set of entries,
+        // not their order, so a node replaying the schedule in key order
+        // reaches the verdict admission did.
+        let family = suite.family();
+        let other = match family {
+            SuiteFamily::Lattice => Some(SuiteFamily::HashBased),
+            SuiteFamily::HashBased => Some(SuiteFamily::Lattice),
+            _ => None,
+        };
+        let emergency_in_family = next
+            .deprecations
+            .iter()
+            .any(|(s, d)| s.family() == family && d.emergency);
+        if let Some(other) = other
+            && !next.family_survives(family)
+            && !(emergency_in_family && next.family_survives(other))
+        {
+            return Err(PolicyError::LastOfFamily { suite, family });
+        }
+        Ok(next)
     }
 }
 

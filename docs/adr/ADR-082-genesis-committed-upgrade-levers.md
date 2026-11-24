@@ -61,6 +61,38 @@ the suite policy, the mempool, and the RPC.
   governance sets may not name a suite a schedule entry already retires, and a
   proposal whose own changes would break these rules expires instead of
   stalling the chain (H2).
+- **Two families always outlive the schedule** (amendment 2026-11-24, G13).
+  Whatever the genesis and every later writer schedule, at least one permitted
+  lattice suite (`0x1_`) and one permitted hash-based suite (`0x2_`) carry no
+  sunset at all. An entry that would retire the last of either is refused in
+  `SuitePolicy::with_deprecation`, the one function genesis, governance and
+  the council all pass through. It is counted against the schedule as it will
+  stand after every window closes, not at the write height. A hybrid (`0x3_`)
+  counts toward neither: it needs both halves to verify, so it is no refuge
+  from a break of either. The guarantee: a public break of one hardness
+  assumption always leaves a live signature family to migrate to, without a
+  hard fork.
+  *Revised the same day (review of #691):* the floor must not stand in the way
+  of the event it exists for. Once a family is publicly broken, governance
+  moves the default to the other family and an **emergency** sunset retires
+  the broken one entirely, ML-DSA-87 included; ordinary sunsets alone still
+  never retire a whole family, and nothing ever retires both. The test is on
+  the set of entries (a family may go only if one of its entries is an
+  emergency), not on their order, because admission sees entries in vote order
+  and a replaying node in key order. `crypto::suites::verification_policy`
+  no longer pins ML-DSA-87 as its placeholder default when the schedule
+  retires it; the genesis default stays unsunsettable at genesis
+  (`GenesisConfig::suite_sunsets`) and the governance default in `admit`.
+  The guarantee: a break of either family is answered at emergency speed with
+  no new binary, and a captured governance still cannot retire both.
+- **The default is an allow-list** (amendment 2026-11-24, G23). The governance
+  crate range-checks `DefaultSignatureSuite` to `0x10..=0x30` (it has no
+  dependencies, invariant 12); the node accepts only a registered, permitted
+  suite of at least `MIN_DEFAULT_PQ_SECURITY_BITS` (192, NIST category 3), via
+  `SuitePolicy::may_be_default`. On mainnet that is ML-DSA-65, ML-DSA-87 and
+  SLH-DSA-SHAKE-256f. A category-1 suite (SLH-DSA-SHA2-128s, the hybrid) still
+  signs; it can never be what every new account is created under. A suite
+  registered later joins the list by its registry row alone.
 - **zkML** cannot be scheduled until `zkml::verdict` is a real verifier (M3).
   The refusal is in `UpgradeSchedule::new`, so admission and genesis both apply it.
 - **Feature bits** must be defined (`FeatureSet::is_known`).

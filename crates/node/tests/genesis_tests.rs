@@ -466,6 +466,9 @@ fn a_genesis_names_only_valid_suite_deprecations() {
     assert!(config.validate().is_err(), "sunset before announcement");
     config.suite_deprecations[0].sunset_height = 1_000_100;
     assert!(config.validate().is_ok());
+    config.suite_deprecations[0].suite = 0x11;
+    assert!(config.validate().is_err(), "the genesis default suite");
+    config.suite_deprecations[0].suite = 0x10;
 
     assert_eq!(
         config.suite_sunsets().expect("sunsets").entries().count(),

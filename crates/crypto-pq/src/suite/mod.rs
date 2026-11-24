@@ -77,6 +77,18 @@ impl SuiteId {
         self as u8
     }
 
+    /// The family the id's high nibble names. Read from the wire byte, so a
+    /// suite added later lands in its family by its number alone.
+    #[must_use]
+    pub const fn family(self) -> SuiteFamily {
+        match self.to_byte() >> 4 {
+            0x1 => SuiteFamily::Lattice,
+            0x2 => SuiteFamily::HashBased,
+            0x3 => SuiteFamily::Hybrid,
+            _ => SuiteFamily::Classical,
+        }
+    }
+
     /// This suite's registry row.
     #[must_use]
     pub const fn info(self) -> &'static SuiteInfo {
@@ -89,6 +101,24 @@ impl SuiteId {
             Self::HybridMlDsa65SlhDsa128s => &REGISTRY[5],
         }
     }
+}
+
+/// The hardness assumption a suite rests on. The sunset floor keeps one
+/// suite of each post-quantum family live (ADR-082 amendment, G13); only an
+/// emergency sunset retires a whole family, and never both: a break of one
+/// assumption can be answered at once and still leaves a signature to move to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuiteFamily {
+    /// Pre-quantum (`0x0_`).
+    Classical,
+    /// Module lattices, ML-DSA (`0x1_`).
+    Lattice,
+    /// Hash functions only, SLH-DSA (`0x2_`).
+    HashBased,
+    /// Two families at once (`0x3_`). Never counted toward either floor: a
+    /// hybrid needs both halves to verify, so it is no refuge from a break
+    /// of either one.
+    Hybrid,
 }
 
 impl TryFrom<u8> for SuiteId {
