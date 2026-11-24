@@ -1,10 +1,13 @@
 //! Mining rewards on a live chain (ADR-044).
 //!
-//! A valid share is paid from the reserve, never minted; a replayed share, a
-//! share for the wrong epoch, a share over the block cap and work that misses
-//! the target are all refused; an epoch boundary pays the committee's part,
-//! retargets, and anchors the next epoch to the boundary block. Value is
-//! conserved throughout.
+//! A valid share is credited, and its epoch's miner budget is split pro rata
+//! by work and paid from the reserve, never minted, when the miner claims it
+//! or mines again (MINE-01); a replayed share, a share for the wrong epoch, a
+//! share over the block cap and work that misses the target are all refused;
+//! an epoch boundary pays the committee's part, sets the miners' pot aside,
+//! retargets, and anchors the next epoch to the boundary block's parent
+//! (#642). Many shares ride one signature (MINE-03). Value is conserved
+//! throughout.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -12,6 +15,7 @@ use std::sync::Arc;
 
 use custom_l1_node::consensus::U256;
 use custom_l1_node::consensus::chain::{Chain, ChainConfig};
+use custom_l1_node::core::Block;
 use custom_l1_node::core::mining_payload::{MiningShare, WorkKind};
 use custom_l1_node::core::payload::TxKind;
 use custom_l1_node::core::transaction::{Transaction, TxInput};
@@ -112,13 +116,13 @@ fn chain(dir: &TempDir, mining: Option<MiningGenesis>) -> Chain {
 
 /// Nonces at or after `from` whose work meets the target, for `epoch`.
 fn find_shares(c: &Chain, epoch: u64, from: u64, count: usize) -> Vec<u64> {
+    find_shares_for(c, &miner().address(), epoch, from, count)
+}
+
+/// [`find_shares`] for another payee.
+fn find_shares_for(c: &Chain, payee: &[u8; 32], epoch: u64, from: u64, count: usize) -> Vec<u64> {
     let record = c.state().committed_mining().unwrap().unwrap();
-    let header = share_header(
-        &common::test_chain().0,
-        epoch,
-        &record.anchor,
-        &miner().address(),
-    );
+    let header = share_header(&common::test_chain().0, epoch, &record.anchor, payee);
     let registry = CacheRegistry::new(DagConfig {
         params: Params::TESTING,
         activation_height: 0,
@@ -135,14 +139,24 @@ fn find_shares(c: &Chain, epoch: u64, from: u64, count: usize) -> Vec<u64> {
 }
 
 fn share(epoch: u64, nonce: u64, tx_nonce: u64) -> Transaction {
+    batch_by(&miner(), epoch, vec![nonce], tx_nonce)
+}
+
+/// One transaction carrying `nonces` for `epoch`, signed by `key`. No
+/// nonces: a claim of `epoch`'s credit.
+fn batch_by(key: &HybridSigningKey, epoch: u64, nonces: Vec<u64>, tx_nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], vec![], tx_nonce);
     tx.kind = TxKind::MiningShare(MiningShare {
         kind: WorkKind::DagPow,
         epoch,
-        nonce,
+        nonces,
     });
-    tx.sign(&miner(), &common::test_chain()).unwrap();
+    tx.sign(key, &common::test_chain()).unwrap();
     tx
+}
+
+fn claim(epoch: u64, tx_nonce: u64) -> Transaction {
+    batch_by(&miner(), epoch, Vec::new(), tx_nonce)
 }
 
 fn balance(c: &Chain, who: &[u8; 32]) -> u64 {
@@ -154,8 +168,20 @@ fn mine(c: &mut Chain, height: u64, txs: Vec<Transaction>) -> Result<(), NodeErr
     c.insert_block(block).map(|_| ())
 }
 
-fn per_share() -> u64 {
-    EPOCH_REWARD * 7 / 10 / TARGET_SHARES
+/// The miners' part of an epoch's reward, split among them by work.
+fn budget() -> u64 {
+    EPOCH_REWARD * 7 / 10
+}
+
+/// Mines empty blocks from `from` through the boundary that closes `epoch`.
+fn close_epoch(c: &mut Chain, from: u64, epoch: u64) {
+    for h in from..=(epoch + 1) * EPOCH_BLOCKS {
+        mine(c, h, Vec::new()).unwrap();
+    }
+    assert_eq!(
+        c.state().committed_mining().unwrap().unwrap().epoch,
+        epoch + 1
+    );
 }
 
 fn validators_part() -> u64 {
@@ -184,7 +210,7 @@ fn epoch_zero_work_is_refused_because_its_anchor_was_known_before_launch() {
 }
 
 #[test]
-fn a_share_is_paid_from_the_reserve_and_a_new_miner_pays_no_fee() {
+fn a_share_is_credited_then_its_claim_is_paid_from_the_reserve_with_no_fee() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(&dir, Some(mining()));
     to_epoch_one(&mut c);
@@ -192,16 +218,47 @@ fn a_share_is_paid_from_the_reserve_and_a_new_miner_pays_no_fee() {
 
     mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
 
-    assert_eq!(balance(&c, &miner().address()), per_share());
+    // Credited, not paid: the epoch is still open.
+    assert_eq!(balance(&c, &miner().address()), 0);
+    let credit = c.state().committed_credit(&miner().address()).unwrap();
+    assert_eq!(credit.map(|k| (k.epoch, k.shares)), Some((1, 1)));
+    let record = c.state().committed_mining().unwrap().unwrap();
+    assert_eq!((record.shares, record.miners), (1, 1));
+
+    // A claim before the epoch closes has nothing to claim.
+    let err = c
+        .candidate_block(1_000_000 + H1 + 1, vec![claim(1, 1)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+
+    close_epoch(&mut c, H1 + 1, 1);
+    let pot = c.state().committed_pot(1).unwrap().unwrap();
+    assert_eq!((pot.shares, pot.miners), (1, 1));
+    let h = 2 * EPOCH_BLOCKS + 1;
+    mine(&mut c, h, vec![claim(1, 1)]).unwrap();
+
+    // The only miner did all the work, so it earns the whole budget.
+    assert_eq!(balance(&c, &miner().address()), budget());
     assert_eq!(
         balance(&c, &MINING_RESERVE),
-        RESERVE - validators_part() - per_share()
+        RESERVE - 2 * validators_part() - budget()
     );
-    let record = c.state().committed_mining().unwrap().unwrap();
-    assert_eq!(
-        (record.shares, record.paid),
-        (1, maya_ledger_math::Amount::from_u64(per_share()))
+    assert!(
+        c.state()
+            .committed_credit(&miner().address())
+            .unwrap()
+            .is_none()
     );
+    assert!(
+        c.state().committed_pot(1).unwrap().is_none(),
+        "the last credit took the pot"
+    );
+
+    // Claimed once: a second claim finds nothing.
+    let err = c
+        .candidate_block(1_000_000 + h + 1, vec![claim(1, 2)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }
 
 #[test]
@@ -235,11 +292,10 @@ fn a_share_cannot_be_paid_twice() {
     assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }
 
-/// Found on the local mining devnet: once an epoch's miner budget was paid,
-/// further shares still landed paying 0, taking block slots fee-free and
-/// spending the miner's nonces.
+/// MINE-01: no first-come budget. Shares past `target_shares` still land
+/// and split the same budget; the overshoot hardens the next target instead.
 #[test]
-fn a_share_past_the_epoch_budget_is_refused_by_pool_and_block() {
+fn shares_past_target_still_land_split_the_budget_and_harden_the_target() {
     let dir = TempDir::new().unwrap();
     let mut c = chain(
         &dir,
@@ -249,64 +305,31 @@ fn a_share_past_the_epoch_budget_is_refused_by_pool_and_block() {
         }),
     );
     to_epoch_one(&mut c);
-    let found = find_shares(&c, 1, 0, 3);
+    let found = find_shares(&c, 1, 0, 4);
     mine(
         &mut c,
         H1,
-        vec![share(1, found[0], 0), share(1, found[1], 1)],
+        vec![batch_by(&miner(), 1, found[..2].to_vec(), 0)],
     )
     .unwrap();
-    let record = c.state().committed_mining().unwrap().unwrap();
-    assert_eq!(
-        record.share_reward(),
-        maya_ledger_math::Amount::from_u64(0),
-        "budget spent"
-    );
-
-    let late = share(1, found[2], 2);
+    // Past the target: before MINE-01 this share was refused as unpaid.
+    let late = share(1, found[2], 1);
     let pool = Mempool::new(Arc::clone(c.state()));
-    let err = pool.validate(&late).unwrap_err();
-    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
-    let err = c
-        .candidate_block(1_000_000 + H1 + 1, vec![late])
-        .unwrap_err();
-    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
-}
+    pool.validate(&late).unwrap();
+    mine(&mut c, H1 + 1, vec![late, share(1, found[3], 2)]).unwrap();
+    assert_eq!(c.state().committed_mining().unwrap().unwrap().shares, 4);
 
-/// Security review of the budget refusal: with shares past the budget
-/// refused, the share count alone could only ease the target. A budget
-/// drained in the epoch's first block must harden the next one.
-#[test]
-fn a_budget_drained_early_hardens_the_next_epochs_target() {
-    let dir = TempDir::new().unwrap();
-    let mut c = chain(
-        &dir,
-        Some(MiningGenesis {
-            target_shares: 2,
-            ..mining()
-        }),
-    );
-    to_epoch_one(&mut c);
-    let found = find_shares(&c, 1, 0, 2);
-    mine(
-        &mut c,
-        H1,
-        vec![share(1, found[0], 0), share(1, found[1], 1)],
-    )
-    .unwrap();
-    assert_eq!(
-        c.state().committed_mining().unwrap().unwrap().spent_after,
-        1
-    );
-    for h in H1 + 1..=2 * EPOCH_BLOCKS {
-        mine(&mut c, h, Vec::new()).unwrap();
-    }
-
+    close_epoch(&mut c, H1 + 2, 1);
     let next = c.state().committed_mining().unwrap().unwrap();
-    assert_eq!((next.epoch, next.spent_after), (2, 0));
-    // 2 shares in 1 of 5 blocks is demand of 10 against 2: clamped at x4.
-    let quarter = U256::from_be_bytes(&TARGET).mul_div_u64(1, 4).unwrap();
-    assert_eq!(U256::from_be_bytes(&next.target), quarter);
+    // 4 shares against a target of 2: the target halves.
+    let half = U256::from_be_bytes(&TARGET).mul_div_u64(1, 2).unwrap();
+    assert_eq!(U256::from_be_bytes(&next.target), half);
+    mine(&mut c, 2 * EPOCH_BLOCKS + 1, vec![claim(1, 3)]).unwrap();
+    assert_eq!(
+        balance(&c, &miner().address()),
+        budget(),
+        "all four shares, all the budget"
+    );
 }
 
 #[test]
@@ -358,10 +381,7 @@ fn the_epoch_boundary_pays_the_committee_reanchors_and_prunes_spent_shares() {
 
     let record = c.state().committed_mining().unwrap().unwrap();
     assert_eq!(record.epoch, 2);
-    assert_eq!(
-        (record.shares, record.paid),
-        (0, maya_ledger_math::Amount::ZERO)
-    );
+    assert_eq!((record.shares, record.miners), (0, 0));
     assert_ne!(record.anchor, anchor_one);
     // One share against a target of ten would ease the target, but never past
     // the genesis target.
@@ -369,9 +389,11 @@ fn the_epoch_boundary_pays_the_committee_reanchors_and_prunes_spent_shares() {
     assert_eq!(c.state().committed_seen_shares(1).unwrap(), 0, "pruned");
     assert_eq!(
         balance(&c, &MINING_RESERVE),
-        RESERVE - 2 * validators_part() - per_share(),
-        "the committee's part left the reserve at both boundaries"
+        RESERVE - 2 * validators_part(),
+        "the committee's part left the reserve at both boundaries; the miners' waits in its pot"
     );
+    let pot = c.state().committed_pot(1).unwrap().unwrap();
+    assert_eq!(pot.budget, maya_ledger_math::Amount::from_u64(budget()));
 
     // Work from epoch 1 is worthless now.
     let err = c
@@ -428,7 +450,8 @@ fn the_work_handed_to_miners_finds_shares_the_chain_pays() {
         "same header as the chain"
     );
     mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
-    assert_eq!(balance(&c, &miner().address()), per_share());
+    let credit = c.state().committed_credit(&miner().address()).unwrap();
+    assert_eq!(credit.map(|k| k.shares), Some(1));
 
     // Another payee gets another header: work cannot be lifted.
     let (other, _) = c
@@ -482,11 +505,7 @@ fn the_mempool_charges_a_share_that_names_an_input_the_base_fee() {
         vec![],
         0,
     );
-    tx.kind = TxKind::MiningShare(MiningShare {
-        kind: WorkKind::DagPow,
-        epoch: 1,
-        nonce: good[0],
-    });
+    tx.kind = TxKind::MiningShare(MiningShare::single(1, good[0]));
     tx.sign(&miner(), &common::test_chain()).unwrap();
 
     let err = pool.validate(&tx).unwrap_err();
@@ -510,11 +529,7 @@ fn a_block_refuses_a_share_that_names_an_input_without_its_base_fee() {
         vec![],
         0,
     );
-    tx.kind = TxKind::MiningShare(MiningShare {
-        kind: WorkKind::DagPow,
-        epoch: 1,
-        nonce: good[0],
-    });
+    tx.kind = TxKind::MiningShare(MiningShare::single(1, good[0]));
     tx.sign(&miner(), &common::test_chain()).unwrap();
 
     let err = c.candidate_block(1_000_000 + H1, vec![tx]).unwrap_err();
@@ -611,4 +626,298 @@ fn a_dropped_share_from_a_closed_epoch_is_pruned_without_hashing() {
     assert_eq!(pool.prune_invalid(&[tx.txid()]), 1);
     assert_eq!(c.state().share_proofs(), before);
     assert!(pool.is_empty());
+}
+
+/// [`mine`], keeping a copy of the block for a replay.
+fn mine_kept(c: &mut Chain, height: u64, txs: Vec<Transaction>, kept: &mut Vec<Block>) {
+    let block = c.candidate_block(1_000_000 + height, txs).unwrap();
+    kept.push(block.clone());
+    c.insert_block(block).unwrap();
+}
+
+/// #642: the next epoch's anchor is part of the state the boundary block's
+/// root commits to, so it must not be derived from that root. A validator
+/// derives a block with its root zeroed and reuses that preview; a syncing
+/// node, `maya2c replay` or a missed preview applies the sealed block fresh.
+/// Both must reach the same root at every mining boundary. With the anchor
+/// set to the boundary header's own id, the fresh replay fails at height 5.
+#[test]
+fn a_fresh_replay_reproduces_every_root_across_mining_boundaries() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    let mut kept = Vec::new();
+    for h in 1..=EPOCH_BLOCKS {
+        mine_kept(&mut c, h, Vec::new(), &mut kept);
+    }
+    let nonce = find_shares(&c, 1, 0, 1)[0];
+    mine_kept(&mut c, H1, vec![share(1, nonce, 0)], &mut kept);
+    for h in H1 + 1..=2 * EPOCH_BLOCKS {
+        mine_kept(&mut c, h, Vec::new(), &mut kept);
+    }
+    mine_kept(&mut c, 2 * EPOCH_BLOCKS + 1, vec![claim(1, 1)], &mut kept);
+    for h in 2 * EPOCH_BLOCKS + 2..=3 * EPOCH_BLOCKS {
+        mine_kept(&mut c, h, Vec::new(), &mut kept);
+    }
+
+    let fresh_dir = TempDir::new().unwrap();
+    let mut fresh = chain(&fresh_dir, Some(mining()));
+    for block in kept {
+        let height = fresh.height() + 1;
+        fresh
+            .insert_block(block)
+            .unwrap_or_else(|e| panic!("fresh replay diverged at height {height}: {e}"));
+    }
+    assert_eq!(fresh.tip(), c.tip());
+    assert_eq!(
+        fresh.state().committed_mining().unwrap(),
+        c.state().committed_mining().unwrap()
+    );
+}
+
+/// The anchor is the boundary block's parent: unknown until that block is
+/// final, so work for the epoch still cannot be done before it.
+#[test]
+fn an_epoch_is_anchored_to_its_boundary_blocks_parent() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    for h in 1..EPOCH_BLOCKS {
+        mine(&mut c, h, Vec::new()).unwrap();
+    }
+    let parent = c.tip();
+    mine(&mut c, EPOCH_BLOCKS, Vec::new()).unwrap();
+    let record = c.state().committed_mining().unwrap().unwrap();
+    assert_eq!((record.epoch, record.anchor), (1, parent));
+}
+
+/// Eric 2026-11-24, "a sole miner, or hundreds": a solo miner and a hundred
+/// other miners in one epoch are each paid exactly `⌊budget × work / total⌋`,
+/// whatever order their shares landed in, and the boundary that closes the
+/// epoch writes one pot and touches none of their records (M10).
+#[test]
+fn a_solo_miner_and_a_hundred_miners_are_each_paid_in_proportion_to_work() {
+    const OTHERS: usize = 100;
+    const SOLO_SHARES: u64 = 4;
+    const PER_BLOCK: usize = 26;
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(
+        &dir,
+        Some(MiningGenesis {
+            max_shares_per_block: 128,
+            ..mining()
+        }),
+    );
+    to_epoch_one(&mut c);
+    let solo = miner();
+    let others: Vec<HybridSigningKey> = (0..OTHERS)
+        .map(|i| {
+            let mut seed = [0x60; 32];
+            seed[0] = u8::try_from(i).unwrap();
+            signing_key_from_seed(&seed).unwrap()
+        })
+        .collect();
+    let solo_work = find_shares(&c, 1, 0, usize::try_from(SOLO_SHARES).unwrap());
+    let mut txs = vec![batch_by(&solo, 1, solo_work, 0)];
+    for key in &others {
+        let work = find_shares_for(&c, &key.address(), 1, 0, 1);
+        txs.push(batch_by(key, 1, work, 0));
+    }
+    for (h, chunk) in (H1..).zip(txs.chunks(PER_BLOCK)) {
+        mine(&mut c, h, chunk.to_vec()).unwrap();
+    }
+    let open = c.state().committed_mining().unwrap().unwrap();
+    let total = SOLO_SHARES + u64::try_from(OTHERS).unwrap();
+    assert_eq!((open.shares, open.miners), (total, 101));
+
+    close_epoch(&mut c, H1 + 4, 1);
+    // The boundary set one pot aside and left every credit as it was.
+    let pot = c.state().committed_pot(1).unwrap().unwrap();
+    assert_eq!((pot.shares, pot.miners), (total, 101));
+    assert_eq!(
+        c.state()
+            .committed_credit(&solo.address())
+            .unwrap()
+            .map(|k| k.shares),
+        Some(SOLO_SHARES)
+    );
+    for key in &others {
+        let credit = c.state().committed_credit(&key.address()).unwrap();
+        assert_eq!(credit.map(|k| (k.epoch, k.shares)), Some((1, 1)));
+        assert_eq!(
+            balance(&c, &key.address()),
+            0,
+            "nothing is pushed at the boundary"
+        );
+    }
+
+    let mut claims = vec![claim(1, 1)];
+    claims.extend(others.iter().map(|key| batch_by(key, 1, Vec::new(), 1)));
+    let first_claim = 2 * EPOCH_BLOCKS + 1;
+    for (h, chunk) in (first_claim..).zip(claims.chunks(PER_BLOCK)) {
+        mine(&mut c, h, chunk.to_vec()).unwrap();
+    }
+
+    let solo_paid = balance(&c, &solo.address());
+    assert_eq!(solo_paid, budget() * SOLO_SHARES / total);
+    let mut paid = solo_paid;
+    for key in &others {
+        let got = balance(&c, &key.address());
+        assert_eq!(got, budget() / total, "one share's part");
+        paid += got;
+    }
+    // Four times the work, four times the pay, to the unit's floor.
+    assert!(solo_paid >= 4 * (budget() / total));
+    assert!(paid <= budget(), "never more than the budget");
+    assert!(
+        budget() - paid <= 101,
+        "at most a unit of dust per miner stays in the reserve"
+    );
+    assert_eq!(
+        balance(&c, &MINING_RESERVE),
+        RESERVE - 2 * validators_part() - paid
+    );
+    assert!(
+        c.state().committed_pot(1).unwrap().is_none(),
+        "every credit collected"
+    );
+}
+
+/// MINE-03 and M10: one more share in a batch costs its 8-byte nonce, not
+/// another post-quantum signature.
+#[test]
+fn an_extra_share_in_a_batch_costs_eight_bytes() {
+    let one = batch_by(&miner(), 1, vec![7], 0).to_bytes().len();
+    let two = batch_by(&miner(), 1, vec![7, 8], 0).to_bytes().len();
+    let hundred = batch_by(&miner(), 1, (0..100).collect(), 0)
+        .to_bytes()
+        .len();
+    assert_eq!(two - one, 8);
+    assert_eq!(hundred - one, 99 * 8);
+}
+
+/// A batch takes as many block slots as it carries shares, and one bad
+/// nonce fails the whole batch.
+#[test]
+fn a_batch_counts_every_share_against_the_block_cap_and_fails_whole() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let good = find_shares(&c, 1, 0, 3);
+
+    let err = c
+        .candidate_block(1_000_000 + H1, vec![batch_by(&miner(), 1, good.clone(), 0)])
+        .unwrap_err();
+    assert!(
+        matches!(err, NodeError::Mining(_)),
+        "three past a cap of two: {err:?}"
+    );
+
+    let miss = (good[0] + 1..u64::MAX).find(|n| !good.contains(n)).unwrap();
+    let mut mixed = vec![good[0], miss];
+    mixed.sort_unstable();
+    let err = c
+        .candidate_block(1_000_000 + H1, vec![batch_by(&miner(), 1, mixed, 0)])
+        .unwrap_err();
+    assert!(
+        matches!(err, NodeError::Mining(_)),
+        "one miss fails the batch: {err:?}"
+    );
+
+    mine(
+        &mut c,
+        H1,
+        vec![batch_by(&miner(), 1, good[..2].to_vec(), 0)],
+    )
+    .unwrap();
+    let credit = c.state().committed_credit(&miner().address()).unwrap();
+    assert_eq!(credit.map(|k| k.shares), Some(2));
+    assert_eq!(c.state().committed_seen_shares(1).unwrap(), 2);
+}
+
+/// Two miners whose finds together exceed the block cap every round, in the
+/// order that hurts the larger one most: the small miner's share ahead of it
+/// in every block. Batched by [`MiningShare::batch_limit`], the large miner's
+/// work fits beside the small one's and both are credited within a few
+/// blocks. A batch as large as the cap (the rule before) fits no block that
+/// holds another share, so the large miner was credited nothing at all.
+#[test]
+fn a_miner_with_more_finds_than_a_busy_block_has_room_for_is_still_credited() {
+    const CAP: u64 = 16;
+    const ROUNDS: u64 = 3;
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(
+        &dir,
+        Some(MiningGenesis {
+            max_shares_per_block: CAP,
+            ..mining()
+        }),
+    );
+    to_epoch_one(&mut c);
+    let (large, small) = (miner(), signing_key_from_seed(&[0x52; 32]).unwrap());
+    let cap = usize::try_from(CAP).unwrap();
+    let rounds = usize::try_from(ROUNDS).unwrap();
+    let large_work = find_shares(&c, 1, 0, cap * rounds);
+    let small_work = find_shares_for(&c, &small.address(), 1, 0, rounds);
+    let limit = usize::try_from(MiningShare::batch_limit(CAP)).unwrap();
+    let (mut pending, mut large_nonce) = (Vec::new(), 0);
+    for (round, h) in (H1..H1 + ROUNDS).enumerate() {
+        for nonces in large_work[round * cap..(round + 1) * cap].chunks(limit) {
+            pending.push(batch_by(&large, 1, nonces.to_vec(), large_nonce));
+            large_nonce += 1;
+        }
+        let round_nonce = u64::try_from(round).unwrap();
+        let mut pool = vec![batch_by(&small, 1, vec![small_work[round]], round_nonce)];
+        pool.extend(pending.iter().cloned());
+        let picked = c
+            .state()
+            .select_applicable(
+                pool,
+                c.context_at(h).unwrap(),
+                c.next_target(&c.tip()).unwrap(),
+            )
+            .unwrap();
+        let landed: Vec<[u8; 32]> = picked.iter().map(Transaction::txid).collect();
+        pending.retain(|tx| !landed.contains(&tx.txid()));
+        mine(&mut c, h, picked).unwrap();
+    }
+    let credited = |key: &HybridSigningKey| {
+        c.state()
+            .committed_credit(&key.address())
+            .unwrap()
+            .map_or(0, |k| k.shares)
+    };
+    assert_eq!(
+        credited(&small),
+        ROUNDS,
+        "the small miner lands every round"
+    );
+    let large_shares = credited(&large);
+    assert!(
+        large_shares > 0 && large_shares + ROUNDS <= CAP * ROUNDS,
+        "the large miner fills the rest of each block: {large_shares}"
+    );
+}
+
+/// One credit per miner: a miner that keeps mining is paid for the closed
+/// epoch by its next epoch's first share, with no claim and no extra record.
+#[test]
+fn a_miner_that_keeps_mining_is_paid_by_its_next_epochs_first_share() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let nonce = find_shares(&c, 1, 0, 1)[0];
+    mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
+    close_epoch(&mut c, H1 + 1, 1);
+
+    let next = find_shares(&c, 2, 0, 1)[0];
+    mine(&mut c, 2 * EPOCH_BLOCKS + 1, vec![share(2, next, 1)]).unwrap();
+
+    assert_eq!(balance(&c, &miner().address()), budget());
+    let credit = c.state().committed_credit(&miner().address()).unwrap();
+    assert_eq!(credit.map(|k| (k.epoch, k.shares)), Some((2, 1)));
+    assert!(c.state().committed_pot(1).unwrap().is_none());
+    // Its epoch-1 credit is gone, so a claim for it now finds nothing.
+    let err = c
+        .candidate_block(1_000_000 + 2 * EPOCH_BLOCKS + 2, vec![claim(1, 2)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
 }

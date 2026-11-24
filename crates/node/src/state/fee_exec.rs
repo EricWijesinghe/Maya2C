@@ -144,15 +144,11 @@ mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
     use crate::core::TxInput;
-    use crate::core::mining_payload::{MiningShare, WorkKind};
+    use crate::core::mining_payload::MiningShare;
 
     fn share(inputs: Vec<TxInput>) -> Transaction {
         let mut tx = Transaction::new(inputs, vec![], 0);
-        tx.kind = TxKind::MiningShare(MiningShare {
-            kind: WorkKind::DagPow,
-            epoch: 0,
-            nonce: 0,
-        });
+        tx.kind = TxKind::MiningShare(MiningShare::single(0, 0));
         tx
     }
 

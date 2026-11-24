@@ -189,7 +189,9 @@ impl Mempool {
             self.lock_senders()
                 .get(&sender)
                 .map_or((0, U256::zero(), false), |p| {
-                    let pooled = work.is_some_and(|w| p.shares.contains(&w));
+                    let pooled = work
+                        .as_ref()
+                        .is_some_and(|w| w.iter().any(|piece| p.shares.contains(piece)));
                     (p.count, p.outputs, pooled)
                 });
         if count >= MAX_PER_SENDER {
@@ -199,7 +201,7 @@ impl Mempool {
         }
         if work_pooled {
             return Err(NodeError::MempoolRejected(
-                "this share's work is already pooled under another nonce".into(),
+                "work in this share batch is already pooled under another nonce".into(),
             ));
         }
         if work.is_some() {
@@ -745,7 +747,7 @@ impl Mempool {
             entry.outputs = entry.outputs.saturating_add(outputs);
             *entry.nonces.entry(tx.nonce).or_default() += 1;
             if let Some(work) = work {
-                entry.shares.insert(work);
+                entry.shares.extend(work);
             }
             return;
         }
@@ -757,8 +759,8 @@ impl Mempool {
                 entry.nonces.remove(&tx.nonce);
             }
         }
-        if let Some(work) = work {
-            entry.shares.remove(&work);
+        for piece in work.into_iter().flatten() {
+            entry.shares.remove(&piece);
         }
         if entry.count == 0 {
             senders.remove(&sender);
@@ -837,11 +839,18 @@ fn fee_of(tx: &Transaction) -> U256 {
         .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount))
 }
 
-/// The piece of work a fee-free mining share pays for, `(epoch, work nonce)`.
-/// The spent-share key also binds the miner, which is the pool's sender key.
-fn share_work(tx: &Transaction) -> Option<(u64, u64)> {
+/// The pieces of work a fee-free mining share batch is credited for, each
+/// `(epoch, work nonce)`; empty for a claim. The spent-share key also binds
+/// the miner, which is the pool's sender key.
+fn share_work(tx: &Transaction) -> Option<Vec<(u64, u64)>> {
     match &tx.kind {
-        crate::core::TxKind::MiningShare(share) if is_share(tx) => Some((share.epoch, share.nonce)),
+        crate::core::TxKind::MiningShare(share) if is_share(tx) => Some(
+            share
+                .nonces
+                .iter()
+                .map(|&nonce| (share.epoch, nonce))
+                .collect(),
+        ),
         _ => None,
     }
 }

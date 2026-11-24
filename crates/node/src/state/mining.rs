@@ -1,9 +1,19 @@
 //! Mining rewards (ADR-044): the record, the schedule, and the share digest.
 //!
 //! Miners never order blocks; DAG-BFT does. A miner earns by putting a
-//! [`MiningShare`](crate::core::mining_payload::MiningShare) on chain whose DAG
-//! proof of work meets the epoch's share target. Everything here is integer
-//! arithmetic over committed state: no floats, no wall-clock (invariant 20).
+//! [`MiningShare`](crate::core::mining_payload::MiningShare) batch on chain
+//! whose DAG proofs of work meet the epoch's share target.
+//!
+//! Settlement is pro rata and pulled (MINE-01, ADR-044 amendment 2026-11-24):
+//! a share credits work, never coins. When the epoch closes, its miner budget
+//! is split by work, `⌊budget × mine / total⌋`, and each miner collects its
+//! part with its next share or a claim. Nothing at the boundary iterates
+//! miners, so closing an epoch costs the same for one miner as for any number,
+//! and a share landing late in the epoch earns exactly what an early one does:
+//! there is no first-come race for solo or distant miners to lose.
+//!
+//! Everything here is integer arithmetic over committed state: no floats, no
+//! wall-clock (invariant 20).
 //!
 //! Coins are never minted. Genesis allocates the unissued supply to
 //! [`MINING_RESERVE`], an address no key derives, and rewards are transfers out
@@ -13,6 +23,8 @@
 //! |---|---|
 //! | `k:mine` | the [`MiningRecord`] |
 //! | `k:mseen:<digest>` | one spent share, so it cannot be paid twice |
+//! | `k:mcredit:<miner>` | a miner's [`MinerCredit`]: shares in its last epoch |
+//! | `k:mpot:<epoch>` | a closed epoch's [`EpochPot`], until every credit is collected |
 //!
 //! Both sit under the staking prefix, which is already a committed layer
 //! (invariant 25).
@@ -32,9 +44,17 @@ pub const MINING_KEY: &[u8] = b"k:mine";
 /// Prefix of the spent-share set.
 pub const SEEN_PREFIX: &[u8] = b"k:mseen:";
 
+/// Prefix of miner credits, one per miner.
+pub const CREDIT_PREFIX: &[u8] = b"k:mcredit:";
+
+/// Prefix of closed epochs' pots.
+pub const POT_PREFIX: &[u8] = b"k:mpot:";
+
 // Both must stay inside the committed staking layer.
 const _: () = assert!(MINING_KEY[0] == b'k' && MINING_KEY[1] == b':');
 const _: () = assert!(SEEN_PREFIX[0] == b'k' && SEEN_PREFIX[1] == b':');
+const _: () = assert!(CREDIT_PREFIX[0] == b'k' && CREDIT_PREFIX[1] == b':');
+const _: () = assert!(POT_PREFIX[0] == b'k' && POT_PREFIX[1] == b':');
 
 /// Holds the unissued supply. ASCII `maya2c/mining/reserve/v1`, zero-padded:
 /// not a hash of any key pair, so no signature can spend from it.
@@ -47,7 +67,7 @@ pub const MINING_RESERVE: Address = [
 pub const BPS: u64 = 10_000;
 
 /// Mining record format; see [`MiningRecord::encode`].
-const RECORD_VERSION: u8 = 4;
+const RECORD_VERSION: u8 = 5;
 
 /// The retarget moves at most this factor per epoch, either way.
 pub const MAX_RETARGET_FACTOR: u64 = 4;
@@ -150,8 +170,7 @@ impl MiningGenesis {
             anchor: [0; 32],
             target,
             shares: 0,
-            paid: Amount::ZERO,
-            spent_after: 0,
+            miners: 0,
             target_limit: target,
         };
         record.validate()?;
@@ -180,20 +199,18 @@ pub struct MiningRecord {
     pub epoch_blocks: u64,
     /// The epoch shares are accepted for.
     pub epoch: u64,
-    /// Hash of the block that opened `epoch`; zero in epoch 0. Work cannot be
-    /// done before this block is final.
+    /// Id of the parent of the block that opened `epoch` (its `prev_hash`);
+    /// zero in epoch 0. Work cannot be done before that block is final. Never
+    /// the opening block's own id: that id covers the state root this record
+    /// is part of, which no header can commit to (#642).
     pub anchor: [u8; 32],
     /// The share target, big-endian. A digest at or below it is a share.
     pub target: [u8; 32],
-    /// Shares accepted in `epoch`.
+    /// Shares accepted in `epoch`. Every share lands while the block cap has
+    /// room, so this is the epoch's demand, which the retarget reads.
     pub shares: u64,
-    /// Units paid to miners in `epoch`.
-    pub paid: Amount,
-    /// Blocks into `epoch` after which its miner budget was spent; 0 while
-    /// some is left. Shares past the budget are refused, so `shares` stops
-    /// near `target_shares` and cannot show how far demand ran over it; how
-    /// early the budget ran out does (security review of ADR-044).
-    pub spent_after: u64,
+    /// Miners credited in `epoch`: how many credits its pot will wait for.
+    pub miners: u64,
     /// The easiest target retargeting may reach: the genesis target. Without
     /// a floor, empty epochs would ease the target until every digest is a
     /// share (security review of ADR-044).
@@ -250,17 +267,15 @@ impl MiningRecord {
         bps_of(self.epoch_reward(epoch), self.miner_share_bps)
     }
 
-    /// What one share earns, capped by what is left of the epoch's budget.
-    /// Zero once the budget is spent: the share still lands, it just pays
-    /// nothing, and the remainder stays in the reserve.
+    /// What one share earns if the epoch closes at `target_shares`: an
+    /// estimate for miners and RPC, never a consensus value. What a share is
+    /// paid is its pro-rata part of the budget, [`share_payout`].
     #[must_use]
     pub fn share_reward(&self) -> Amount {
-        let budget = self.miner_budget(self.epoch);
         // `validate` keeps `target_shares` positive.
-        let per_share = budget
+        self.miner_budget(self.epoch)
             .checked_div(Amount::from_u64(self.target_shares))
-            .unwrap_or(Amount::ZERO);
-        per_share.min(budget.saturating_sub(self.paid))
+            .unwrap_or(Amount::ZERO)
     }
 
     /// The committee's part of `epoch`'s reward.
@@ -295,23 +310,19 @@ impl MiningRecord {
         }
     }
 
-    /// Shares the epoch would have seen had the budget lasted it out:
-    /// `shares` scaled by how early the budget was spent. Integer only.
+    /// The epoch's demand: its share count. No budget refuses a share any
+    /// more, so the count is no longer cut off where the budget ran out.
     fn demand(&self) -> u64 {
-        if self.spent_after == 0 {
-            return self.shares;
-        }
-        let scaled =
-            u128::from(self.shares) * u128::from(self.epoch_blocks) / u128::from(self.spent_after);
-        u64::try_from(scaled).unwrap_or(u64::MAX)
+        self.shares
     }
 
-    /// Fixed-width encoding, version 4: adds the tail reward. Version 3 had no
-    /// tail, version 2 held amounts as `u64` and version 1 lacked
-    /// `spent_after`; none was on a public chain with mining active.
+    /// Fixed-width encoding, version 5: pro-rata settlement replaces `paid`
+    /// and `spent_after` with `miners`. Version 4 added the tail reward,
+    /// version 3 had no tail, version 2 held amounts as `u64` and version 1
+    /// lacked `spent_after`; none was on a public chain with mining active.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(1 + 64 + 8 * 8 + 32 + 1 + 96);
+        let mut out = Vec::with_capacity(1 + 64 + 8 * 8 + 32 + 1 + 64);
         out.push(RECORD_VERSION);
         out.extend_from_slice(&self.initial_epoch_reward.to_le_bytes());
         out.extend_from_slice(&self.tail_epoch_reward.to_le_bytes());
@@ -330,8 +341,7 @@ impl MiningRecord {
         out.extend_from_slice(&self.anchor);
         out.extend_from_slice(&self.target);
         out.extend_from_slice(&self.shares.to_le_bytes());
-        out.extend_from_slice(&self.paid.to_le_bytes());
-        out.extend_from_slice(&self.spent_after.to_le_bytes());
+        out.extend_from_slice(&self.miners.to_le_bytes());
         out.extend_from_slice(&self.target_limit);
         out
     }
@@ -359,8 +369,7 @@ impl MiningRecord {
             anchor: r.read_array()?,
             target: r.read_array()?,
             shares: r.read_u64()?,
-            paid: Amount::from_le_bytes(r.read_array()?),
-            spent_after: r.read_u64()?,
+            miners: r.read_u64()?,
             target_limit: r.read_array()?,
         };
         r.finish()?;
@@ -379,9 +388,6 @@ impl MiningRecord {
         let bad = |what: &str| Err(NodeError::Decode(format!("mining: {what}")));
         if self.halving_epochs == 0 || self.target_shares == 0 || self.epoch_blocks == 0 {
             return bad("halving_epochs, target_shares and epoch_blocks must be positive");
-        }
-        if self.spent_after > self.epoch_blocks {
-            return bad("spent_after past the end of the epoch");
         }
         if self.max_shares_per_block == 0 {
             return bad("max_shares_per_block must be positive");
@@ -500,6 +506,105 @@ pub fn seen_key(epoch: u64, header: &[u8; 32], nonce: u64) -> Vec<u8> {
     key
 }
 
+/// MINE-4: what `mine` shares of an epoch's `total` earn of its miner
+/// `budget`, `⌊budget × mine / total⌋`; zero when nothing was mined. Exact in
+/// 256 bits: the budget is below 2^192 ([`LIFETIME_EMISSION_CEILING`]) and
+/// `mine` below 2^64, so the product cannot overflow. The floors sum to at
+/// most the budget; the dust stays in the reserve.
+#[must_use]
+pub fn share_payout(budget: Amount, mine: u64, total: u64) -> Amount {
+    budget
+        .checked_mul(Amount::from_u64(mine))
+        .and_then(|product| product.checked_div(Amount::from_u64(total)))
+        .unwrap_or(Amount::ZERO)
+}
+
+/// A miner's work in the last epoch it mined. One per miner, whatever the
+/// number of epochs: a new epoch's first share settles the older credit
+/// before it credits the new work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MinerCredit {
+    /// The epoch the shares were for.
+    pub epoch: u64,
+    /// Shares credited in it.
+    pub shares: u64,
+}
+
+impl MinerCredit {
+    /// `epoch ‖ shares`, both `u64` little-endian.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        [self.epoch.to_le_bytes(), self.shares.to_le_bytes()].concat()
+    }
+
+    /// Decodes [`Self::encode`].
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] on a wrong length.
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        let mut r = ByteReader::new(bytes);
+        let credit = Self {
+            epoch: r.read_u64()?,
+            shares: r.read_u64()?,
+        };
+        r.finish()?;
+        Ok(credit)
+    }
+}
+
+/// A closed epoch's miner budget and the work it is split by. Written once at
+/// the boundary, whatever the number of miners, and deleted when the last
+/// credit is collected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EpochPot {
+    /// The epoch's miner budget (MINE-2).
+    pub budget: Amount,
+    /// Shares accepted in the epoch.
+    pub shares: u64,
+    /// Credits not yet collected.
+    pub miners: u64,
+}
+
+impl EpochPot {
+    /// `budget (32 bytes LE) ‖ shares ‖ miners`.
+    #[must_use]
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = self.budget.to_le_bytes().to_vec();
+        out.extend_from_slice(&self.shares.to_le_bytes());
+        out.extend_from_slice(&self.miners.to_le_bytes());
+        out
+    }
+
+    /// Decodes [`Self::encode`].
+    ///
+    /// # Errors
+    ///
+    /// [`NodeError::Decode`] on a wrong length.
+    pub fn decode(bytes: &[u8]) -> Result<Self> {
+        let mut r = ByteReader::new(bytes);
+        let pot = Self {
+            budget: Amount::from_le_bytes(r.read_array()?),
+            shares: r.read_u64()?,
+            miners: r.read_u64()?,
+        };
+        r.finish()?;
+        Ok(pot)
+    }
+}
+
+/// Key of `miner`'s credit.
+#[must_use]
+pub fn credit_key(miner: &Address) -> Vec<u8> {
+    [CREDIT_PREFIX, miner.as_slice()].concat()
+}
+
+/// Key of `epoch`'s pot. Big-endian, so pots sort by epoch.
+#[must_use]
+pub fn pot_key(epoch: u64) -> Vec<u8> {
+    [POT_PREFIX, epoch.to_be_bytes().as_slice()].concat()
+}
+
 #[cfg(test)]
 mod tests {
     // Test scope: unwrapping is how a test reports a failure (Cargo.toml lint
@@ -561,13 +666,58 @@ mod tests {
     }
 
     #[test]
-    fn share_reward_stops_at_the_epoch_budget() {
+    fn share_reward_is_the_budget_over_target_shares() {
         let mut r = record();
         assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(7_000));
-        r.paid = maya_ledger_math::Amount::from_u64(700_000 - 3);
-        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(3));
-        r.paid = maya_ledger_math::Amount::from_u64(700_000);
-        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(0));
+        // An estimate only: many shares landing changes nothing about it.
+        r.shares = 10_000;
+        assert_eq!(r.share_reward(), maya_ledger_math::Amount::from_u64(7_000));
+    }
+
+    /// MINE-01: a share's pay is its part of the work, not its place in line.
+    #[test]
+    fn a_payout_is_the_floor_of_budget_times_work_over_total() {
+        let budget = maya_ledger_math::Amount::from_u64(700_000);
+        assert_eq!(
+            share_payout(budget, 1, 3),
+            maya_ledger_math::Amount::from_u64(233_333)
+        );
+        assert_eq!(share_payout(budget, 3, 3), budget);
+        assert_eq!(share_payout(budget, 0, 3), maya_ledger_math::Amount::ZERO);
+        assert_eq!(share_payout(budget, 1, 0), maya_ledger_math::Amount::ZERO);
+        // The largest budget a schedule may hold, times the largest count.
+        let top = LIFETIME_EMISSION_CEILING.saturating_sub(maya_ledger_math::Amount::from_u64(1));
+        assert_eq!(share_payout(top, u64::MAX, u64::MAX), top);
+        // The floors never sum past the budget.
+        let parts: Vec<_> = [1u64, 2, 4]
+            .iter()
+            .map(|&m| share_payout(budget, m, 7))
+            .collect();
+        let sum = parts
+            .iter()
+            .fold(maya_ledger_math::Amount::ZERO, |a, &p| a.saturating_add(p));
+        assert!(sum <= budget);
+    }
+
+    #[test]
+    fn credits_and_pots_round_trip_and_reject_corruption() {
+        let credit = MinerCredit {
+            epoch: 7,
+            shares: 3,
+        };
+        assert_eq!(MinerCredit::decode(&credit.encode()).unwrap(), credit);
+        assert!(MinerCredit::decode(&credit.encode()[..15]).is_err());
+        let pot = EpochPot {
+            budget: maya_ledger_math::Amount::from_u64(700_000),
+            shares: 9,
+            miners: 2,
+        };
+        assert_eq!(EpochPot::decode(&pot.encode()).unwrap(), pot);
+        let mut long = pot.encode();
+        long.push(0);
+        assert!(EpochPot::decode(&long).is_err());
+        assert!(credit_key(&[1; 32]).starts_with(b"k:mcredit:"));
+        assert!(pot_key(1) < pot_key(256), "pots sort by epoch");
     }
 
     #[test]
@@ -591,36 +741,6 @@ mod tests {
         assert_eq!(r.retarget(), r.target_limit);
     }
 
-    /// Shares past the budget are refused, so `shares` stops near
-    /// `target_shares`; how early the budget ran out is what shows demand.
-    #[test]
-    fn a_budget_spent_early_hardens_the_target_by_how_early() {
-        let mut r = record();
-        let base = U256::from_be_bytes(&r.target);
-        r.shares = 100;
-        r.spent_after = 300; // half the 600-block epoch: twice the demand
-        assert_eq!(
-            U256::from_be_bytes(&r.retarget()),
-            base.mul_div_u64(1, 2).unwrap()
-        );
-        r.spent_after = 1; // drained in one block: clamped at x4
-        assert_eq!(
-            U256::from_be_bytes(&r.retarget()),
-            base.mul_div_u64(1, 4).unwrap()
-        );
-        r.spent_after = 0; // budget left over: shares alone, as before
-        assert_eq!(r.retarget(), r.target);
-    }
-
-    #[test]
-    fn a_spent_after_past_the_epoch_is_refused_on_decode() {
-        let mut r = record();
-        r.spent_after = 601;
-        assert!(MiningRecord::decode(&r.encode()).is_err());
-        r.spent_after = 600;
-        assert_eq!(MiningRecord::decode(&r.encode()).unwrap(), r);
-    }
-
     #[test]
     fn empty_epochs_never_ease_past_the_genesis_target() {
         let mut r = record();
@@ -641,7 +761,7 @@ mod tests {
         r.epoch = 7;
         r.anchor = [9; 32];
         r.shares = 3;
-        r.paid = maya_ledger_math::Amount::from_u64(21_000);
+        r.miners = 2;
         assert_eq!(MiningRecord::decode(&r.encode()).unwrap(), r);
         let mut bytes = r.encode();
         bytes.push(0);
@@ -711,7 +831,7 @@ mod tests {
             tail_epoch_reward: primitive_types::U256::from_dec_str("23956194387405886379192334")
                 .unwrap(),
             miner_share_bps: 7_000,
-            target_shares: 1_000,
+            target_shares: 3_600,
             max_shares_per_block: 16,
             initial_target: "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
                 .into(),
@@ -961,6 +1081,6 @@ mod tests {
             "16769336071184120465434633"
         );
         // share_reward on the epoch-0 record: miner_budget(0) / target_shares.
-        assert_eq!(r.share_reward().to_string(), "209616700889801505817932");
+        assert_eq!(r.share_reward().to_string(), "58226861358278196060536");
     }
 }

@@ -8,7 +8,7 @@ Eric may change until the launch freeze, so the status stays Proposed until he
 closes them. Replaces gate 6 of
 `docs/mainnet-v1-plan.md` ("fees only", ADR-029) for mainnet.
 **Date:** 2026-10-11
-**Amended:** 2026-11-01 (Eric approved): the payout text now matches `state/mining.rs` (`share_reward`, `epoch_reward`): fixed per-share reward, unpaid budget stays in the reserve, tail floor on `R(e)`. No consensus change.
+**Amended:** 2026-11-24 (Eric): work-proportional pull settlement, share batches, anchor = parent id; see the last section. 2026-11-01 (Eric approved): the payout text then matched `state/mining.rs` (`share_reward`, `epoch_reward`): fixed per-share reward, unpaid budget stays in the reserve, tail floor on `R(e)`. No consensus change.
 
 ## Context
 
@@ -78,7 +78,7 @@ finalize blocks. They earn issuance by publishing work:
 | `INITIAL_EPOCH_REWARD` | set so that half the cap is issued before the first halving | Bitcoin's shape |
 | `HALVING_EPOCHS` | ≈ 4 years of epochs at the *measured* block rate | Bitcoin's interval. Computed from the testnet, not assumed |
 | `MINER_SHARE_BPS` | 7000 (70% miners, 30% validators) | mining is the adoption path. Validators still earn fees |
-| `TARGET_CLAIMS_PER_EPOCH` | 1,000 | small enough to bound verification |
+| `TARGET_CLAIMS_PER_EPOCH` | 3,600 (1,000 until the 2026-11-24 amendment) | one share a block on average; verification per block is bounded by the block cap, not by this |
 | `MAX_CLAIMS_PER_BLOCK` | 16 | bounds Argon2 work per block |
 | Premine | no premine; genesis holds only the keyless mining reserve and the disclosed minimum validator bonds (7 x min-self-bond) | Eric chose rewards only. The bonds are minted value (`zero_supply_mints_only_the_reserve_and_the_bonds`), so they are disclosed rather than called zero |
 
@@ -248,3 +248,103 @@ Tests: `crates/node/tests/payload_tests.rs`
 This amendment depends on PR #506 (unknown or unimplemented upgrade bits are
 admitted and halt at activation instead of being refused): the branch merges
 #506, so #506 merges first.
+
+## Amendment 2026-11-24: work-proportional pay for any number of miners
+
+Eric 2026-11-24 (DECISIONS.md, "Mining open to any miner, solo to hundreds"):
+"make sure even a sole miner can mine, or hundreds of miners; maximum
+flexibility for any kind of miner". Items MINE-01, MINE-03, M10 and issue
+#642, all chosen as recommended. Consensus and state format change; it ships
+with the re-genesis. This replaces the per-share payout of the 2026-11-01
+amendment and the "fixed per-share reward" text above.
+
+**Guarantees.**
+
+1. **Pay is proportional to work, never to arrival order.** A share is
+   credited to its miner, not paid. When the epoch closes, its miner budget is
+   split by work: a miner with `m` of the epoch's `n` shares earns
+   `⌊budget × m / n⌋` (spec MINE-4). A share that lands in the epoch's last
+   block earns exactly what one in its first block does, so a solo miner on a
+   slow link, far from the validators, is not out-raced by a pool next to
+   them. Before, the first `target_shares` shares took the whole budget and
+   later ones were refused (audit MINE-01).
+2. **Closing an epoch costs the same for one miner as for any number.** The
+   boundary writes one record, the epoch's pot `k:mpot:<epoch>` (budget, shares,
+   uncollected credits), and reads or writes no miner's record. Each miner
+   collects with its next share (the next epoch's first share pays the closed
+   one) or with a claim. A miner holds one credit record, `k:mcredit:<miner>`,
+   whatever the number of epochs it mines; a pot is deleted with its last
+   credit (audit M10).
+3. **Many shares, one signature.** `MiningShare` is now a batch:
+   `kind ‖ epoch (u64 LE) ‖ count (u32 LE) ‖ nonces (u64 LE, strictly
+   ascending)` (spec MINE-11). One post-quantum signature covers every nonce,
+   so a share past the first costs 8 bytes on chain instead of a full signed
+   transaction of about 13 KB (audit MINE-03). Ascending order gives a batch
+   one encoding and rules out a repeated nonce at decode. The batch counts one
+   block slot per nonce against `max_shares_per_block`, and one bad nonce fails
+   the whole transaction. A batch with no nonces is the claim: it names a
+   closed epoch the sender holds a credit for. Shares and claims stay fee-free
+   when they move nothing (FEE-7), and the mempool's one-entry-per-work rule
+   (#653) applies to every nonce of a batch.
+   **Batches fit beside each other.** A block admits a batch whole or not at
+   all, so a batch as large as the block cap would fit only a block holding no
+   other share: once blocks are busy, the smaller batches take the slots and
+   the miner with the most hashrate is the one left out, block after block,
+   until its shares go stale. The miner therefore sends batches of at most a
+   quarter of `max_shares_per_block` (`MiningShare::batch_limit`, 4 at
+   mainnet's cap of 16), as many as it needs, and sends every find. This is
+   miner policy, not consensus: any batch up to the cap stays valid, and no
+   node rule changed. Pinned by
+   `a_miner_with_more_finds_than_a_busy_block_has_room_for_is_still_credited`
+   (a miner with a full block's worth of finds behind another miner's share in
+   every block is credited in every block; with cap-sized batches it was
+   credited nothing) and the miner's
+   `found_shares_go_in_ascending_batches_of_a_quarter_block_and_none_is_dropped`.
+4. **The anchor is the boundary block's parent** (issue #642). The next
+   epoch's anchor is `header.prev_hash`, not `header.id()`. The id covers the
+   state root, and the anchor is part of the state that root commits to, so a
+   validator that derived the block (root zeroed, preview reused) and a node
+   replaying it fresh computed different anchors and different roots at every
+   mining boundary. The parent is final and identical on every node, and it is
+   still unknown before the epoch's last block, so work still cannot start
+   before the epoch is nearly open (spec MINE-12).
+
+**What else changes.** Record version 5 drops `paid` and `spent_after` and adds
+`miners`. With no budget refusal, `shares` is the epoch's demand, so the
+retarget reads it directly (MINE-5); the `spent_after` scaling of the
+2026-10-12 review is gone. An epoch with shares now pays its whole miner
+budget; an epoch without shares leaves it in the reserve, as before, so the
+19,687,500-coin figure stays an upper bound. `share_reward` survives as an
+estimate for RPC and miners, `budget / target_shares`, never a consensus
+value. `deploy/genesis/mainnet/mining.json` raises `target_shares` from 1,000
+to 3,600, one share per block on average at one-hour epochs: a solo miner
+finds a paid share 3.6 times as often for the same hashrate, and the block cap
+of 16 still leaves 16 times the target in slots, four times the retarget's ×4
+clamp (`16 × 3,600 ≥ 4 × 3,600`). The per-block DAG verification bound is
+unchanged, since it is set by `max_shares_per_block`, not by the target.
+
+**Arithmetic, not a measurement.** At the target, an epoch carries 3,600 shares.
+Sent one per transaction that is 3,600 signed transactions; sent in batches of
+`b` it is `⌈3,600 / b⌉` signatures plus 8 bytes a share. No byte or verify
+figure here was measured on a running network.
+
+**Not done here.** `--claim` in `maya2c-gpu-miner` (a miner that stops mining
+collects with a claim transaction, which the miner does not build yet); an RPC
+method for a miner's credit (the state accessors `committed_credit` and
+`committed_pot` exist); the `16E ≥ 4T` check at genesis (ceiling row M7).
+
+Tests: `crates/node/tests/mining_rewards_tests.rs`
+(`a_solo_miner_and_a_hundred_miners_are_each_paid_in_proportion_to_work`,
+`a_fresh_replay_reproduces_every_root_across_mining_boundaries`,
+`an_epoch_is_anchored_to_its_boundary_blocks_parent`,
+`an_extra_share_in_a_batch_costs_eight_bytes`,
+`a_batch_counts_every_share_against_the_block_cap_and_fails_whole`,
+`a_miner_that_keeps_mining_is_paid_by_its_next_epochs_first_share`,
+`a_share_is_credited_then_its_claim_is_paid_from_the_reserve_with_no_fee`,
+`shares_past_target_still_land_split_the_budget_and_harden_the_target`),
+`crates/node/tests/payload_tests.rs`
+(`a_share_batch_round_trips_and_refuses_repeats_disorder_and_short_counts`),
+`crates/node/src/state/mining.rs`
+(`a_payout_is_the_floor_of_budget_times_work_over_total`); vectors
+`spec/tests/mining.json` (MINE-4, MINE-5, MINE-6, MINE-11, MINE-12), replayed by
+`crates/node/tests/conformance.rs` and `spec/verifier-ts`.

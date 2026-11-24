@@ -1416,3 +1416,27 @@ Branch `refreeze/integration` (draft #626) re-merged onto master `d6a63a5d` to s
 - **Code, semantic (compiled red, then fixed):** #655's snapshot `StateView` read the single staking record that #555 replaced with per-record storage (E0599), so the view now sums validator and payout records with the same helper as `StateDB::staking_held`, and the staking differential test asserts the two agree. Tests added by #584 and #653 built `MiningShare` without #570's work-kind byte (E0063). #540's root-cache test named `maya_fee_market` directly, which `the_fee_market_is_reached_only_through_its_genesis_gate` refuses; it reads the cap through `state::fees`.
 - **Gas golden vectors (#641 × #549):** #641 recorded its seven vectors under master's schedule; #549 changes the schedule on purpose (native work charged in fuel), so all seven moved (e.g. `empty` 2 → 210,302). Re-recorded on the integration branch with wasmtime pinned to 48.0.8 and to 48.0.10: identical costs, boundaries and outputs on both, so the 48.0.10 bump still moves nothing.
 - **Pre-existing, not caused by the bundle:** `byzantine_guard_tests::slow_honest_peers_carrying_valid_traffic_are_never_quarantined` fails on this Windows host on master `d6a63a5d` itself, and at two intermediate points of this branch; left as it is and reported.
+
+## 2026-11-24 — Mining open to any miner, solo to hundreds: work-proportional pull settlement, share batches, anchor = parent id (Eric 2026-11-24, ADR-044 amendment)
+
+Eric 2026-11-24: "make sure even a sole miner can mine, or hundreds of miners;
+maximum flexibility for any kind of miner", and in the second round, decisions 7
+and 8: MINE-01 + MINE-03 (pro-rata pull settlement with a claim, a batched share
+transaction, before genesis) and #642 (the anchor is the parent block id). Each
+is built as a guarantee: pay follows work and never arrival order (a share
+credits work; the epoch's budget is split `⌊budget × m / n⌋` when it closes and
+collected by the miner's next share or a claim); closing an epoch writes one pot
+record whatever the number of miners (M10); one signature carries many shares,
+so a share past the first costs 8 bytes; and a node that replays a block reaches
+the same root as the validator that derived it at every mining boundary (#642,
+red before the fix at height 5). The mainnet `target_shares` rises from 1,000 to
+3,600, one share a block on average, because with one signature per batch the
+target is no longer what bounds on-chain bytes. Consensus and state format
+change: spec 09 v0.2.0 (MINE-4, -5, -6, -7, -11 changed, MINE-12 new), record
+version 5, conformance vectors regenerated. Ships with the re-genesis.
+
+Review follow-up (same day, no consensus change): the miner sends batches of at
+most a quarter of `max_shares_per_block` (`MiningShare::batch_limit`) and every
+find, so a miner with more finds than a busy block has room for is still
+credited in every block, instead of its cap-sized batch fitting no block that
+already holds another share. Any batch up to the cap stays valid.

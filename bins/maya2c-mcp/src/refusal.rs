@@ -320,6 +320,7 @@ mod tests {
             version: 3,
             height: 900,
             supported: 2,
+            unimplemented_features: 0,
         };
         assert_eq!(explained(&e)["kind"], "UpgradeRequired");
     }

@@ -6,7 +6,10 @@
 //! before node 0 sees them). It checks, and exits non-zero on the first
 //! failure:
 //!
-//! 1. a share pays once mining opens at the first epoch boundary;
+//! 1. shares pay once mining opens at the first epoch boundary: an epoch's
+//!    work is paid, pro rata, by the miner's first share of the next epoch
+//!    (pull settlement, ADR-044 amendment 2026-11-24), so the first balance
+//!    appears one epoch after the first share;
 //! 2. with validator 3 killed (f = 1 of n = 4), shares keep paying;
 //! 3. at the end, all four nodes agree on one chain and report the same
 //!    miner balance and the same reserve, and nothing was minted: the reserve
