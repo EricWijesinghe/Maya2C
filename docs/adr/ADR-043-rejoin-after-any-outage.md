@@ -170,3 +170,31 @@ Eric 2026-11-24 chose option A of the CON-08 brief (PR #680).
   `at_launch_a_fresh_production_node_needs_no_trusted_block`,
   `a_non_production_build_keeps_the_operator_choices` and
   `a_production_build_refuses_the_unconfirmed_start_flag`.
+- **The two honest unconfirmed starts take the node's own tip** (review of
+  #694). With the flag gone, a production node had no way to start in the two
+  cases it existed for: (a) a mainnet halted longer than the window
+  (`unbonding_epochs × epoch_blocks × min(observed interval, 15 s)`, about
+  seven hours at one block per second), where no block above any validator's
+  tip exists to trust; and (b) a genesis whose timestamp lies more than the
+  window (378,000 s for 7 × 3,600 blocks at 15 s) before launch. A
+  `--trusted-block` that names the node's **own tip** (height equal to the
+  tip, id equal to the tip's id, checked by `check_against_tip`) now lifts the
+  unconfirmed refusal and anchors the start to that tip
+  (`Anchor::Checked`). The operator states which chain they stand on, which is
+  the trusted-block start the CON-08 decision asked for, and a block below the
+  tip still lifts nothing. It is only an answer to "unconfirmed": a source that
+  reports a head beyond the window still needs a recent block above the tip.
+  For (a) every validator restarts with `--catch-up-from <the others>
+  --trusted-block <its tip height>:<its tip id>` (`--trusted-block` needs a
+  catch-up or bootstrap source). For (b) the start is `--trusted-block
+  0:<genesis id>`, and `cargo xtask genesis-check` (also run by the ceremony
+  rehearsal) refuses a genesis whose timestamp is more than the window before
+  the launch (`--launch UNIX_SECS`, default the clock), so a launch never needs
+  it unless it slips. Genesis is no trusted block for joining a running chain:
+  `fresh_join` wants a block above height 0 once a source reports one.
+  The guarantee: a halted or late-launched mainnet restarts from the
+  production binary, and every start still names the block it trusts. Tests
+  `a_halted_network_restarts_when_the_operator_names_this_nodes_own_tip`,
+  `a_genesis_signed_long_before_launch_starts_from_its_own_genesis_id`,
+  `genesis_itself_is_no_trusted_block_for_joining_a_running_chain`,
+  `a_launch_past_the_unbonding_window_of_the_genesis_timestamp_is_refused`.

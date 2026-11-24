@@ -7,7 +7,13 @@ launch.
 head need `--trusted-block` or `--bootstrap-from`. `--allow-unconfirmed-start` is only for a
 network halted longer than the window, or a genesis signed long before launch, and only in a
 non-production build. The mainnet binary (`--features production`) refuses it, and a fresh
-mainnet node joining a chain past genesis starts only from `--trusted-block` (CON-08). Details:
+mainnet node joining a chain past genesis starts only from `--trusted-block` (CON-08). The two
+honest unconfirmed starts take the node's own tip instead: after a halt longer than the window
+(about seven hours at one block per second), each validator restarts with `--catch-up-from <the
+other validators> --trusted-block <tip height>:<tip id>`; a launch more than 378,000 s after the
+genesis timestamp needs `--trusted-block 0:<genesis id>`. Run `cargo xtask genesis-check
+<genesis.json> --launch <planned unix time>` at the ceremony: it refuses a genesis whose timestamp
+is that far before launch, so re-sign rather than slip (ADR-043 amendment 2026-11-24). Details:
 `docs/GENESIS.md` and `docs/runbooks/hybrid-testnet-hardening.md` section 4.
 
 ---

@@ -311,9 +311,37 @@ fn launch_rules(g: &Genesis, now: u64) -> Vec<String> {
     out
 }
 
+/// `Params::DEVNET.unbonding_epochs` (crates/staking) and the node's
+/// `TARGET_BLOCK_TIME`, repeated because xtask does not link the node.
+const UNBONDING_EPOCHS: u64 = 7;
+const TARGET_BLOCK_SECS: u64 = 15;
+
+/// A genesis-only node measures its unbonding window at the target block time
+/// (`rejoin::block_interval_secs` with no history). A launch later than that
+/// window after the genesis timestamp makes every production node's tip look
+/// time-old, so it refuses to start unless its operator names the genesis
+/// (`--trusted-block 0:<genesis id>`, ADR-043 amendment 2026-11-24).
+fn launch_window_rule(g: &Genesis, launch: u64) -> Option<String> {
+    let window = UNBONDING_EPOCHS
+        .saturating_mul(g.bft.staking.epoch_blocks?)
+        .saturating_mul(TARGET_BLOCK_SECS);
+    (g.timestamp.saturating_add(window) < launch).then(|| {
+        format!(
+            "timestamp {} is more than the {window} s unbonding window before the launch ({launch}): every production node would refuse to start on genesis alone until its operator passes --trusted-block 0:<genesis id>. Re-sign the genesis with a timestamp nearer launch",
+            g.timestamp
+        )
+    })
+}
+
 fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
+    problems_at(text, now, now)
+}
+
+/// [`problems`] with a planned `launch` time for the launch-window rule.
+fn problems_at(text: &str, now: u64, launch: u64) -> Result<Vec<String>, String> {
     let g: Genesis = serde_json::from_str(text).map_err(|e| format!("not a genesis file: {e}"))?;
     let mut out = launch_rules(&g, now);
+    out.extend(launch_window_rule(&g, launch));
     if g.bft.validators.len() < MIN_VALIDATORS {
         out.push(format!(
             "{} validators, need at least {MIN_VALIDATORS}",
@@ -403,15 +431,22 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
-    let path = args
-        .first()
-        .ok_or("usage: cargo xtask genesis-check <genesis.json>")?;
+    const USAGE: &str = "usage: cargo xtask genesis-check <genesis.json> [--launch UNIX_SECS]";
+    let path = args.first().ok_or(USAGE)?;
     let text = std::fs::read_to_string(path).map_err(|e| format!("reading {path}: {e}"))?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| format!("system clock is before 1970: {e}"))?
         .as_secs();
-    let found = problems(&text, now)?;
+    // The planned launch, for a check run at the ceremony; the clock otherwise.
+    let launch = match &args[1..] {
+        [] => now,
+        [flag, secs] if flag == "--launch" => secs
+            .parse()
+            .map_err(|_| format!("--launch {secs}: not unix seconds"))?,
+        _ => return Err(USAGE.to_string()),
+    };
+    let found = problems_at(&text, now, launch)?;
     if found.is_empty() {
         println!("genesis-check: PASS ({path})");
         return Ok(());
@@ -730,7 +765,9 @@ mod tests {
             )
         };
         assert!(problems(&at(NOW), NOW).unwrap().is_empty());
-        assert!(problems(&at(NOW - 364 * DAY), NOW).unwrap().is_empty());
+        // Launching at its own timestamp, a genesis checked 364 days later passes.
+        let old = NOW - 364 * DAY;
+        assert!(problems_at(&at(old), NOW, old).unwrap().is_empty());
         assert!(problems(&at(NOW + 89 * DAY), NOW).unwrap().is_empty());
         let stale = problems(&at(NOW - 366 * DAY), NOW).unwrap();
         assert!(
@@ -741,6 +778,20 @@ mod tests {
         assert!(
             future.iter().any(|p| p.contains("after the check")),
             "{future:?}"
+        );
+    }
+
+    #[test]
+    fn a_launch_past_the_unbonding_window_of_the_genesis_timestamp_is_refused() {
+        // 7 epochs of 3,600 blocks at 15 s: 378,000 s. A production node holding
+        // only this genesis would refuse to start one second past it.
+        let window = 7 * 3_600 * 15;
+        let g = genesis(20, true, &EVEN);
+        assert!(problems_at(&g, NOW, NOW + window).unwrap().is_empty());
+        let late = problems_at(&g, NOW, NOW + window + 1).unwrap();
+        assert!(
+            late.iter().any(|p| p.contains("--trusted-block 0:")),
+            "{late:?}"
         );
     }
 

@@ -198,7 +198,9 @@ cargo xtask <command>
   go-no-go              Compute every mainnet launch gate from evidence:
                         PASS (with its evidence), FAIL, or NEEDS HUMAN.
   genesis-check FILE    Mainnet genesis policy: >=7 validators, no operator above
-                        20% of stake, stake-weighted, real difficulty.
+                        20% of stake, stake-weighted, real difficulty, and a
+                        launch (--launch UNIX_SECS, default now) inside the
+                        unbonding window of the genesis timestamp.
   eco-metrics           Ecosystem metrics computable from this repository
                         (active developers, retention, contracts), with a
                         named gap for each one that needs chain data.
