@@ -6,7 +6,7 @@ one is independent:
 
 1. **The checksum.** The file is exactly the one listed in `SHA256SUMS`.
 2. **The signature.** The file was signed by `release-binaries.yml` running on a
-   `node-v*` tag in `EricWijesinghe/Maya2C`, and the signature is in the public
+   `node-v*` tag in `maya2c/Maya2C` (named `EricWijesinghe/Maya2C` before 2026-11-24; older releases carry that name and still verify), and the signature is in the public
    Sigstore transparency log (Rekor).
 3. **The build provenance.** GitHub recorded which commit and workflow built
    the file.
@@ -46,15 +46,15 @@ For a file named `maya2c-node.tar.gz`:
 
 ```
 cosign verify-blob --bundle maya2c-node.tar.gz.sigstore.json \
-  --certificate-identity-regexp '^https://github\.com/EricWijesinghe/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$' \
+  --certificate-identity-regexp '^https://github\.com/(maya2c|EricWijesinghe)/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   maya2c-node.tar.gz
 
-gh attestation verify maya2c-node.tar.gz --repo EricWijesinghe/Maya2C
+gh attestation verify maya2c-node.tar.gz --repo maya2c/Maya2C
 ```
 
 Do the same for `SHA256SUMS` with its own bundle and its own attestation
-(`gh attestation verify SHA256SUMS --repo EricWijesinghe/Maya2C`). Then check
+(`gh attestation verify SHA256SUMS --repo maya2c/Maya2C`). Then check
 the checksum (below). Each command prints an error and exits non-zero on any
 mismatch.
 
