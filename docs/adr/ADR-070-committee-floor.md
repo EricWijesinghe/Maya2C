@@ -119,10 +119,20 @@ the only one floored. Two others could still take the set below `MIN_COMMITTEE`:
 - **A tombstone keeps its seat until a replacement exists.** The slash and the tombstone are
   immediate and permanent. Only the removal from the committee is deferred: while fewer than
   four validators are eligible, `next_committee` refills from the ending committee's
-  tombstones, **at most one** (`MAX_HELD_TOMBSTONES = (MIN_COMMITTEE − 1) / 3`). Four seats
-  survive one Byzantine member; seating a second equivocator would trade safety for
-  liveness, so a second tombstone at the floor leaves the committee at three. A held
+  tombstones, **at most one** (`MAX_HELD_TOMBSTONES = (MIN_COMMITTEE − 1) / 3`). A held
   tombstone earns nothing. STK-14.
+- **What the hold trades (review of PR #704, 2026-11-24).** Holding even one tombstone puts
+  liveness before safety. The quorum is `W − f` (`crates/dag-bft/src/vertex.rs`). Without
+  the hold the committee has three seats, `f = 0`, quorum 3: one further Byzantine member
+  can halt it but cannot make it unsafe. With the hold it has four, `f = 1`, quorum 3: the
+  proven equivocator has spent the fault budget, so one further Byzantine or compromised key
+  can sign a conflicting certificate with it. The liveness gained also depends on the
+  equivocator still signing. Its slash is idempotent once tombstoned and its bond is locked,
+  so further equivocation costs it nothing more. Mid-epoch, `active` keeps every tombstone
+  while fewer than four are eligible (`slash_double_sign`), so it can name two until the
+  boundary; only one is carried into the next committee. **Raised with Eric:** keep the
+  hold as decided, or hold the seat at zero weight (it then counts for the seat floor but
+  toward no quorum, which is the three-seat safety with the four-seat bookkeeping).
 
 Waiting exits are state: the staking record is version 4, with an `exits` section, only
 while one waits; a record with none keeps its version-3 bytes, so no existing state root

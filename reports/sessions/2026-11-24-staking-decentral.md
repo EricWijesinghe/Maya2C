@@ -43,3 +43,25 @@ Eric 2026-11-24: the recommended option for each item, each documented as a guar
 - `ShieldedMaxPerBlock` below 16: no test (a joinsplit needs a STARK per transaction).
 - `cargo xtask ceremony-rehearsal` and `cargo xtask proving` end to end.
 - No attacknet run.
+
+## Review fixes (same day)
+
+| Review item | Outcome | Test |
+|---|---|---|
+| CON-06 product `w × level` overflowed u128 at mainnet stakes | Fixed: taken in 256 bits (`primitive_types::U256`), STK-16 says so | `the_cap_holds_at_the_full_u64_range`; sweep `no_operator_ever_holds_more_than_the_cap` now draws every bit width 1..64, half at 64 |
+| Cap lowers attack cost against many small addresses | Stated with figures in ADR-040 and STK-16; dual-threshold quorum raised with Eric | none (design question) |
+| Evidence window 7 epochs (about 8 h with pruning) | Stated in ADR-028; raised with Eric | none (owner value) |
+| Held tombstone spends the floor's fault margin | Comments, STK-14, ADR-070 and the validators page corrected; zero-weight option raised with Eric | none (documentation) |
+| `genesis-check` accepted any staking-rule values | Fixed: any value other than the launch rules is a problem | `staking_rules_other_than_the_launch_values_fail` |
+
+Red, then green, through cargo-slot:
+
+- `cargo test -p custom-l1-node --lib weight_cap` before the fix: `the_cap_holds_at_the_full_u64_range ... FAILED`, `panicked at crates/node/src/state/weight_cap.rs:64:31: attempt to multiply with overflow`, `FAILED. 5 passed; 1 failed`. After: `ok. 6 passed; 0 failed`.
+- `cargo test -p xtask --bin xtask genesis_check` before the fix: `staking_rules_other_than_the_launch_values_fail ... FAILED`, `FAILED. 20 passed; 1 failed`. After: `ok. 21 passed; 0 failed`.
+- `cargo test -p maya-staking --test committee_exits` (comments changed only): `ok. 6 passed; 0 failed`.
+- `cargo xtask spec-coverage --strict`: `71 rules, 164 vectors; 68 consensus rules covered, 0 gaps`; STK-14, STK-16 `covered (external vectors)`.
+- `cargo xtask claims-check`: `100 public files scanned, 0 unauthorised claims`.
+- `cargo clippy -p xtask --bin xtask`: no warning in `genesis_check.rs` (27 elsewhere in xtask, untouched).
+
+NOT VERIFIED: the sweep's own red (it was widened after the dedicated test went red, and the fix was in place when it next ran); clippy on the node lib after this change: left to CI.
+

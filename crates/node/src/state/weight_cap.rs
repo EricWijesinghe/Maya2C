@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+use primitive_types::U256;
+
 /// Most of a committee's voting weight one operator may hold: 20% (CON-06,
 /// Eric 2026-11-24), below the third that could stop finality.
 pub const MAX_OPERATOR_WEIGHT_BPS: u64 = 2_000;
@@ -59,9 +61,12 @@ pub fn cap_operator_weights(weights: &[u64], operators: &[[u8; 32]]) -> Vec<u64>
         .iter()
         .zip(operators)
         .map(|(w, op)| match cut.get(op) {
-            // Below `w` because `level < total`, so it fits a u64.
+            // `w × level` passes 2^128 at mainnet stakes (w near 2^64, level
+            // above it), so the product is taken in 256 bits. The quotient is
+            // below `w` because `level < total`, so it fits a u64.
             Some(total) if *w > 0 => {
-                u64::try_from(u128::from(*w) * level / total).map_or(*w, |v| v.max(1))
+                let scaled = U256::from(*w) * U256::from(level) / U256::from(*total);
+                u64::try_from(scaled).map_or(*w, |v| v.max(1))
             }
             _ => *w,
         })
@@ -124,9 +129,26 @@ mod tests {
         assert_eq!(cap_operator_weights(&w, &ops), w.to_vec());
     }
 
+    /// Mainnet magnitudes: the largest weight sits in [2^63, 2^64) after the
+    /// stake shift, so `weight x level` passes 2^128. Ten equal keys at the
+    /// u64 ceiling, one operator running three: it must end at the cap, not
+    /// wrap to a few percent (release) or panic (checked builds).
+    #[test]
+    fn the_cap_holds_at_the_full_u64_range() {
+        let ops = [1, 1, 1, 2, 3, 4, 5, 6, 7, 8].map(op);
+        let capped = cap_operator_weights(&[u64::MAX; 10], &ops);
+        let (mine, total) = held(&capped, &ops, op(1));
+        // level = 1.75 W, so the operator holds 1.75 W of 8.75 W: 20%, less
+        // one unit per key of rounding.
+        assert!(mine * u128::from(BPS) <= u128::from(MAX_OPERATOR_WEIGHT_BPS) * total);
+        assert!((mine + 3) * u128::from(BPS) >= u128::from(MAX_OPERATOR_WEIGHT_BPS) * total);
+        assert_eq!(&capped[3..], &[u64::MAX; 7]);
+    }
+
     /// Fixed-seed sweep: 5 to 40 operators, one to three keys each, stakes
-    /// over six orders of magnitude, down to single units where rounding
-    /// binds. Every operator ends at or below the cap to within one unit per
+    /// of every bit width from 1 to 64, half at the full 64 (the range
+    /// mainnet stakes reach after the shift), down to single units where
+    /// rounding binds. Every operator ends at or below the cap to within one unit per
     /// key; no weight grows; nobody with stake loses all weight.
     #[test]
     fn no_operator_ever_holds_more_than_the_cap() {
@@ -143,8 +165,12 @@ mod tests {
             let mut operators = Vec::new();
             for o in 0..n_ops {
                 for _ in 0..=next(3) {
-                    let scale = 10u64.pow(1 + u32::try_from(next(6)).unwrap());
-                    weights.push(1 + next(scale));
+                    // Half the keys at the full 64 bits, where `w × level`
+                    // passes 2^128, the rest at every width from 1 to 64.
+                    let bits = if next(2) == 0 { 64 } else { 1 + next(64) };
+                    // `next` yields 31 bits; three draws fill all 64.
+                    let raw = (next(1 << 31) << 33) | (next(1 << 31) << 2) | next(4);
+                    weights.push((raw >> (64 - bits)).max(1));
                     operators.push(op(u8::try_from(o).unwrap()));
                 }
             }

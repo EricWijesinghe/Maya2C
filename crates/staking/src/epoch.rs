@@ -13,8 +13,8 @@ use crate::types::{Address, Effect, StakeError, Staking, Status, ValidatorId};
 pub const MIN_COMMITTEE: usize = 4;
 
 /// Most tombstoned validators the floor may hold in one committee (CON-07):
-/// `f` of the `MIN_COMMITTEE = 3f + 1` seats, so the committee stays inside
-/// the one Byzantine fault it is sized to survive.
+/// `f` of the `MIN_COMMITTEE = 3f + 1` seats. A held one spends that fault
+/// budget, so the floor then has no margin for a further Byzantine member.
 pub const MAX_HELD_TOMBSTONES: usize = (MIN_COMMITTEE - 1) / 3;
 
 /// How much each active validator took part in the ending epoch.
@@ -125,9 +125,10 @@ impl Staking {
     ///
     /// CON-07: where fewer than [`MIN_COMMITTEE`] are eligible, a member of
     /// the ending committee that was tombstoned keeps its seat until a
-    /// replacement bonds. At most [`MAX_HELD_TOMBSTONES`] are held, so the
-    /// floor committee never seats more equivocators than its one tolerated
-    /// fault: safety before liveness.
+    /// replacement bonds. At most [`MAX_HELD_TOMBSTONES`] are held. The hold
+    /// puts liveness before safety: four seats with a held equivocator have
+    /// `f = 1` already spent on it, so one more Byzantine member can break
+    /// safety, where three seats without it (`f = 0`) could only be halted.
     fn next_committee(&self) -> Vec<ValidatorId> {
         let max = usize::from(self.params.max_validators);
         let mut next: Vec<ValidatorId> =

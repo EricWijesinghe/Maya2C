@@ -945,6 +945,8 @@ Eric 2026-11-24 approved the recommended option for each item; each is built and
 - **G6: governance weight is locked stake only**, in the weight function itself (ADR-044 amendment 2026-11-24, STK-19).
 - **G4:** `ShieldedMaxPerBlock` is wired; the three VM keys nothing reads are no longer offered to a vote (ADR-082 amendment 2026-11-24, STK-20).
 - **Recorded in:** the ADR amendments above, `spec/06-staking.md`, `features.toml`, `docs/architecture-vision.md`. Consensus-visible: re-freeze, re-genesis.
+- **Review of PR #704 (same day, within Eric 2026-11-24):** the CON-06 product `w × level` overflowed u128 at mainnet stakes (wrapping in release, panicking in checked builds); it is now exact in 256 bits (STK-16). `genesis-check` now refuses `staking.rules` other than the ceremony's launch values. The documents now state what the cap and the held tombstone trade (ADR-040, ADR-070 amendments, STK-14, STK-16). **Open for Eric, not covered by the 11-24 decisions:** (1) a dual-threshold quorum so the cap never lowers attack cost against many small addresses; (2) the evidence window, `unbonding_epochs` = 7 (about eight hours with pruning) in the launch rules; (3) whether a held tombstone keeps its weight or holds the seat at zero weight.
+
 ## 2026-11-21 — Wasmtime 48.0.10 rides the mainnet genesis; gas pinned to golden vectors (Claude, under Eric 2026-11-17 pre-approval)
 
 - **Why now:** RUSTSEC-2026-0566..0573 (fixed in 48.0.9) turned `cargo deny` red on master. 48.0.10 is the newest 48.x; its one further fix is in `wasmtime-wasi`, which the VM does not link. The pin is consensus-critical, and genesis is a fresh chain, so the bump costs no extra fork.

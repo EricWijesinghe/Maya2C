@@ -283,7 +283,8 @@ impl Staking {
         self.exits.remove(&id);
         // CON-07: the slash and the tombstone are immediate, but at the floor
         // the seat is held until a replacement exists (`end_epoch`), so one
-        // offence cannot shrink the committee below `MIN_COMMITTEE`.
+        // offence cannot shrink the committee below `MIN_COMMITTEE`. Mid-epoch
+        // this may keep two; `next_committee` carries at most one across.
         if self.ranked().len() >= MIN_COMMITTEE {
             self.active.retain(|a| *a != id);
         }
