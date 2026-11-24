@@ -89,6 +89,16 @@ pub enum ParameterKey {
     /// Most contract gas one block may spend, calls and deployments together
     /// (ADR-142).
     VmMaxBlockGas,
+    /// Contract gas that costs as much as one transaction byte (GAS-11,
+    /// R-3): a contract transaction pays `base_fee` for every this many
+    /// units of gas it used, so gas is priced by the same market as bytes.
+    VmGasPerFeeByte,
+    /// Most contract gas one sender's transactions may spend in one block
+    /// (GAS-12, R-3).
+    VmMaxSenderBlockGas,
+    /// Transaction bytes' worth of base fee one byte of new contract state
+    /// pays (GAS-13, R-1).
+    VmStorageFeeBytesPerByte,
 }
 
 /// Every key, in tag order.
@@ -108,6 +118,9 @@ pub const ALL_KEYS: &[ParameterKey] = &[
     ParameterKey::DefaultSignatureSuite,
     ParameterKey::VmMaxTxGas,
     ParameterKey::VmMaxBlockGas,
+    ParameterKey::VmGasPerFeeByte,
+    ParameterKey::VmMaxSenderBlockGas,
+    ParameterKey::VmStorageFeeBytesPerByte,
 ];
 
 /// Blocks between a passed change to a block-validity rule executing and
@@ -131,6 +144,10 @@ const MAX_MODULE_CALL_GAS: u64 = 50_000 + 450 * 512 * 1024;
 
 /// Most either contract gas cap may be voted to (ADR-142).
 const VM_GAS_CEILING: u64 = 300_000_000;
+
+/// Default of [`ParameterKey::VmGasPerFeeByte`]: the default block gas over
+/// the block byte cap, `250_000_000 / 5_242_880`, rounded down (GAS-11).
+pub const GAS_PER_FEE_BYTE: u64 = 47;
 
 /// The permitted range and starting value of one parameter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,6 +187,11 @@ impl ParameterKey {
             // the next free tags (ADR-142).
             Self::VmMaxTxGas => 17,
             Self::VmMaxBlockGas => 18,
+            // 19 and 20 are held by the contract-state bounds draft (#644),
+            // 21 and 22 by the block-size keys (ADR-155).
+            Self::VmGasPerFeeByte => 23,
+            Self::VmMaxSenderBlockGas => 24,
+            Self::VmStorageFeeBytesPerByte => 25,
         }
     }
 
@@ -200,6 +222,9 @@ impl ParameterKey {
             10 => Ok(Self::DefaultSignatureSuite),
             17 => Ok(Self::VmMaxTxGas),
             18 => Ok(Self::VmMaxBlockGas),
+            23 => Ok(Self::VmGasPerFeeByte),
+            24 => Ok(Self::VmMaxSenderBlockGas),
+            25 => Ok(Self::VmStorageFeeBytesPerByte),
             other => Err(GovernanceError::UnknownParameter { tag: other }),
         }
     }
@@ -324,6 +349,39 @@ impl ParameterKey {
                 max: Amount::from_u64(VM_GAS_CEILING),
                 default: Amount::from_u64(250_000_000),
             },
+            // A block's whole contract gas costs what a block of transaction
+            // bytes costs: 250,000,000 / 5,242,880 (the default block gas
+            // over MAX_BLOCK_BYTES) is 47.7, rounded down so gas is never the
+            // cheaper way to fill a block. At 1 gas is a byte's fee (no
+            // lower: the unit is the fee's own); at 1,000 a full block of
+            // gas costs about a twentieth of a full block of bytes, past
+            // which gas is close to free again (R-3).
+            Self::VmGasPerFeeByte => Bounds {
+                min: Amount::from_u64(1),
+                max: Amount::from_u64(1_000),
+                default: Amount::from_u64(GAS_PER_FEE_BYTE),
+            },
+            // Never below one call to the largest deployable module (the tx
+            // cap's own floor, GAS-5), or that module could not be called by
+            // anyone; never above the block ceiling. At the default caps it
+            // equals the block's, and it binds once the block cap is voted
+            // above it (GAS-12).
+            Self::VmMaxSenderBlockGas => Bounds {
+                min: Amount::from_u64(MAX_MODULE_CALL_GAS + 4_000_000),
+                max: Amount::from_u64(VM_GAS_CEILING),
+                default: Amount::from_u64(250_000_000),
+            },
+            // Ethereum prices a new storage byte at about 39 calldata bytes
+            // (SSTORE set: 20,000 gas a 32-byte slot; EIP-2028: 16 gas a
+            // calldata byte), so 40 starts in line with the chain that has
+            // measured state growth longest. A state byte never costs less
+            // than a transaction byte (1); 10,000 stops a vote from pricing
+            // contract storage out of reach.
+            Self::VmStorageFeeBytesPerByte => Bounds {
+                min: Amount::from_u64(1),
+                max: Amount::from_u64(10_000),
+                default: Amount::from_u64(40),
+            },
         }
     }
 
@@ -347,13 +405,18 @@ impl ParameterKey {
             | Self::VmDefaultGasLimit
             // ADR-142's caps refuse a call or a block outright (GAS-1, GAS-2).
             | Self::VmMaxTxGas
-            | Self::VmMaxBlockGas => true,
+            | Self::VmMaxBlockGas
+            // Refuses a sender's call outright (GAS-12).
+            | Self::VmMaxSenderBlockGas => true,
             // A rate and a deposit change what a valid transaction pays, not
             // whether it is valid. The default suite chooses what wallets
             // sign with; it does not decide what verifies (invariant 31).
             Self::DexProtocolFeeBps
             | Self::GovernanceProposalDeposit
-            | Self::DefaultSignatureSuite => false,
+            | Self::DefaultSignatureSuite
+            // Prices: what a valid contract transaction pays (GAS-11, GAS-13).
+            | Self::VmGasPerFeeByte
+            | Self::VmStorageFeeBytesPerByte => false,
         }
     }
 
@@ -373,6 +436,9 @@ impl ParameterKey {
             Self::DefaultSignatureSuite => "crypto.default_signature_suite",
             Self::VmMaxTxGas => "vm.max_tx_gas",
             Self::VmMaxBlockGas => "vm.max_block_gas",
+            Self::VmGasPerFeeByte => "vm.gas_per_fee_byte",
+            Self::VmMaxSenderBlockGas => "vm.max_sender_block_gas",
+            Self::VmStorageFeeBytesPerByte => "vm.storage_fee_bytes_per_byte",
         }
     }
 
@@ -450,7 +516,7 @@ mod tests {
         // A key absent from `ALL_KEYS` would be governable but invisible to
         // genesis, so the table would start without it and read a default that
         // exists in no one place.
-        assert_eq!(count, 12);
+        assert_eq!(count, 15);
     }
 
     #[test]
@@ -508,7 +574,9 @@ mod tests {
             .filter(|key| key.is_validity_rule())
             .map(|key| key.tag())
             .collect();
-        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18]);
+        // 24: the per-sender contract gas cap refuses a call (GAS-12); 23 and
+        // 25 are prices and apply at execution.
+        assert_eq!(validity, [2, 3, 4, 5, 6, 7, 8, 17, 18, 24]);
         assert_eq!(
             VALIDITY_RULE_LEAD_BLOCKS,
             crate::limits::MIN_UPGRADE_LEAD_BLOCKS

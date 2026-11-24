@@ -52,6 +52,11 @@ struct Genesis {
     /// Scheduled protocol upgrades. None may be pending at launch.
     #[serde(default)]
     protocol_upgrades: Vec<serde_json::Value>,
+    /// The sealed-mempool committee. Only a genesis installs one, and its
+    /// revealed actions are not charged for gas or new state (GAS-11,
+    /// GAS-13), so mainnet launches without one.
+    #[serde(default)]
+    sealed: Option<serde_json::Value>,
     bft: Bft,
 }
 
@@ -362,6 +367,12 @@ fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
     if g.shielded_activation_height != Some(u64::MAX) {
         out.push("shielded pool is not off: its circuit is unaudited (ADR-037)".to_string());
     }
+    if g.sealed.is_some() {
+        out.push(
+            "a sealed committee is installed: revealed sealed actions pay no gas or storage fee yet (GAS-11, GAS-13), so contract state could grow for an envelope's byte fee"
+                .to_string(),
+        );
+    }
     if !g.bft.staking.stake_weighted {
         out.push("voting is not stake-weighted".to_string());
     }
@@ -546,6 +557,19 @@ mod tests {
         );
         let zero = genesis(20, true, &EVEN).replace("18446744073709551615", "0");
         assert!(!check(&zero).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_genesis_with_a_sealed_committee_fails() {
+        // PR #701 review: R-1 ("state cannot balloon for a byte fee") holds
+        // only while no sealed committee exists, and only a genesis installs
+        // one.
+        let sealed = genesis(20, true, &EVEN).replace("\"bft\"", "\"sealed\":{},\"bft\"");
+        let found = check(&sealed).unwrap();
+        assert!(
+            found.iter().any(|p| p.contains("sealed committee")),
+            "{found:?}"
+        );
     }
 
     #[test]

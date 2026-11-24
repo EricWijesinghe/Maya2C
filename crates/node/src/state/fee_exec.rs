@@ -39,6 +39,7 @@ impl StateDB {
     ///
     /// [`NodeError::FeeTooLow`] if the collector outputs fall short.
     pub(crate) fn charge_fee(&self, overlay: &mut Overlay, tx: &Transaction) -> Result<()> {
+        overlay.contract_fee = None;
         let Some(fees) = self.fee_record(overlay)? else {
             return Ok(());
         };
@@ -52,16 +53,23 @@ impl StateDB {
         } else {
             maya_stateless_core::amount::to_u256(fees.required(size))
         };
-        // Saturating: the outputs already passed the transaction's checked
-        // output total, so a sum past 2^256 cannot reach here.
-        let offered = tx
-            .outputs
-            .iter()
-            .filter(|o| o.recipient == FEE_COLLECTOR)
-            .fold(U256::zero(), |sum, o| sum.saturating_add(o.amount));
-        if offered < required {
-            return Err(NodeError::FeeTooLow { required, offered });
+        let offered = crate::state::contract_fee::collector_outputs(tx);
+        // A contract transaction also reserves its gas before it runs
+        // (GAS-11): an unpaid call is refused here, before any contract work.
+        let contract = self.contract_fee_for(
+            overlay,
+            &tx.kind,
+            maya_stateless_core::amount::to_u256(fees.base_fee),
+            offered.saturating_sub(required),
+        )?;
+        let reserved = contract.map_or_else(U256::zero, |c| c.owed_reserved());
+        if offered < required || offered - required < reserved {
+            return Err(NodeError::FeeTooLow {
+                required: required.saturating_add(reserved),
+                offered,
+            });
         }
+        overlay.contract_fee = contract;
         overlay.fee_burn = overlay
             .fee_burn
             .checked_add(required)

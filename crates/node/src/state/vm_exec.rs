@@ -131,6 +131,19 @@ fn admit_deployable(needed: u64, block_cap: u64) -> Result<()> {
     Ok(())
 }
 
+/// The most contract gas one transaction can ever spend in a block, for
+/// admission: the block cap (GAS-2), and one sender's share of it (GAS-12).
+fn admission_block_cap(table: &crate::governance::ParameterTable) -> u64 {
+    table
+        .get(ParameterKey::VmMaxBlockGas)
+        .saturating_to_u64()
+        .min(
+            table
+                .get(ParameterKey::VmMaxSenderBlockGas)
+                .saturating_to_u64(),
+        )
+}
+
 /// A VM failure as the node sees it. A fault of this node's engine (the
 /// operating system refused memory) is `Storage`, as a database fault is: it
 /// says nothing about the transaction, so the block is refused here and the
@@ -234,6 +247,27 @@ impl StateDB {
                 return Err(refused);
             }
         };
+        // GAS-12, then GAS-11 and GAS-13: the sender's share of the block,
+        // and the cold price and the code as new state paid for, before the
+        // compile. Refused here, the deployment fails (it is not included):
+        // mempool admission checked the same fee, so only a base fee that
+        // rose since leaves one out, as it would a transfer.
+        let growth = crate::state::contract_fee::deploy_growth(deploy.code.len());
+        let affordable = self
+            .admit_sender_gas(overlay, deployer, needed)
+            .and_then(|()| match overlay.contract_fee {
+                Some(fee) if !overlay.revealing && !fee.affords(needed, growth) => {
+                    Err(NodeError::FeeTooLow {
+                        required: fee.owed(needed, growth),
+                        offered: fee.left(),
+                    })
+                }
+                _ => Ok(()),
+            });
+        if let Err(refused) = affordable {
+            overlay.vm_gas = overlay.vm_gas.saturating_add(length_price);
+            return Err(refused);
+        }
         // Spent before the compile, not after it: a module that compiles in
         // full and then fails its import check ran the whole compile, and a
         // caller that keeps going after a failed deployment (a revealed sealed
@@ -247,13 +281,42 @@ impl StateDB {
             .validate(&deploy.code)
             .map_err(|e| vm_failure(&e))?;
 
+        if !overlay.revealing {
+            overlay.vm_growth = growth;
+        }
         overlay.code.insert(contract, deploy.code.clone());
         Ok(contract)
     }
 
-    /// Mempool admission for contract gas (GAS-1, GAS-2), against committed
-    /// parameters: a call naming more than one transaction may, or a
-    /// deployment no block could hold, can never be included.
+    /// Bytes of new contract state `writes` would add to `contract` (GAS-13):
+    /// each key read through this block's staged writes, then committed
+    /// state. One point read a written key; a write costs at least
+    /// `STORAGE_WRITE_FUEL`, so gas bounds how many there are.
+    fn storage_growth(
+        &self,
+        overlay: &Overlay,
+        contract: &ChannelId,
+        writes: &BTreeMap<Vec<u8>, Vec<u8>>,
+    ) -> Result<u64> {
+        let mut growth: u64 = 0;
+        for (key, value) in writes {
+            let before = match overlay.contract_storage.get(&(*contract, key.clone())) {
+                Some(staged) => Some(staged.len()),
+                None => self.get_contract_storage(contract, key)?.map(|v| v.len()),
+            };
+            growth =
+                growth.saturating_add(crate::state::contract_fee::write_growth(key, value, before));
+        }
+        Ok(growth)
+    }
+
+    /// Mempool admission for contract gas (GAS-1, GAS-2, GAS-12), against
+    /// committed parameters: a call naming more than one transaction may, or
+    /// a deployment no block could hold, can never be included. Nor can one
+    /// above one sender's share of a block: governance may set
+    /// `vm.max_sender_block_gas` below `vm.max_tx_gas`, and GAS-12 refuses
+    /// such a call before any VM work, so it would never pay and never leave
+    /// the pool (PR #701 review).
     ///
     /// Constant work, so it runs before the signature: a deployment is judged
     /// here by its length alone. Its shape is a scan of the whole module, so
@@ -265,7 +328,7 @@ impl StateDB {
     /// [`NodeError::GasAboveCap`], or [`NodeError::Storage`] on a read failure.
     pub(crate) fn admit_vm_gas(&self, kind: &TxKind) -> Result<()> {
         let table = self.parameters()?;
-        let block_cap = table.get(ParameterKey::VmMaxBlockGas).saturating_to_u64();
+        let block_cap = admission_block_cap(&table);
         match kind {
             TxKind::CallContract(call) => {
                 let tx_cap = table.get(ParameterKey::VmMaxTxGas).saturating_to_u64();
@@ -293,11 +356,7 @@ impl StateDB {
             return Ok(());
         };
         let needed = gas::cold_call_fuel(&deploy.code).map_err(|e| NodeError::Vm(e.to_string()))?;
-        let block_cap = self
-            .parameters()?
-            .get(ParameterKey::VmMaxBlockGas)
-            .saturating_to_u64();
-        admit_deployable(needed, block_cap)
+        admit_deployable(needed, admission_block_cap(&self.parameters()?))
     }
 
     /// GAS-9, block selection (consensus under DAG-BFT): whether selection
@@ -390,6 +449,7 @@ impl StateDB {
         // The caps first, before the code is read or compiled (GAS-1, GAS-2).
         let (tx_cap, block_cap) = self.gas_caps(overlay)?;
         admit_call_gas(call.gas_limit, tx_cap, block_cap, overlay.vm_gas)?;
+        self.admit_sender_gas(overlay, caller, call.gas_limit)?;
 
         let code = match overlay.code.get(&call.contract) {
             Some(code) => code.clone(),
@@ -489,11 +549,26 @@ impl StateDB {
         // call completed within its gas, which `admit_call_gas` bounded by what
         // the block had left.
         overlay.vm_gas = overlay.vm_gas.saturating_add(outcome.gas_used);
-        overlay.vm_modules.insert(call.contract, compiled);
         // Events are not kept (the node stores no receipts yet). The host's
         // handles on the shared maps go with it, so these write in place
         // unless a clone of the overlay is still alive.
         let (writes, reads) = execution.state.into_writes_and_reads();
+        // GAS-13 (R-1): new state is paid for before it is staged. A call
+        // that cannot pay for the state it would add fails like one out of
+        // gas: included, its gas paid, nothing written (GAS-8).
+        let growth = self.storage_growth(overlay, &call.contract, &writes)?;
+        if let Some(fee) = overlay.contract_fee
+            && !overlay.revealing
+            && !fee.affords(outcome.gas_used.min(call.gas_limit), growth)
+        {
+            return Err(NodeError::Vm(format!(
+                "out of fee: {growth} bytes of new contract state are not paid for"
+            )));
+        }
+        if !overlay.revealing {
+            overlay.vm_growth = growth;
+        }
+        overlay.vm_modules.insert(call.contract, compiled);
         let staged = std::sync::Arc::make_mut(&mut overlay.contract_storage);
         for (key, value) in writes {
             staged.insert((call.contract, key), value);

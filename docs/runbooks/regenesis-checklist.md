@@ -32,7 +32,7 @@ against a live server on its own.
    within 365 days old and 90 days ahead; tail above zero; reserve exactly the lifetime
    emission; at least 7 validators; `anchor_timeout_ms` at least 500; staking floors set
    (1,000 coins self-bond, 1 coin delegation); every bond equal to `min_self_bond`; no
-   operator above 20%; shielded pool off; stake-weighted; proof of work; fee floor 10^6;
+   operator above 20%; shielded pool off; no sealed committee; stake-weighted; proof of work; fee floor 10^6;
    stake above zero. It does **not** read `suite_deprecations`: check that by hand.
    Also confirm `maya-mainnet` is registered in `Network::for_chain_id`
    (`crates/address/src/lib.rs`), so the chain has a Bech32m text form.

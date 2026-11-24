@@ -749,6 +749,49 @@ naming 245 M against a cap voted down to 240 M passes GAS-1 at `E + 1` and at
 `a_waiting_block_gas_cap_out_of_range_at_promotion_is_dropped`. Red captured
 with the two keys classified as immediate.
 
+## Amendment 5 (ACCEPTED by Eric 2026-11-24, see amendment 9): a failed contract call is included and pays (decision brief 3, option A)
+
+**Status: proposed in a draft PR, not accepted.** It changes who pays for
+failed contract work, which is an economics decision.
+
+**Rule (GAS-8).** A plaintext contract call or deployment that passes its
+signature, nonce, fee, GAS-1 and GAS-2 checks and then fails in the VM is
+included instead of failing its block: its fee is paid, its sender's nonce
+advances, it writes nothing, and its failure gas counts against the block's
+contract gas. STF-8 gains that one exception. A call naming no contract, a
+GAS-1 or GAS-2 refusal and a node-local fault still fail the transaction; the
+VM engine failing to start is now `Storage` (a local fault), so no node
+includes a call as failed because its own engine did not start. A call
+whose engine could not get memory mid-call (an instance, its linear memory,
+compiled code) is `VmError::LocalFault` and so `Storage` too (amendment 7),
+which GAS-8 never absorbs: the review of this draft found that before
+amendment 7 those faults reached the node as `NodeError::Vm` and would have
+been included as failed calls on the node short of memory alone.
+
+**What it closes.** G1: a failing call is no longer free or pooled. Once
+included its nonce has moved, so the same transaction cannot be proposed
+again; repeating the attack costs one signed transaction and one fee per
+block, per account.
+
+**What it does not close, and makes visible.** Re-freeze review R-3: the fee
+is the byte fee (FEE-5), not a price per unit of gas. One call at the cap,
+failing or not, takes the whole block's contract gas for that fee. Under
+amendment 3 one failing sender could not do that (its failure had its own
+builder count) but two could, for nothing; under this amendment one can, for a
+fee. Closing R-3 needs a gas price: a fee that grows with `gas_limit` or
+`gas_used`, which is a fee-market design (who sets the price, a governed
+parameter and its bounds, refunds or none under GAS-6), not built here.
+
+**Under GAS-9 (amendment 6, merged in after this draft).** Selection keeps
+an included failure like any other transaction, so the four `builder_select`
+vectors amendment 6 wrote for left-out failures are re-stated here: in each,
+the failing call at the cap is kept and every contract call after it is
+passed over (`kept ["0"]`, `PassedOver`). That is R-3 as a vector: one call
+at the cap, failing, takes the whole block's contract gas for its byte fee.
+
+**Variant not built.** Included failed work could count against a budget of
+its own (one cap), so a paying failing call never takes room from calls that
+apply. It doubles a validator's worst case (2.25 × cap) and still leaves R-3.
 ## Amendment 6, 2026-11-22: the #549 review of amendment 4 (Eric 2026-11-17 pre-approval, re-freeze bundle)
 
 Numbered 6 because numbers 4 and 5 are also claimed by two other re-freeze
@@ -1157,3 +1200,71 @@ under the 1.5 bound; the exported-empty-functions shape, where the
 prologue and epilogue add the most code per unit of price, 0.916 ns/fuel;
 2,000 `return`s 0.004 ns/fuel. No price changed. Single runs on a machine
 shared with other builds; not a dedicated benchmark.
+
+## Amendment 9, 2026-11-24: contract gas and new state are paid for (Eric 2026-11-24: R-2, R-3, R-1)
+
+Eric's decisions of 2026-11-24, built together because they share one fee
+path. Each is a guarantee:
+
+- **Spam costs the spammer, and the pool stays free for real users (R-2).**
+  Amendment 5 (GAS-8) is accepted: a plaintext call or deployment that fails
+  in the VM is included, pays, and its nonce moves, so it leaves every pool
+  for good. With GAS-11 it now pays for the gas it ran, not only its bytes.
+- **Contract gas has a price, set by the same market as bytes (R-3,
+  GAS-11).** `base_fee` per `vm.gas_per_fee_byte` units, rounded up. A call
+  reserves its `gas_limit`'s price before it runs and gets back what it did
+  not use; a deployment pays its cold price after its scan. Default 47, the
+  default block gas over the block byte cap: a block of contract gas costs
+  what a block of bytes costs, so neither is the cheap way to fill a block.
+  Before this, one byte fee bought a call's whole gas, so one fee a block
+  bought that block's contract gas (the R-3 finding).
+- **A per-sender share of a block is a lever governance can pull without a
+  new binary (R-3, GAS-12).** `vm.max_sender_block_gas`, a validity
+  parameter. Its floor is the tx cap's own (239,979,600), because a lower one
+  would make the largest deployable module uncallable (GAS-5). At the
+  default caps it equals the block cap, and GAS-2 is checked first, so today
+  it never refuses anything and one sender may still use a whole block's
+  gas, paying GAS-11's price for all of it. It binds once the block cap is
+  voted above it (or the share below it). It is per address, and addresses
+  are free, so it does not stop one party splitting work across funded
+  addresses; what bounds a block-filler is the price, since gas spent from
+  many addresses costs the same as from one. Mempool admission refuses a
+  call or deployment above `min(tx cap, block cap, sender share)`, so a
+  share voted below the tx cap cannot leave unincludable calls in the pool
+  (PR #701 review).
+- **Plaintext contract state cannot balloon for a byte fee (R-1, GAS-13).** Every byte of new
+  contract state pays `vm.storage_fee_bytes_per_byte` bytes' worth of base
+  fee (default 40, in line with Ethereum's ratio of a new storage byte to a
+  calldata byte, about 39); a new entry also pays its 71-byte overhead.
+  Overwrites that do not grow pay nothing extra. A call that cannot pay for
+  the state it would add is included as failed and writes nothing.
+
+All three prices are governed parameters (tags 23, 24, 25; #644 holds 19 and
+20, ADR-155 21 and 22), so each limit moves by a vote within compiled bounds,
+never by a hard fork. All of it is base fee and burns (spec 04-fees FEE-7).
+
+**Where:** `crates/node/src/state/contract_fee.rs` (prices, reservation,
+settlement, refund, GAS-12 check), `fee_exec::charge_fee` (the reservation),
+`settlement::apply_kind` (settlement after GAS-8), `vm_exec::call_contract`
+and `deploy_contract` (GAS-12 and the GAS-13 check before staging),
+`mempool` (`admit_contract_fee`), `maya-governance` (three keys). Spec
+`10-vm-gas.md` v0.5.0, GAS-11..GAS-13.
+
+**Not covered, stated:** revealed sealed actions pay their envelope's fee and
+are not charged GAS-11/GAS-13 or counted by GAS-12: an inner call may spend
+up to `sealed_gas_budget` (62.5 M gas a block at the defaults) and write new
+state for the envelope's byte fee. Only a genesis installs a sealed committee,
+the ceremony installs none, and `cargo xtask genesis-check` refuses a mainnet
+genesis that does, so on mainnet R-1 holds without exception; pricing reveals
+(charging GAS-11 and GAS-13 against a deposit the envelope commits to) is a
+precondition for any network that installs one; the GAS-13 existence read
+is not metered on its own (a block makes at most 50,000 at the default caps;
+time not measured); GAS-11 does not feed the base-fee step.
+
+**Evidence:** `crates/node/tests/contract_fee_tests.rs` (the block-level
+GAS-12 case:
+`a_raised_block_cap_lets_the_sender_cap_bind_while_another_sender_gets_in`);
+`state::contract_fee::tests` (admission:
+`admission_refuses_a_call_no_senders_share_of_a_block_could_hold`); xtask
+`genesis_check::tests::a_genesis_with_a_sealed_committee_fails`.
+

@@ -190,6 +190,17 @@ pub(crate) struct Overlay {
     /// the revealed actions' own budget, `sealed_gas_budget` (GAS-2), not
     /// the plaintext transactions'.
     pub(crate) revealing: bool,
+    /// Contract gas each sender's applied plaintext transactions have spent
+    /// in this block, against `vm.max_sender_block_gas` (GAS-12).
+    pub(crate) sender_gas: BTreeMap<Address, u64>,
+    /// What the plaintext contract transaction now running may still pay
+    /// for gas and new state (GAS-11, GAS-13). Set by `charge_fee`, taken
+    /// when the transaction settles; `None` where fees are off and while
+    /// revealed sealed actions run.
+    pub(crate) contract_fee: Option<crate::state::contract_fee::ContractFee>,
+    /// Bytes of new contract state the last applied call or deployment
+    /// staged (GAS-13). Taken when its transaction settles.
+    pub(crate) vm_growth: u64,
 }
 
 impl Overlay {

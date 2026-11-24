@@ -102,6 +102,9 @@ cargo xtask genesis-check out/genesis.json
   - **Bonds:** every bond equals `min_self_bond` exactly.
   - **Operator cap:** no operator holds more than 20% of the bonded stake.
   - **Shielded pool:** off (`shielded_activation_height` = `u64::MAX`, ADR-037).
+  - **No sealed committee:** `sealed` is absent. Revealed sealed actions are not yet charged
+    for gas or new contract state (spec GAS-11, GAS-13), and only a genesis can install a
+    committee, so without one every contract byte of new state is paid for.
   - **Voting:** stake-weighted.
   - **Proof of work:** `difficulty_bits` is non-zero, or `bft.mining` is present.
   - **Fees:** `bft.fees` is present and `min_base_fee` is at least 10^6 (S-007).

@@ -369,6 +369,19 @@ pub enum NodeError {
         remaining: u64,
     },
 
+    /// The sender's contract transactions in this block have less of
+    /// `vm.max_sender_block_gas` left than this one needs (GAS-12). Like
+    /// [`Self::BlockGasExhausted`], not the transaction's fault: a block
+    /// producer leaves it for a later block, so one sender cannot take a
+    /// block's contract gas from everyone else.
+    #[error("sender needs {needed} contract gas and has {remaining} left in this block")]
+    SenderGasExhausted {
+        /// The gas the transaction needs.
+        needed: u64,
+        /// What the sender has left in this block.
+        remaining: u64,
+    },
+
     /// A shielded proof did not hold against its public inputs.
     #[error("shielded proof rejected: {0}")]
     ProofVerification(String),

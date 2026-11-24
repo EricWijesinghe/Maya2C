@@ -19,6 +19,7 @@ pub mod blocks;
 pub mod channel;
 pub mod commitments;
 pub mod context;
+pub mod contract_fee;
 pub mod contracts;
 pub mod council;
 pub mod db;

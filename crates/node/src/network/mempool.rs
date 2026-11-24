@@ -358,6 +358,9 @@ impl Mempool {
         // A deployment's shape is a scan of the whole module: only for a
         // signed one (PR #549 review).
         self.state.admit_deploy_shape(&tx.kind)?;
+        // And it pays for the gas and the new state it would use (GAS-11,
+        // GAS-13): nothing pooled runs unpaid.
+        self.state.admit_contract_fee(tx)?;
 
         // Evidence is stateless to check, so garbage never reaches a block
         // template — the executor checks it again regardless. Chain tag is required

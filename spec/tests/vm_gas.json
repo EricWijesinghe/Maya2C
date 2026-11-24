@@ -812,6 +812,7 @@
     {
       "id": "builder-a-failing-call-at-the-cap-then-honest-calls-all-included",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -848,17 +849,57 @@
         ]
       },
       "expect": {
+        "result": "error",
+        "error": "PassedOver",
+        "kept": [
+          "0"
+        ]
+      }
+    },
+    {
+      "id": "builder-honest-calls-within-the-budget-are-all-kept",
+      "rules": [
+        "GAS-9"
+      ],
+      "kind": "builder_select",
+      "input": {
+        "contracts": {
+          "writer": "(module (import \"env\" \"storage_write\" (func $write (param i32 i32 i32 i32))) (memory (export \"memory\") 1) (func (export \"invoke\") (param i32) (result i64) (i32.store8 (i32.const 0) (i32.const 107)) (i32.store (i32.const 16) (i32.const 1234)) (call $write (i32.const 0) (i32.const 1) (i32.const 16) (i32.const 4)) (i64.const 0)))"
+        },
+        "txs": [
+          {
+            "sender": "0",
+            "contract": "writer",
+            "gas_limit": "1000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "1",
+            "contract": "writer",
+            "gas_limit": "1000000",
+            "nonce": "0"
+          },
+          {
+            "sender": "2",
+            "contract": "writer",
+            "gas_limit": "1000000",
+            "nonce": "0"
+          }
+        ]
+      },
+      "expect": {
         "result": "ok",
         "kept": [
+          "0",
           "1",
-          "2",
-          "3"
+          "2"
         ]
       }
     },
     {
       "id": "builder-two-failing-senders-leave-exactly-the-slack",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -889,15 +930,17 @@
         ]
       },
       "expect": {
-        "result": "ok",
+        "result": "error",
+        "error": "PassedOver",
         "kept": [
-          "2"
+          "0"
         ]
       }
     },
     {
       "id": "builder-two-failing-senders-exhaust-the-budget",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -930,12 +973,15 @@
       "expect": {
         "result": "error",
         "error": "PassedOver",
-        "kept": []
+        "kept": [
+          "0"
+        ]
       }
     },
     {
       "id": "builder-a-failed-sender-second-contract-tx-passed-over",
       "rules": [
+        "GAS-8",
         "GAS-9"
       ],
       "kind": "builder_select",
@@ -969,7 +1015,7 @@
         "result": "error",
         "error": "PassedOver",
         "kept": [
-          "2"
+          "0"
         ]
       }
     }
