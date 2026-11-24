@@ -40,19 +40,42 @@ pub struct CouncilRecord {
     pub max_pause_blocks: u64,
     /// The next action's nonce.
     pub nonce: u64,
-    /// Members' ML-DSA-65 keys, by index.
+    /// Members' ML-DSA-65 keys, by index. Each is stored with its suite byte
+    /// (record v2, NEW-2): [`COUNCIL_SUITES`] names the ones accepted.
     pub members: Vec<[u8; PUBLIC_KEY_LEN]>,
 }
+
+/// The suites a council key may use (NEW-2, ADR-153): ML-DSA-65 today. The
+/// record and every approval carry the byte, so a hash-based council key is
+/// an upgrade to this list, never a new record or payload format.
+pub const COUNCIL_SUITES: [maya_crypto_pq::suite::SuiteId; 1] =
+    [maya_crypto_pq::suite::SuiteId::MlDsa65];
+
+/// The council suite a record or approval byte names.
+///
+/// # Errors
+///
+/// [`NodeError::Decode`] for any byte outside [`COUNCIL_SUITES`].
+pub fn council_suite(byte: u8) -> Result<maya_crypto_pq::suite::SuiteId> {
+    COUNCIL_SUITES
+        .into_iter()
+        .find(|s| s.to_byte() == byte)
+        .ok_or_else(|| NodeError::Decode(format!("suite 0x{byte:02x} is not a council suite")))
+}
+
+/// Record format version: 2 since NEW-2 added a suite byte per member.
+const RECORD_VERSION: u8 = 2;
 
 impl CouncilRecord {
     /// Encodes the record.
     #[must_use]
     pub fn encode(&self) -> Vec<u8> {
-        let mut out = vec![1u8, self.threshold];
+        let mut out = vec![RECORD_VERSION, self.threshold];
         out.extend_from_slice(&self.max_pause_blocks.to_le_bytes());
         out.extend_from_slice(&self.nonce.to_le_bytes());
         out.extend_from_slice(&(self.members.len() as u64).to_le_bytes());
         for m in &self.members {
+            out.push(COUNCIL_SUITES[0].to_byte());
             out.extend_from_slice(m);
         }
         out
@@ -65,14 +88,19 @@ impl CouncilRecord {
     /// [`NodeError::Decode`] on a wrong version or malformed bytes.
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         let mut r = ByteReader::new(bytes);
-        if r.read_u8()? != 1 {
+        if r.read_u8()? != RECORD_VERSION {
             return Err(NodeError::Decode("council record version".to_string()));
         }
         let threshold = r.read_u8()?;
         let max_pause_blocks = r.read_u64()?;
         let nonce = r.read_u64()?;
-        let n = r.read_collection_len(PUBLIC_KEY_LEN)?;
-        let members = (0..n).map(|_| r.read_array()).collect::<Result<_>>()?;
+        let n = r.read_collection_len(1 + PUBLIC_KEY_LEN)?;
+        let members = (0..n)
+            .map(|_| {
+                council_suite(r.read_u8()?)?;
+                r.read_array()
+            })
+            .collect::<Result<_>>()?;
         r.finish()?;
         Ok(Self {
             threshold,
@@ -244,5 +272,48 @@ mod tests {
             ],
         };
         assert_eq!(CouncilRecord::decode(&r.encode()).unwrap(), r);
+    }
+
+    #[test]
+    fn every_member_key_carries_a_council_suite() {
+        // NEW-2: record v2 is `.. n (suite key)*`; the suite after the count.
+        let r = CouncilRecord {
+            threshold: 1,
+            max_pause_blocks: 1,
+            nonce: 0,
+            members: vec![[7; PUBLIC_KEY_LEN]],
+        };
+        let bytes = r.encode();
+        let suite_at = 1 + 1 + 8 + 8 + 8;
+        assert_eq!(bytes[0], 2, "record version");
+        assert_eq!(bytes[suite_at], 0x10, "ML-DSA-65");
+        let mut forged = bytes.clone();
+        forged[suite_at] = 0x11;
+        assert!(CouncilRecord::decode(&forged).is_err());
+        let mut v1 = bytes;
+        v1[0] = 1;
+        assert!(
+            CouncilRecord::decode(&v1).is_err(),
+            "the suite-less v1 layout"
+        );
+    }
+
+    #[test]
+    fn an_approval_names_a_council_suite_or_does_not_decode() {
+        use crate::core::council_payload::{CouncilAction, CouncilKind};
+        let action = CouncilAction {
+            kind: CouncilKind::Resume { module: 1 },
+            nonce: 4,
+            approvals: vec![(0, Box::new([9; crate::crypto::SIGNATURE_LENGTH]))],
+        };
+        let mut buf = Vec::new();
+        action.encode_into(&mut buf);
+        // kind(1) module(1) nonce(8) n(8) member(1), then the suite.
+        let suite_at = 1 + 1 + 8 + 8 + 1;
+        assert_eq!(buf[suite_at], 0x10);
+        let decode = |b: &[u8]| CouncilAction::decode(&mut crate::core::codec::ByteReader::new(b));
+        assert_eq!(decode(&buf).unwrap(), action);
+        buf[suite_at] = 0x21;
+        assert!(decode(&buf).is_err());
     }
 }

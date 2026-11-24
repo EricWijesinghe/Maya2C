@@ -35,15 +35,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::consensus::TARGET_BLOCK_TIME;
-
 /// Blocks between forced re-handshakes.
 ///
-/// At the 15 s target block time this is a little over four hours. Short enough
+/// At one block a second (docs/block-time.md) this is a little over four
+/// hours; it was 1,000 when blocks were assumed to be 15 s. Short enough
 /// that a key lifted from a running node has a bounded payoff; long enough that
 /// re-handshaking is invisible against a mesh of tens of peers, each costing
 /// ~144 µs of ML-KEM work.
-pub const ROTATION_INTERVAL_BLOCKS: u64 = 1_000;
+pub const ROTATION_INTERVAL_BLOCKS: u64 = 15_000;
 
 /// Wall-clock equivalent of [`ROTATION_INTERVAL_BLOCKS`].
 ///
@@ -52,8 +51,9 @@ pub const ROTATION_INTERVAL_BLOCKS: u64 = 1_000;
 /// height for hours — and a node whose height never advances would, on height
 /// alone, never rotate at all. That is precisely the node an attacker would
 /// most like to have compromised.
-pub const ROTATION_FALLBACK: Duration =
-    Duration::from_secs(ROTATION_INTERVAL_BLOCKS * TARGET_BLOCK_TIME);
+///
+/// One second per block (docs/block-time.md), so 15,000 s: the same four hours.
+pub const ROTATION_FALLBACK: Duration = Duration::from_secs(ROTATION_INTERVAL_BLOCKS);
 
 /// Tracks which rotation epoch the node is in.
 ///
@@ -125,9 +125,10 @@ mod tests {
 
     #[test]
     fn the_interval_is_a_little_over_four_hours() {
-        // Sanity on the constant a reader is most likely to want to change.
+        // Sanity on the constant a reader is most likely to want to change:
+        // 15,000 s by the clock and 15,000 blocks at one block a second.
         assert_eq!(ROTATION_FALLBACK.as_secs(), 15_000);
-        assert_eq!(ROTATION_INTERVAL_BLOCKS, 1_000);
+        assert_eq!(ROTATION_INTERVAL_BLOCKS, 15_000);
     }
 
     #[test]
@@ -136,26 +137,27 @@ mod tests {
     }
 
     #[test]
-    fn the_epoch_advances_every_thousand_blocks() {
+    fn the_epoch_advances_every_interval() {
+        const I: u64 = ROTATION_INTERVAL_BLOCKS;
         let clock = EpochClock::new();
 
-        clock.set_height(999);
+        clock.set_height(I - 1);
         assert_eq!(clock.current(), 0);
 
-        clock.set_height(1_000);
+        clock.set_height(I);
         assert_eq!(clock.current(), 1);
 
-        clock.set_height(1_999);
+        clock.set_height(2 * I - 1);
         assert_eq!(clock.current(), 1);
 
-        clock.set_height(50_000);
+        clock.set_height(50 * I);
         assert_eq!(clock.current(), 50);
     }
 
     #[test]
     fn a_session_from_an_earlier_epoch_is_stale() {
         let clock = EpochClock::new();
-        clock.set_height(2_500);
+        clock.set_height(ROTATION_INTERVAL_BLOCKS * 5 / 2);
 
         assert!(clock.is_stale(1));
         assert!(!clock.is_stale(2));
@@ -169,7 +171,7 @@ mod tests {
         let clock = EpochClock::new();
         let other = clock.clone();
 
-        clock.set_height(3_000);
+        clock.set_height(ROTATION_INTERVAL_BLOCKS * 3);
         assert_eq!(other.current(), 3);
     }
 
