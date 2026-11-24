@@ -155,11 +155,12 @@ impl Fixture {
     }
 }
 
-fn upgrade(version: u32, activation_height: u64, features: u64) -> ScheduleUpgrade {
+fn upgrade(version: u32, activation_height: u64, features: u128) -> ScheduleUpgrade {
     ScheduleUpgrade {
         version,
         activation_height,
         features: FeatureSet(features),
+        binary_hash: [0; 32],
         sunsets: Vec::new(),
     }
 }
@@ -246,6 +247,7 @@ fn a_new_entry_must_lie_after_every_entry_already_written() {
         activation: FIRST_LEGAL_ACTIVATION + 1,
         version: Some(SUPPORTED_PROTOCOL_VERSION + 1),
         features: FeatureSet(FeatureSet::IOT),
+        binary_hash: [0; 32],
         sunsets: Vec::new(),
     };
     // Admitted at the earliest height that clears the lead from `now`.
@@ -291,6 +293,7 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
         activation: FIRST_LEGAL_ACTIVATION,
         version: None,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
         sunsets: Vec::new(),
     };
     assert!(
@@ -300,6 +303,7 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
     );
     let feature_without_version = ScheduleRequest {
         features: FeatureSet(FeatureSet::DVP),
+        binary_hash: [0; 32],
         sunsets: vec![SunsetSpec {
             suite: SuiteId::MlDsa65.to_byte(),
             sunset_height: FIRST_LEGAL_ACTIVATION + MIN_MIGRATION_WINDOW,
@@ -325,7 +329,7 @@ fn a_schedule_entry_that_schedules_nothing_or_a_feature_on_a_sunset_is_refused()
 
 /// A bit no binary defines yet. The top bit, so bits claimed by branches in
 /// flight (8, 9, ...) never make it known.
-const UNKNOWN_BIT: u64 = 1 << 63;
+const UNKNOWN_BIT: u128 = 1 << 63;
 
 #[test]
 fn a_proposal_with_an_unknown_feature_bit_is_accepted_and_its_entry_written() {
@@ -411,6 +415,7 @@ fn a_sunset_only_entry_with_unknown_bits_is_still_refused() {
         activation: FIRST_LEGAL_ACTIVATION,
         version: None,
         features: FeatureSet(UNKNOWN_BIT),
+        binary_hash: [0; 32],
         sunsets: vec![SunsetSpec {
             suite: SuiteId::MlDsa65.to_byte(),
             sunset_height: FIRST_LEGAL_ACTIVATION + MIN_MIGRATION_WINDOW,
@@ -435,6 +440,7 @@ fn a_committed_sunset_refuses_its_suite_at_its_height_and_accepts_it_one_block_b
         version: SUPPORTED_PROTOCOL_VERSION,
         activation_height: FIRST_LEGAL_ACTIVATION,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
         sunsets: vec![custom_l1_node::state::upgrades::SunsetSpec {
             suite: SuiteId::MlDsa65.to_byte(),
             sunset_height,

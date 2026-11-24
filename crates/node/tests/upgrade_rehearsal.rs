@@ -75,6 +75,7 @@ fn a_version_this_binary_does_not_implement_halts_the_chain_at_its_height() {
         version: SUPPORTED_PROTOCOL_VERSION + 1,
         activation_height: H,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
     };
     let dir = TempDir::new().unwrap();
     let mut chain = open(&dir, &config(vec![scheduled]));
@@ -111,6 +112,7 @@ fn a_version_this_binary_implements_switches_its_feature_on_at_its_height() {
         version: SUPPORTED_PROTOCOL_VERSION,
         activation_height: H,
         features: FeatureSet(FeatureSet::DVP),
+        binary_hash: [0; 32],
     };
     let dir = TempDir::new().unwrap();
     let mut chain = open(&dir, &config(vec![scheduled]));
@@ -138,6 +140,7 @@ fn a_regtest_genesis_scheduled_at_height_3_accepts_block_2_and_halts_at_3_across
         version: SUPPORTED_PROTOCOL_VERSION + 1,
         activation_height: 3,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
     };
     let cfg = config(vec![scheduled]);
     let dir = TempDir::new().unwrap();

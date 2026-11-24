@@ -3168,8 +3168,8 @@ paths = "`crates/node/src/upgrade.rs`, `crates/node/src/state/upgrades.rs`"
 tier = "core"
 class = "REAL"
 status = "working"
-tests = ["crates/node/tests/upgrade_rehearsal.rs", "crates/node/tests/upgrade_schedule_tests.rs"]
-note = "Master Prompt 15 §4, ADR-082. The schedule is committed state (`up:`): genesis seeds it, governance ScheduleUpgrade and the security council's sunset write it, with a compiled lead (invariant 34). A block at an unsupported version's height is refused with 'upgrade required before height H'. Dark features join any version. Headers carry no version field; the header byte is a flag-day tag (ADR-082). The two-binary late-node rehearsal is not run in one process: the halt is checked against the compiled SUPPORTED_PROTOCOL_VERSION."
+tests = ["crates/node/tests/upgrade_rehearsal.rs", "crates/node/tests/upgrade_schedule_tests.rs", "crates/node/tests/upgrade_record_tests.rs"]
+note = "Master Prompt 15 §4, ADR-082. Room to grow (ADR-155): a 128-bit feature set and the release hash an upgrade names, in the proposal, the versioned 61-byte `up:v` record and the genesis id (upgrade_record_tests.rs). The schedule is committed state (`up:`): genesis seeds it, governance ScheduleUpgrade and the security council's sunset write it, with a compiled lead (invariant 34). A block at an unsupported version's height is refused with 'upgrade required before height H'. Dark features join any version. Headers carry no version field; the header byte is a flag-day tag (ADR-082). The two-binary late-node rehearsal is not run in one process: the halt is checked against the compiled SUPPORTED_PROTOCOL_VERSION."
 
 [[subsystem]]
 id = "hash-migration-rehearsal"

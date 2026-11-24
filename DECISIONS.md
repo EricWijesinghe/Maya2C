@@ -901,3 +901,12 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-24 — Upgrades name their release and have room for 128 features (Eric 2026-11-24)
+
+Eric 2026-11-24: every limit liftable without a hard fork, each fix a guarantee from block 0. ADR-155 §5 (G21, NEW-3), spec CON-14.
+
+- **Feature set 128 bits.** Bits 0-10 are taken on master and the v2/v3 branches and the v4 umbrella claims 40-47; a `u64` was a few dozen features from a new record kind. The proposal, the stored record and the genesis id carry 16 bytes.
+- **Release hash.** A version entry names the BLAKE3 hash of the release that implements it (zeros for none), in the proposal, the record and the genesis id. Voters and operators check a binary against it; no node compares it with its own executable. A sunset-only entry names none.
+- **Versioned record.** `up:v` is `layout 1 ‖ version ‖ height ‖ features ‖ hash` (61 bytes); another layout or length is refused, so a wider set later is a new layout, not a new kind.
+- **Takes effect at the re-genesis** (proposal wire, record and genesis id change). Stacked on #506.

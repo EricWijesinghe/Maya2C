@@ -396,6 +396,7 @@ fn the_upgrade_schedule_suite_deprecations_and_pow_floor_each_change_the_id() {
     scheduled.protocol_upgrades = vec![ProtocolUpgrade {
         version: 2,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
         activation_height: 100,
     }];
     let mut sunset = config();
@@ -407,12 +408,16 @@ fn the_upgrade_schedule_suite_deprecations_and_pow_floor_each_change_the_id() {
     }];
     let mut floor = config();
     floor.pow_limit_bits = 8;
+    // The release an upgrade names is part of what genesis commits to (ADR-155).
+    let mut named = scheduled.clone();
+    named.protocol_upgrades[0].binary_hash = [0x5a; 32];
 
     let ids = [
         genesis_id(&plain),
         genesis_id(&scheduled),
         genesis_id(&sunset),
         genesis_id(&floor),
+        genesis_id(&named),
     ];
     for (i, a) in ids.iter().enumerate() {
         for b in &ids[i + 1..] {
@@ -427,6 +432,7 @@ fn the_upgrade_schedule_is_bound_in_whatever_order_the_file_lists_it() {
         version,
         activation_height,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
     };
     let mut forward = config();
     forward.protocol_upgrades = vec![upgrade(2, 10), upgrade(3, 20)];

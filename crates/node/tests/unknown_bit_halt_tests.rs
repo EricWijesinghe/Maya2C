@@ -38,7 +38,7 @@ use tempfile::TempDir;
 mod common;
 
 /// A bit no binary defines: the top one, clear of bits claimed in flight.
-const UNKNOWN_BIT: u64 = 1 << 63;
+const UNKNOWN_BIT: u128 = 1 << 63;
 /// The height the chain's copy of the entry activates at.
 const H: u64 = 6;
 
@@ -105,6 +105,7 @@ fn governance_written_entry() -> ProtocolUpgrade {
             version: SUPPORTED_PROTOCOL_VERSION,
             activation_height: FIRST_LEGAL_ACTIVATION,
             features: FeatureSet(FeatureSet::DVP | UNKNOWN_BIT),
+            binary_hash: [0; 32],
             sunsets: Vec::new(),
         }),
     };

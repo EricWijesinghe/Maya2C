@@ -81,13 +81,16 @@ pub fn tag_from_block(block: &Block) -> ChainTag {
 }
 
 /// The stored bytes of a schedule version entry, as `state::upgrades` writes
-/// them: version, activation height and feature bits, little-endian. For a
-/// fixture that must place an entry no genesis may carry (an unknown feature
-/// bit) or at a height a governance lead cannot reach inside a test.
+/// them: layout byte 1, then version, activation height, 128-bit feature
+/// bits and the release hash, little-endian (ADR-155). For a fixture that must
+/// place an entry no genesis may carry (an unknown feature bit) or at a height
+/// a governance lead cannot reach inside a test.
 #[must_use]
 pub fn version_record(upgrade: &custom_l1_node::upgrade::ProtocolUpgrade) -> Vec<u8> {
-    let mut out = upgrade.version.to_le_bytes().to_vec();
+    let mut out = vec![1];
+    out.extend_from_slice(&upgrade.version.to_le_bytes());
     out.extend_from_slice(&upgrade.activation_height.to_le_bytes());
     out.extend_from_slice(&upgrade.features.0.to_le_bytes());
+    out.extend_from_slice(&upgrade.binary_hash);
     out
 }

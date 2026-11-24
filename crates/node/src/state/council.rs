@@ -197,6 +197,7 @@ impl StateDB {
             activation: announced_at,
             version: None,
             features: FeatureSet::default(),
+            binary_hash: [0; 32],
             sunsets: sunsets.to_vec(),
         };
         // No emergency window on this path (H3): the migration window is the

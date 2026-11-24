@@ -32,6 +32,7 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
 
 - **CON-14** An upgrade-schedule entry that names a version is admitted whatever feature bits it carries, subject to the lead, the horizon, strictly increasing versions and heights, and the suite rules (ADR-082). A sunset-only entry that carries any feature bit is refused. *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
+  The entry's feature set is 128 bits (`features_u128`), and it names the BLAKE3 hash of the release that implements it (`binary_hash[32]`, all zeros for none; a sunset-only entry must name none). A proposal carries `version_u32 ‖ activation_u64 ‖ features_u128 ‖ binary_hash[32] ‖ sunsets`; the stored `up:v` record is `layout_u8 = 1 ‖ version_u32 ‖ activation_u64 ‖ features_u128 ‖ binary_hash[32]` (61 bytes), and a record of another layout or length is refused. The genesis id folds `features_u128 ‖ binary_hash` of every genesis entry (ADR-155, G21, NEW-3).
 - **CON-15** A node refuses every block at or past the activation height of the first schedule entry it does not support, with `UpgradeRequired`, and accepts the block one height before it. An entry is supported only when its version is at most the node's supported version and it carries no feature bit the node does not implement (an undefined bit, or zkML while it has no verifier). *(external vectors: crates/node/tests/upgrade_schedule_tests.rs)*
 
 ## Vectors and gaps

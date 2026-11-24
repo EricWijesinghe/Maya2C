@@ -1157,6 +1157,7 @@ impl GenesisConfig {
             h.update(&u.version.to_le_bytes());
             h.update(&u.activation_height.to_le_bytes());
             h.update(&u.features.0.to_le_bytes());
+            h.update(&u.binary_hash);
         }
         *h.finalize().as_bytes()
     }

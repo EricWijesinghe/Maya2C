@@ -82,6 +82,7 @@ fn schedule_request(upgrade: &ScheduleUpgrade) -> ScheduleRequest {
         activation: upgrade.activation_height,
         version: Some(upgrade.version),
         features: upgrade.features,
+        binary_hash: upgrade.binary_hash,
         sunsets: upgrade.sunsets.clone(),
     }
 }
