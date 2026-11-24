@@ -4,7 +4,7 @@ description: How Maya2C release binaries are built, signed and verified, who app
 ---
 
 Every Maya2C binary you download is built by GitHub Actions from the public
-source at [github.com/EricWijesinghe/Maya2C](https://github.com/EricWijesinghe/Maya2C),
+source at [github.com/maya2c/Maya2C](https://github.com/maya2c/Maya2C),
 by the workflow `.github/workflows/release-binaries.yml`. Nobody builds a
 release on a personal computer.
 
@@ -24,7 +24,7 @@ the same source, plus a signature.
 ## Verify a download yourself
 
 ```bash
-gh attestation verify <file> --repo EricWijesinghe/Maya2C
+gh attestation verify <file> --repo maya2c/Maya2C
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
@@ -32,7 +32,7 @@ The first proves the file was built by this repository's release workflow,
 from a named commit. Every file in a release has its own attestation, and so
 does `SHA256SUMS`. The second proves it is the file the release published.
 The full check, with the Sigstore signatures, is on
-[docs/verify-release.md](https://github.com/EricWijesinghe/Maya2C/blob/master/docs/verify-release.md).
+[docs/verify-release.md](https://github.com/maya2c/Maya2C/blob/master/docs/verify-release.md).
 
 ## Team and roles
 
