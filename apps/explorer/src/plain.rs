@@ -69,6 +69,7 @@ mod tests {
             kind: String::new(),
             summary: String::new(),
             careful: false,
+            explanation: String::new(),
         }
     }
 

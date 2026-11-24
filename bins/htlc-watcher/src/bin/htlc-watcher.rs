@@ -8,7 +8,8 @@
 //! sensitive as the keystore and are **not** encrypted, so keep them on the
 //! same footing as the password. A file holds `<family>:<64 hex>`, the family
 //! one of `sha3-256`, `blake3`, `sha256` (hash-lock preimages) or `lattice`
-//! (a lattice seed); bare hex is read as `lattice`, the only kind there was.
+//! (a lattice seed); bare hex, the form older files use, is still read as
+//! `lattice`, and the watcher warns on each load: write the prefix.
 
 use std::error::Error;
 use std::path::PathBuf;
@@ -89,13 +90,26 @@ fn parse_args() -> Result<Args, Box<dyn Error>> {
     })
 }
 
+/// Splits `<family>:<hex>` into its parts. Bare hex has no family and is
+/// `lattice`; the flag says so, so the caller can warn.
+fn split_family(text: &str) -> (&str, &str, bool) {
+    match text.split_once(':') {
+        Some((family, hex_text)) => (family, hex_text, false),
+        None => ("lattice", text, true),
+    }
+}
+
 /// Reads a hex secret straight into its zeroizing wrapper.
 fn load_secret(path: &PathBuf) -> Result<SwapSecret, Box<dyn Error>> {
     let text = Zeroizing::new(std::fs::read_to_string(path)?);
-    let (family, hex_text) = text
-        .trim()
-        .split_once(':')
-        .unwrap_or(("lattice", text.trim()));
+    let (family, hex_text, implicit) = split_family(text.trim());
+    if implicit {
+        // Kept readable for files written before prefixes; the warning is per run.
+        eprintln!(
+            "{}: no family prefix, read as lattice; write `lattice:<hex>`",
+            path.display()
+        );
+    }
     // Each family's own length: a lattice seed and a preimage are both 32
     // bytes today, and nothing should rely on that staying true.
     let expected = if family == "lattice" {
@@ -177,4 +191,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .run(Duration::from_secs(args.poll_secs), shutdown, print_tick)
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_family;
+
+    #[test]
+    fn a_prefixed_secret_names_its_family() {
+        assert_eq!(split_family("sha256:abcd"), ("sha256", "abcd", false));
+    }
+
+    #[test]
+    fn bare_hex_still_reads_as_lattice_and_is_flagged() {
+        assert_eq!(split_family("abcd"), ("lattice", "abcd", true));
+    }
 }

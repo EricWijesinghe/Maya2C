@@ -465,6 +465,37 @@ fn a_handoff_whose_state_does_not_fold_to_the_header_root_is_refused() {
     ));
 }
 
+/// `check_order` walks `LAYER_ORDER`; it listed `up:` before `sl:` while the
+/// node folds `sl:` first, so a handoff from a state holding both was refused.
+/// `sl:order-test` is not a key the chain writes (its one `sl:` key switches
+/// the accounts to a sparse tree, which has no account proof); it is here to
+/// put the layer in the fold.
+#[test]
+fn a_handoff_from_a_state_holding_stateless_and_upgrade_records_is_accepted() {
+    let (signing0, keys0) = members(1..=4);
+    let (_, keys1) = members(11..=15);
+    let mut node = Node::new();
+    node.commit_epoch(1, &keys1, None);
+    node.db
+        .raw_put_for_test(b"sl:order-test", b"x")
+        .expect("sl record");
+    node.db
+        .raw_put_for_test(b"up:order-test", b"x")
+        .expect("up record");
+    let h1 = node.header(10);
+    let cp1 = checkpoint(&signing0, &CHAIN, 0, 10, h1.id(), &[0, 1, 2]);
+    let ho1 = node.handoff(h1, cp1, 1);
+    let layers: Vec<StateLayer> = ho1.layers.iter().map(|d| d.layer).collect();
+    assert!(
+        layers.contains(&StateLayer::Stateless) && layers.contains(&StateLayer::UpgradeSchedule),
+        "the handoff must carry both layers: {layers:?}"
+    );
+
+    let mut client = FinalityClient::new(CHAIN, policy(), anchor(keys0, None)).unwrap();
+    client.advance(&ho1, 10).expect("the handoff is accepted");
+    assert_eq!(client.epoch(), 1);
+}
+
 #[test]
 fn a_handoff_naming_another_epoch_record_is_refused() {
     let (mut client, mut ho1, _, _) = three_epoch_chain();

@@ -56,6 +56,7 @@ fn transaction(height: i64, index: usize) -> IndexedTx {
         kind: String::new(),
         summary: String::new(),
         careful: false,
+        explanation: String::new(),
     }
 }
 
@@ -72,16 +73,17 @@ async fn harness(blocks: i64) -> Harness {
     }
 
     let (events, _) = broadcast::channel(64);
-    let state = AppState {
-        store: Arc::clone(&store) as Arc<dyn BlockStore>,
-        events: events.clone(),
-        node_rpc: None,
-        // The real directory, resolved from the manifest rather than the
-        // working directory, so the asset routes are exercised as deployed
-        // rather than skipped. `cargo test` and `cargo nextest` do not agree
-        // on the cwd of a test binary; `CARGO_MANIFEST_DIR` is fixed.
-        assets: Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets")),
-    };
+    // The real directory, resolved from the manifest rather than the working
+    // directory, so the asset routes are exercised as deployed rather than
+    // skipped. `cargo test` and `cargo nextest` do not agree on the cwd of a
+    // test binary; `CARGO_MANIFEST_DIR` is fixed.
+    let assets = Some(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets"));
+    let state = AppState::new(
+        Arc::clone(&store) as Arc<dyn BlockStore>,
+        events.clone(),
+        None,
+        assets,
+    );
 
     // Port 0: the OS assigns one, so concurrent tests never collide.
     let server = serve("127.0.0.1:0".parse().expect("addr"), state)
@@ -572,12 +574,7 @@ async fn a_deployment_without_an_assets_directory_still_serves_pages() {
     let (events, _) = broadcast::channel(64);
     let server = serve(
         "127.0.0.1:0".parse().expect("addr"),
-        AppState {
-            store: store as Arc<dyn BlockStore>,
-            events,
-            node_rpc: None,
-            assets: None,
-        },
+        AppState::new(store as Arc<dyn BlockStore>, events, None, None),
     )
     .await
     .expect("serve");
@@ -784,4 +781,37 @@ async fn a_corrupt_bech32m_address_is_rejected_with_a_reason() {
 
     assert_eq!(status, 400);
     assert!(body.contains("Bech32m address"), "{body}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_block_and_tx_pages_explain_themselves() {
+    let h = harness(3).await;
+    let tx = IndexedTx {
+        explanation: "aaaaaaaa…aaaaaa signed: Send 5 base units of the native coin to b000…000b."
+            .into(),
+        ..transaction(1, 9)
+    };
+    h.store
+        .put_block(&block(1, 1), std::slice::from_ref(&tx))
+        .await
+        .expect("seed");
+
+    let (status, body) = get(&format!("{}/blocks/1", h.base)).await;
+    assert_eq!(status, 200);
+    assert!(body.contains("Explain this block"), "{body}");
+    assert!(
+        body.contains("Block 1 holds 1 transaction(s) moving 509 base units in total"),
+        "{body}"
+    );
+    assert!(
+        body.contains("Send 5 base units of the native coin to b000…000b"),
+        "{body}"
+    );
+
+    let (status, body) = get(&format!("{}/tx/{}", h.base, tx.txid)).await;
+    assert_eq!(status, 200);
+    assert!(
+        body.contains("Send 5 base units of the native coin to b000…000b"),
+        "{body}"
+    );
 }

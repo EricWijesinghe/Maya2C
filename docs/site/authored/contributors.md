@@ -11,7 +11,7 @@ they carry no token, no money, and no promise of either.
 | Badge | Criteria |
 |---|---|
 | ![Testnet node, 7 days](/badges/testnet-7-day.svg) | Ran a validator or full node on `maya-testnet-1` for at least 7 consecutive days. |
-| ![Security finder](/badges/security-finder.svg) | Reported a valid vulnerability privately under [SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md), with consent to be named. |
+| ![Security finder](/badges/security-finder.svg) | Reported a valid vulnerability privately under [SECURITY.md](https://github.com/maya2c/Maya2C/blob/master/SECURITY.md), with consent to be named. |
 | ![Merged PR](/badges/merged-pr.svg) | Had at least one pull request merged into `master`. |
 
 A person can hold more than one badge.
@@ -19,7 +19,7 @@ A person can hold more than one badge.
 ## How to claim
 
 Open an issue on the
-[Maya2C repository](https://github.com/EricWijesinghe/Maya2C/issues/new) and
+[Maya2C repository](https://github.com/maya2c/Maya2C/issues/new) and
 title it `Badge claim: <badge name>`. Include:
 
 - **Testnet node:** your node's peer ID, the dates it ran, and a log excerpt
@@ -41,3 +41,13 @@ are declined with the reason given.
 
 No one is listed until a claim has been checked. Nothing here is taken from a
 scanner's output or from a name without a claim.
+
+## Ambassadors and referrals (not open yet)
+
+A volunteer ambassador programme and a referral credit are designed in
+[`docs/growth/ambassador-design.md`](https://github.com/maya2c/Maya2C/blob/master/docs/growth/ambassador-design.md).
+Neither is open. When they open, the same rule as the badges applies:
+ambassadors and referrers are **unpaid**, receive no token, money or
+allocation, must say they are affiliated in every post, and never talk about
+price or returns. Credit is a listing here, given only for a checked
+contribution, and only with the person's consent.

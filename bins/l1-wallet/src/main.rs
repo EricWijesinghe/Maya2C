@@ -30,7 +30,7 @@ use clap::{Parser, Subcommand};
 use custom_l1_node::core::council_payload::CouncilAction;
 use custom_l1_node::core::staking_payload::StakingAction;
 use custom_l1_node::core::{ChainTag, Transaction, TxKind, TxOutput};
-use custom_l1_node::crypto::hybrid::{HybridSigningKey, generate_signing_key};
+use custom_l1_node::crypto::hybrid::{HybridSigningKey, signing_key_from_seed};
 use custom_l1_node::rpc::ChainInfo;
 
 use l1_wallet::client::NodeClient;
@@ -297,6 +297,18 @@ fn display_address(id: &[u8; 32], network: Option<Network>) -> String {
     }
 }
 
+/// Shortest password a new keystore accepts; the signer's sealed keys use the
+/// same 12-byte floor. Only creation is checked: existing keystores still open.
+const MIN_NEW_PASSWORD_BYTES: usize = 12;
+
+/// Refuses a password too short to resist an offline guess against `wallet.key`.
+fn check_new_password(password: &str) -> Result<()> {
+    if password.len() < MIN_NEW_PASSWORD_BYTES {
+        bail!("password must be at least {MIN_NEW_PASSWORD_BYTES} bytes");
+    }
+    Ok(())
+}
+
 fn command_generate(path: &Path, network: Network) -> Result<()> {
     if path.exists() {
         bail!(
@@ -306,7 +318,12 @@ fn command_generate(path: &Path, network: Network) -> Result<()> {
     }
 
     let password = read_password(true)?;
-    let signing_key = generate_signing_key()?;
+    check_new_password(&password)?;
+    // The same derivation `generate_signing_key` uses, fed a 32-byte chain key
+    // that passed the entropy health tests; a failure stops here, typed, with
+    // no fallback and no sample in the message.
+    let chain_key = maya_entropy::keygen::KeygenEntropy::os()?.seed::<32>()?;
+    let signing_key = signing_key_from_seed(&chain_key)?;
     let address = signing_key.address();
 
     let blob = keystore::encrypt(&signing_key, &password)?;
@@ -763,6 +780,14 @@ mod password_tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("do not match"), "{error}");
+    }
+
+    #[test]
+    fn a_new_password_below_the_floor_is_refused() {
+        let short = "x".repeat(MIN_NEW_PASSWORD_BYTES - 1);
+        let floor = "x".repeat(MIN_NEW_PASSWORD_BYTES);
+        assert!(check_new_password(&short).is_err());
+        assert!(check_new_password(&floor).is_ok());
     }
 
     #[test]

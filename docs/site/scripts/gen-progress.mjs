@@ -12,7 +12,7 @@ const boxes = (text) => ({
   open: (text.match(/^\s*- \[ \]/gm) || []).length,
 });
 const gates = read("docs/site/src/data/mainnet-gates.ts");
-const repo = "EricWijesinghe/Maya2C";
+const repo = "maya2c/Maya2C";
 const headers = { "User-Agent": "maya2c-site", Accept: "application/vnd.github+json" };
 if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
 const gh = async (path) => {

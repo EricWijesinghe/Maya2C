@@ -168,11 +168,9 @@ fn run_on_big_stack(path: String) -> Result<String, String> {
 fn generate_key(path: &std::path::Path) -> Result<String, String> {
     use std::io::Write as _;
     let key = custom_l1_node::crypto::hybrid::generate_signing_key().map_err(|e| e.to_string())?;
-    let line = zeroize::Zeroizing::new(format!(
-        "{KEY_VAR}={}
-",
-        hex::encode(key.to_bytes().as_slice())
-    ));
+    // The hex copy of the secret is wiped too, not only the formatted line.
+    let secret_hex = zeroize::Zeroizing::new(hex::encode(key.to_bytes().as_slice()));
+    let line = zeroize::Zeroizing::new(format!("{KEY_VAR}={}\n", secret_hex.as_str()));
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -190,18 +188,24 @@ fn generate_key(path: &std::path::Path) -> Result<String, String> {
 
 /// Reads the signing key from the environment.
 fn load_key() -> Result<HybridSigningKey, String> {
-    let encoded = std::env::var(KEY_VAR).map_err(|_| {
+    let encoded = zeroize::Zeroizing::new(std::env::var(KEY_VAR).map_err(|_| {
         format!(
             "{KEY_VAR} is not set. The faucet needs a funded signing key, and it is read from \
              the environment rather than a flag because a command line is readable by every \
              process on the host."
         )
-    })?;
+    })?);
 
-    let bytes = hex::decode(encoded.trim()).map_err(|_| format!("{KEY_VAR} is not hex"))?;
-    let bytes: [u8; HYBRID_SECRET_KEY_LEN] = bytes
-        .try_into()
-        .map_err(|_: Vec<u8>| format!("{KEY_VAR} must be {HYBRID_SECRET_KEY_LEN} bytes of hex"))?;
+    // Decoded straight into the fixed-size buffer: a Vec would be freed unwiped.
+    let hex_text = encoded.trim();
+    if hex_text.len() != HYBRID_SECRET_KEY_LEN * 2 {
+        return Err(format!(
+            "{KEY_VAR} must be {HYBRID_SECRET_KEY_LEN} bytes of hex"
+        ));
+    }
+    let mut bytes = zeroize::Zeroizing::new([0u8; HYBRID_SECRET_KEY_LEN]);
+    hex::decode_to_slice(hex_text, bytes.as_mut_slice())
+        .map_err(|_| format!("{KEY_VAR} is not hex"))?;
 
     HybridSigningKey::from_bytes(&bytes).map_err(|e| format!("{KEY_VAR} is not a signing key: {e}"))
 }

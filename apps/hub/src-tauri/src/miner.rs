@@ -158,6 +158,8 @@ struct Plan {
     binary: String,
     install: PathBuf,
     key_file: PathBuf,
+    /// The Hub's data folder the key must stay inside; re-checked at each launch.
+    data: PathBuf,
     threads: usize,
     device: Option<u32>,
     ceiling_c: f64,
@@ -258,11 +260,54 @@ pub fn ingest(state: &mut MinerState, line: &str, t_ms: u64) {
 /// Reads one child stream into `state` on its own thread.
 fn read_lines(stream: impl std::io::Read + Send + 'static, state: Arc<Mutex<MinerState>>) {
     thread::spawn(move || {
-        for line in BufReader::new(stream).lines().map_while(Result::ok) {
+        let mut reader = BufReader::new(stream);
+        let mut buf = Vec::new();
+        loop {
+            buf.clear();
+            match read_bounded_line(&mut reader, &mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            // Lossy, not a stop: a cut or bad byte must not leave the child blocked on a full pipe.
+            let line = String::from_utf8_lossy(&buf);
             let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
             ingest(&mut s, &line, now_ms());
         }
     });
+}
+
+/// Longest line the hub keeps from a miner stream. A longer line is cut here
+/// and the rest is read and dropped, so one unbroken line cannot grow memory.
+const MAX_LINE_BYTES: usize = 64 * 1024;
+
+/// Reads up to the next newline into `buf`, keeping at most `MAX_LINE_BYTES`
+/// and dropping the newline. Returns the bytes consumed; 0 at end of stream.
+fn read_bounded_line(reader: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<usize> {
+    let mut total = 0;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            break;
+        }
+        let (ends_line, used) = match available.iter().position(|&b| b == b'\n') {
+            Some(i) => (true, i + 1),
+            None => (false, available.len()),
+        };
+        let room = MAX_LINE_BYTES.saturating_sub(buf.len());
+        buf.extend_from_slice(&available[..used.min(room)]);
+        reader.consume(used);
+        total += used;
+        if ends_line {
+            if buf.last() == Some(&b'\n') {
+                buf.pop();
+                if buf.last() == Some(&b'\r') {
+                    buf.pop();
+                }
+            }
+            break;
+        }
+    }
+    Ok(total)
 }
 
 fn lock_state(state: &Mutex<MinerState>) -> std::sync::MutexGuard<'_, MinerState> {
@@ -302,6 +347,8 @@ impl Worker {
     /// the pinned binary and the key file are checked each time.
     fn launch(&mut self, now: u64) -> Result<(), String> {
         let pinned = miner_guard::check_miner(&self.plan.binary, &self.plan.install, PINNED_SUMS)
+            .map_err(|e| e.to_string())?;
+        miner_guard::check_key_file(&self.plan.key_file, &self.plan.data)
             .map_err(|e| e.to_string())?;
         let mut child = Command::new(&pinned.path)
             .args(["--mine", "--json", "--rpc"])
@@ -485,6 +532,7 @@ impl Miner {
             binary: config.binary.clone(),
             install: install.to_path_buf(),
             key_file,
+            data: data.to_path_buf(),
             threads: config.threads.clamp(1, MAX_THREADS),
             device: config.device,
             ceiling_c: clamp_ceiling(config.thermal_ceiling_c),
@@ -725,6 +773,7 @@ mod tests {
             binary: "maya2c-gpu-miner.exe".into(),
             install: PathBuf::from("."),
             key_file: PathBuf::from("miner.key"),
+            data: PathBuf::from("."),
             threads: 2,
             device,
             ceiling_c: 80.0,
@@ -748,5 +797,25 @@ mod tests {
         cfg.pool = "http://127.0.0.1:8545".into();
         let err = miner.start(&cfg, &temp, &temp).unwrap_err();
         assert!(err.contains("unknown pool"), "{err}");
+    }
+
+    #[test]
+    fn an_oversized_line_is_cut_and_the_next_line_still_reads() {
+        let mut data = vec![b'a'; MAX_LINE_BYTES * 2];
+        data.extend_from_slice(b"\nnext\r\n");
+        let mut reader = &data[..];
+        let mut buf = Vec::new();
+        read_bounded_line(&mut reader, &mut buf).expect("first line");
+        assert_eq!(buf.len(), MAX_LINE_BYTES);
+        buf.clear();
+        read_bounded_line(&mut reader, &mut buf).expect("second line");
+        assert_eq!(buf, b"next");
+    }
+
+    #[test]
+    fn end_of_stream_reads_zero_bytes() {
+        let mut reader: &[u8] = b"";
+        let mut buf = Vec::new();
+        assert_eq!(read_bounded_line(&mut reader, &mut buf).expect("eof"), 0);
     }
 }
