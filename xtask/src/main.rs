@@ -24,6 +24,7 @@ mod ceremony_rehearsal;
 mod check_brand_refs;
 mod claims_check;
 mod coverage;
+mod devlog;
 mod devnet;
 mod disk;
 mod eco_metrics;
@@ -41,6 +42,7 @@ mod localnet;
 mod md_links;
 mod mesh_check;
 mod mining_localnet;
+mod netfault;
 mod node_box;
 mod og_card;
 mod ordered_json;
@@ -55,12 +57,15 @@ mod sdk_e2e;
 mod site_integrity;
 mod slo_check;
 mod spec_coverage;
+mod stamp;
 mod starter_stickers;
 mod status;
 mod sweep;
 mod trust_facts;
 mod up;
 mod verify_release;
+#[cfg(test)]
+mod workflow_hardening;
 
 use std::process::ExitCode;
 
@@ -100,6 +105,7 @@ fn main() -> ExitCode {
         "proof-ratchet" => proof_ratchet::run(rest),
         "trust-facts" => trust_facts::run(rest),
         "attacknet" => attacknet::attacknet(rest),
+        "netfault" => netfault::netfault(rest),
         "up" => up::up(),
         "down" => up::down(),
         "kit" => kit::run(rest),
@@ -121,6 +127,7 @@ fn main() -> ExitCode {
         "starter-stickers" => starter_stickers::run(rest),
         "brand-assets" => brand_assets::run(rest),
         "og-card" => og_card::run(rest),
+        "devlog" => devlog::run(rest),
         "kheavyhash" => kheavyhash::run(rest),
         "help" | "--help" | "-h" => {
             usage();
@@ -165,6 +172,9 @@ cargo xtask <command>
   brand-assets [--check]
                         Copy the logo pack favicons and wordmarks into each app.
   og-card [--check]     Compose the 1200x630 social card into the explorer and dashboard.
+  devlog changelog | week [--since DATE] | roadmap [--check]
+                        CHANGELOG.md and a dev-log post body from merged PRs (via gh);
+                        docs/ecosystem/ROADMAP.md from the catalog's waves.
   kheavyhash [--fetch]  Regenerate the kHeavyHash reference module and fixture from upstream.
   coverage [--quiet]    Read features.toml, print the ledger, and fail if an
                         entry claims `working` or `verified` without naming a
@@ -224,7 +234,11 @@ cargo xtask <command>
   hub-bundle            Build the release miner and package the Maya2C Hub
                         with it: NSIS/MSI on Windows, deb/rpm/AppImage on
                         Linux (run in WSL).
-  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME]
+  netfault [--scenario partition|latency|loss|all] [--seed N]
+                        Four validators with every p2p link through a fault relay
+                        (ADR-097): a 2|2 partition must not finalise and must heal;
+                        latency and loss profiles are timed. Report in reports/netfault/.
+  attacknet [--rounds N] [--weighted] [--beyond-retention] [--scenario NAME] [--netfault latency|loss]
                         Seven validators as processes, attacked (--scenario: one attack once):
                             crashes, a stolen key, wire garbage, RPC floods,
                             a long outage; checks no fork and recovery

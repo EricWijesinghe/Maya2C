@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # infra/testnet-vm/install.sh — a public Maya2C testnet on ONE Linux VM.
 #
-#   git clone https://github.com/EricWijesinghe/Maya2C && cd Maya2C
+#   git clone https://github.com/maya2c/Maya2C && cd Maya2C
 #   sudo DOMAIN=testnet.example.org EMAIL=you@example.org infra/testnet-vm/install.sh
 #
 # What it builds and runs, each as a sandboxed systemd service under a
@@ -288,7 +288,8 @@ units() {
     run install -d -m 0700 -o maya -g maya "$STATE/relay"
     # The faucet's grant journal: without it a restart resets every limit.
     run install -d -m 0700 -o maya -g maya "$STATE/faucet"
-    local listen="0.0.0.0:8080"
+    # Without DOMAIN the gateway stays on loopback: plain HTTP is never public.
+    local listen="127.0.0.1:8080"
     [ -n "$DOMAIN" ] && listen="$GATEWAY_LOCAL"
     if [ "$DRY_RUN" = 1 ]; then
         printf '[dry-run] write %s/gateway.env with MAYA_GATEWAY_LISTEN=%s\n' "$CONF" "$listen"
@@ -298,7 +299,7 @@ units() {
     # Behind Caddy the faucet sees the proxy's address, so it keys its limits
     # on the X-Forwarded-For Caddy sets; exposed directly, it must not trust
     # that header, which any caller can forge.
-    local faucet_listen="0.0.0.0:$FAUCET_PORT" trust=false
+    local faucet_listen="127.0.0.1:$FAUCET_PORT" trust=false
     [ -n "$DOMAIN" ] && { faucet_listen="$FAUCET_LOCAL"; trust=true; }
     if [ "$DRY_RUN" = 1 ]; then
         printf '[dry-run] write %s/faucet-config.env (listen %s, trust proxy %s)\n' "$CONF" "$faucet_listen" "$trust"
@@ -320,7 +321,7 @@ units() {
 fw_ports() {
     printf '%s
 ' "$P2P_BASE" "$CHAT_PORT"
-    if [ -n "$DOMAIN" ]; then printf '80\n443\n'; else printf '8080\n%s\n' "$FAUCET_PORT"; fi
+    if [ -n "$DOMAIN" ]; then printf '80\n443\n'; fi
 }
 
 fw_chain() { # $1 = iptables or ip6tables
@@ -360,7 +361,7 @@ firewall() {
 }
 
 tls() {
-    [ -n "$DOMAIN" ] || { log "no DOMAIN: the gateway is plain HTTP on :8080. Set DOMAIN for HTTPS."; return; }
+    [ -n "$DOMAIN" ] || { log "no DOMAIN: the gateway and faucet stay on loopback (no public port). Set DOMAIN to publish them over HTTPS."; return; }
     log "Caddy: https://$DOMAIN -> $GATEWAY_LOCAL"
     local site
     site="${EMAIL:+{
@@ -439,9 +440,9 @@ summary() {
     cat <<EOF
 
 [testnet] UP — $(jq -r .chain_id "$CONF/genesis.json")
-  gateway      ${DOMAIN:+https://$DOMAIN}${DOMAIN:-http://$ip:8080}
+  gateway      ${DOMAIN:+https://$DOMAIN}${DOMAIN:-http://127.0.0.1:8080 (no DOMAIN set: set DOMAIN to publish)}
   chat relay   $relay
-  faucet       ${DOMAIN:+https://$DOMAIN/faucet/request}${DOMAIN:-http://$ip:$FAUCET_PORT/request}   (POST {"address":"<hex>"})
+  faucet       ${DOMAIN:+https://$DOMAIN/faucet/request}${DOMAIN:-http://127.0.0.1:$FAUCET_PORT/request}   (POST {"address":"<hex>"})
   p2p (join)   /ip4/$ip/tcp/$P2P_BASE
   genesis      $CONF/genesis.json   sha256 $(sha256sum "$CONF/genesis.json" | cut -c1-64)
   wallet       $CONF/wallet.key (root only; password in $CONF/wallet.password)

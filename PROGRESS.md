@@ -59,7 +59,7 @@ One mechanical commit, nothing else in it. ADR-001 has the reasoning.
 - [x] `git mv` into `crates/ bins/ apps/ hal/ sdks/ formal/ infra/` (`8d0ff94e`: 935 files changed; directories present on master)
 - [x] Rewrite every `path =` dependency (ADR-001 Outcome: 75 path dependencies rewritten)
 - [ ] Rewrite paths in `CLAUDE.md`, `.ignore`, `.claude/settings.json`, the workflows, `scripts/`, `infra/docker/Dockerfile*`, `infra/docker/docker-compose.yml`, `infra/k8s/`, `infra/deploy/`, `infra/terraform/` — not re-checked in this pass
-- [x] Acceptance: `cargo metadata` package set identical before and after (ADR-001 Outcome: 46 packages, reported at the time; not re-run)
+- [ ] Acceptance: `cargo metadata` package set identical before and after — NOT VERIFIED (ADR-001 Outcome reports 46 packages at the time; not re-run)
 - [ ] Acceptance: grep for every old path string across non-`target` files returns nothing — NOT VERIFIED
 - [ ] Second cold rebuild (budget ~1 hour) — NOT VERIFIED
 
@@ -221,7 +221,7 @@ Rules in CLAUDE.md, "Operating Protocol"; state in [STATE.md](STATE.md).
 - [x] Mainnet build merged 2026-10-29: forever mining ADR-068 (#221), ML-DSA-87 validator keys (#222), 24 decimals (#230), chain-tagged votes (#236); freeze candidate on master
 - [x] Consensus frozen 2026-10-30 at `8987a6be`: round-2 self-run pre-audit S-012..S-034 fixed or documented, confirming attacknet PASS 8/8 (`reports/attacknet/2026-10-30-1.md`)
 - [x] Hardening wave 2026-10-31..11-01 (signer chain, fee freeze, block volume, decode bound, vault, DEX zero price): #265-#296; apply 414 ms worst case at the 7.5 MiB decode budget (`reports/bench/2026-11-01-apply-per-mib.md`)
-- [ ] Re-frozen at `ec8d0be1` (2026-11-01); the 5-day run has no result in `reports/proving/` (NOT VERIFIED). Later 24 h proving at `6fcfc65e` passed: "PASS: 24 h, no fork, height 73178, 0 halt(s)" (`reports/proving/run-6fcfc65e.log`, exit 0, 2026-11-10). Freeze sha is `bb4e0940` (STATE.md, 2026-11-09); master head `2090300c` carries the latest `[re-freeze]` (#520)
+- [ ] Re-frozen at `ec8d0be1` (2026-11-01); the 5-day run has no result in `reports/proving/` (NOT VERIFIED). Later 24 h proving at `6fcfc65e` passed: "PASS: 24 h, no fork, height 73178, 0 halt(s)" (`reports/proving/run-6fcfc65e.log`, exit 0, 2026-11-10). Freeze sha is `bb4e0940` (STATE.md, 2026-11-09); the only 24 h proving log in `reports/proving/` is at `6fcfc65e`, so no proving run at `bb4e0940` is recorded (NOT VERIFIED). Latest `[re-freeze]` commit on master: `2090300c` (#520, merged 2026-11-14)
 - [x] Stale-node rejoin only through a trusted block (B49, #324); sealed join-script validator keys with a generated passphrase (B51, #325); site build fixed (#328); owner decisions on fee ceiling, supply wording, council pause and fee treasury recorded (DECISIONS 2026-11-02, docs only)
 - [x] Mainnet genesis ceremony dry run 2026-11-08 with throwaway keys and the decided values (`cargo xtask ceremony-rehearsal`): genesis-check PASS, 7 validators finalize; `get_supply` bonded-stake gap fixed in #398 (merged as `bb4e0940`, STATE.md); open: `maya-mainnet` address prefix unregistered (ADR-081) — `reports/sessions/2026-11-08-ceremony-dry-run.md`
 - [ ] Freeze candidate `9913c144` (2026-11-02) is superseded by `bb4e0940` (see above); mainnet bootnode peer id still `SET-AT-GENESIS` (`deploy/genesis/mainnet/bootnode.env:6`)

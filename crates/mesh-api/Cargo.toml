@@ -22,6 +22,9 @@ tracing-subscriber = { workspace = true, features = ["env-filter"] }
 clap = { workspace = true, features = ["derive", "env"] }
 anyhow = "1"
 async-trait.workspace = true
+# The node sends balances as 256-bit decimal strings (ADR-046). Internal and
+# dependency-free, so it adds nothing to this service's graph.
+maya-amount = { path = "../amount" }
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

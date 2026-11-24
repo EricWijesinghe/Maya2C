@@ -149,7 +149,7 @@ $ScriptParams = $PSBoundParameters
 Set-StrictMode -Version Latest
 
 # --- Constants: one place, no magic numbers scattered through the body. ------
-$Repo        = 'EricWijesinghe/Maya2C'
+$Repo        = 'maya2c/Maya2C'
 $InstallDir  = Join-Path $env:ProgramFiles 'Maya2C'
 $DataDir     = Join-Path $env:ProgramData  'Maya2C'
 $LogDir      = Join-Path $DataDir 'logs'
@@ -167,9 +167,9 @@ $PubPath     = Join-Path $DataDir 'validator.pub'
 $Settings    = Join-Path $DataDir 'settings.json'  # the ports this install chose
 $SelfCopy    = Join-Path $InstallDir 'maya2c-validator.ps1'
 $MenuDir     = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Maya2C'
-$SelfUrl     = 'https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/infra/testnet-vm/join-validator.ps1'
+$SelfUrl     = 'https://raw.githubusercontent.com/maya2c/Maya2C/master/infra/testnet-vm/join-validator.ps1'
 $PublicRpc   = 'https://rpc.maya2c.dev/rpc'
-$ApplyUrl    = 'https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml'
+$ApplyUrl    = 'https://github.com/maya2c/Maya2C/issues/new?template=validator-application.yml'
 $SyncedWithin = 5   # blocks behind the network that still count as "in sync"
 $RestartSeconds = 10 # pause before the launcher restarts a node that exited
 $MinBond     = 1000000000 # the seed's --min-register-bond: smaller bonds never join
@@ -240,6 +240,16 @@ function Protect-Secret($path) {
     if ($LASTEXITCODE -ne 0) { Die "could not restrict access to $path (icacls exit $LASTEXITCODE)" }
     & icacls $path /inheritance:r | Out-Null
     if ($LASTEXITCODE -ne 0) { Die "could not remove inherited access on $path (icacls exit $LASTEXITCODE)" }
+}
+
+# Locks the data directory before any secret is written into it. Files created
+# later inherit this ACL, so the key and wallet are never readable by other local
+# users, even in the moments before Protect-Secret runs on each file.
+function Lock-DataDir {
+    & icacls $DataDir /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "could not restrict access to $DataDir (icacls exit $LASTEXITCODE)" }
+    & icacls $DataDir /inheritance:r | Out-Null
+    if ($LASTEXITCODE -ne 0) { Die "could not remove inherited access on $DataDir (icacls exit $LASTEXITCODE)" }
 }
 
 function Show-Consent {
@@ -341,6 +351,7 @@ function Install-LocalNode {
 function Install-Genesis {
     Write-Step 'Fetching and verifying genesis'
     New-Item -ItemType Directory -Force -Path $DataDir, $LogDir, $NodeDataDir | Out-Null
+    Lock-DataDir
     if (Test-Path -LiteralPath $GenesisUrl) { Copy-Item -LiteralPath $GenesisUrl -Destination $GenesisPath -Force }
     else { Invoke-WebRequest $GenesisUrl -OutFile $GenesisPath -UseBasicParsing }
     $got = Get-Sha256 $GenesisPath
@@ -564,6 +575,7 @@ function Invoke-Wallet {
 function Invoke-Apply {
     if (-not (Test-Path $PubPath)) { Die 'no validator key yet: run the installer first' }
     if (-not (Test-Path $WalletPath)) {
+        Lock-DataDir
         Write-Step 'Making your wallet. Choose a password and write it down: it cannot be recovered.'
         Invoke-Wallet generate
         Protect-Secret $WalletPath

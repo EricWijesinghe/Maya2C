@@ -39,3 +39,132 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+  # Nested lockfiles outside the root workspace. Same weekly, grouped policy;
+  # the major-version ignore above is repeated for each Cargo entry.
+  - package-ecosystem: cargo
+    directory: "/apps/chat-gui/src-tauri"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/apps/dashboard"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/apps/hub/src-tauri"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/apps/ledger-maya2c"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/apps/wallet-gui/src-tauri"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/apps/wallet-gui/ui"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/contracts/nft-game"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/contracts/token-swap"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/fuzz"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/hal/ebpf-net/programs"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/hal/iot-firmware"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: cargo
+    directory: "/offsec-sandbox"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      rust-minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: "/sdks/sdk-js"
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3
+    groups:
+      sdk:
+        update-types: [minor, patch]

@@ -41,6 +41,6 @@ maya_node_prebuilt_sha256: ""
 maya_genesis_prebuilt_url: ""
 maya_genesis_prebuilt_sha256: ""
 maya_rust_version: "1.88"
-maya_repo_url: "https://github.com/maya2c/maya2c"
+maya_repo_url: "https://github.com/maya2c/Maya2C"
 maya_repo_ref: "main"
 maya_build_dir: /opt/maya2c-build

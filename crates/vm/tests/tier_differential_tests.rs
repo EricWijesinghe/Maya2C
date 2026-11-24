@@ -132,20 +132,15 @@ fn vms() -> Vec<(&'static str, Vm)> {
     ]
 }
 
-// FINDING (2026-09-27): on Windows x86_64 the Pulley tier meters different
-// fuel from Cranelift for the same module (a constant ~61,440 higher on the
-// token swap; the corpus's first case traps on Pulley and succeeds on
-// Cranelift). These pass on Linux. The node never runs Pulley (launch scope:
-// one Cranelift tier), so no chain is affected today; what the finding means
-// is that the Pulley tier must not be enabled until the divergence is
-// understood — two validators on two platforms would disagree about gas.
-// Recorded in reports/05-vm.md; ignored on Windows so the suite stays a
-// signal, not hidden: `cargo test -- --ignored` still runs it there.
+// FINDING (2026-09-27), explained 2026-11-23: on Windows the Pulley tier
+// charged a constant 61,440 more fuel than Cranelift. The cause was data
+// segments, not Pulley: wasmtime's copy-on-write memory image (unavailable
+// on Windows) is padded to the compiler's page size and copied by metered
+// code, so Windows charged 4 KiB (Cranelift) or 64 KiB (Pulley) per image
+// and Linux charged nothing. `deterministic_config` now turns the image off;
+// see `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. These tests
+// were ignored on Windows until then and now run on every platform.
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "Pulley fuel diverges from Cranelift on Windows; see the FINDING note"
-)]
 fn every_corpus_module_costs_the_same_gas_in_every_tier() {
     let vms = vms();
     for (name, code) in corpus() {
@@ -169,10 +164,6 @@ fn every_corpus_module_costs_the_same_gas_in_every_tier() {
 }
 
 #[test]
-#[cfg_attr(
-    windows,
-    ignore = "Pulley fuel diverges from Cranelift on Windows; see the FINDING note"
-)]
 fn the_token_swap_contract_costs_the_same_gas_in_every_tier() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../target-contracts/wasm32-unknown-unknown/release/token_swap.wasm");
@@ -208,4 +199,26 @@ fn the_token_swap_contract_costs_the_same_gas_in_every_tier() {
         "token swap diverges between tiers"
     );
     assert!(per_tier[0].1.iter().all(Result::is_ok));
+}
+
+/// A 16-byte active data segment and nothing else. Before 2026-11-23 its
+/// gas depended on the host, not the module: wasmtime's copy-on-write memory
+/// image let Linux skip the copy (2 gas), while Windows copied the whole
+/// page-aligned image through the metered startup function (4,099 gas on
+/// Cranelift's 4 KiB page, 65,539 on Pulley's 64 KiB). That was the "Pulley
+/// +61,440 on Windows" finding, and it also split Cranelift on Windows from
+/// Cranelift on Linux. Pinned as a number, not only compared across tiers,
+/// because both tiers on one host agreeing is not enough.
+#[test]
+fn a_data_segment_costs_the_same_gas_on_every_host_and_tier() {
+    let code = wasm(
+        r#"(module (memory (export "memory") 1)
+          (data (i32.const 0) "key0value-0topic")
+          (func (export "invoke") (param i32) (result i64) (i64.const 0)))"#,
+    );
+    for (tier, vm) in vms() {
+        let exec = vm.execute(&code, CONTRACT, &[], 1_000_000, MemoryState::at_height(7));
+        let gas = exec.outcome.expect("runs").gas_used;
+        assert_eq!(gas, 20, "{tier}: 16-byte data segment gas");
+    }
 }

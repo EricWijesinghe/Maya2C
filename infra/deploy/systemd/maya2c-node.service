@@ -9,7 +9,7 @@
 
 [Unit]
 Description=Maya2C node
-Documentation=https://github.com/EricWijesinghe/Maya2C
+Documentation=https://github.com/maya2c/Maya2C
 After=network-online.target
 Wants=network-online.target
 

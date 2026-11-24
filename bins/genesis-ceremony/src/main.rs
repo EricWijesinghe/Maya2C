@@ -48,18 +48,10 @@ use custom_l1_node::crypto::hybrid;
 use custom_l1_node::genesis::{
     Allocation, BPS_DENOMINATOR, GenesisConfig, MAX_TREASURY_SHARE_BPS, TreasuryGenesis,
 };
-use custom_l1_node::state::mining::{MINING_RESERVE, MiningGenesis};
+use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
 
 mod committee;
 mod council;
-
-/// Chain ids that carry real value, so their genesis keeps the pool off.
-///
-/// The same list `bins/maya2c-node/src/main.rs` guards at startup. Duplicated rather than
-/// shared because the two crates answer different questions — "may I run?" and
-/// "what may I create?" — and a single list would invite someone relaxing one
-/// to relax both.
-const VALUE_BEARING_CHAINS: &[&str] = &["maya-mainnet", "mainnet"];
 
 /// Default number of root keys.
 ///
@@ -307,21 +299,37 @@ fn check_supply_policy(chain_id: &str, supply: primitive_types::U256) -> Result<
     Ok(())
 }
 
+/// A value-bearing chain mines under the 4 GiB DAG profile. The 4 MiB testing
+/// dataset is for devnets and tests, and would make share hashing cheap.
+fn check_mining_profile(chain_id: &str, mining: &MiningGenesis) -> Result<(), String> {
+    if is_value_bearing(chain_id) && mining.dag != DagProfile::Mainnet {
+        return Err(format!(
+            "{chain_id} mines under the 4 GiB profile; testing is for devnets (ADR-044)"
+        ));
+    }
+    Ok(())
+}
+
 /// The `shielded_activation_height` a genesis for `chain_id` gets (ADR-037).
 ///
 /// A value-bearing chain on an unaudited circuit gets "never"; every other
-/// genesis names none, which runs the pool from block zero and keeps the id
-/// a genesis written before ADR-037 would have had.
-fn shielded_activation_for(chain_id: &str, circuit_audited: bool) -> Option<u64> {
-    (is_value_bearing(chain_id) && !circuit_audited).then_some(u64::MAX)
+/// genesis names `0`, the pool from block zero. Always named: a genesis that
+/// names none keeps the pool off (P4), so a testnet that wants it says so.
+fn shielded_activation_for(chain_id: &str, circuit_audited: bool) -> u64 {
+    if is_value_bearing(chain_id) && !circuit_audited {
+        u64::MAX
+    } else {
+        0
+    }
 }
 
 /// Whether `chain_id` names a value-bearing network (case and spaces ignored).
+///
+/// Any name containing "mainnet" counts, so `maya2c-mainnet` or `maya-mainnet-1`
+/// cannot skip the premine, council and shielded guards by spelling. The node's
+/// startup guard still matches only the exact names it lists (not changed here).
 fn is_value_bearing(chain_id: &str) -> bool {
-    let id = chain_id.trim();
-    VALUE_BEARING_CHAINS
-        .iter()
-        .any(|v| v.eq_ignore_ascii_case(id))
+    chain_id.trim().to_ascii_lowercase().contains("mainnet")
 }
 
 /// The committee named by `--validators`, checked for a launch's size.
@@ -381,6 +389,7 @@ fn load_mining(
             let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
             let mining: MiningGenesis =
                 serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+            check_mining_profile(&args.chain_id, &mining)?;
             Ok(Some((mining, reserve)))
         }
         _ => Err("--mining and --mining-reserve go together".into()),
@@ -452,7 +461,10 @@ fn launch_config(
         shielded_activation_height: if args.shielded_never {
             Some(u64::MAX)
         } else {
-            shielded_activation_for(&args.chain_id, maya_zk_stark::pool::circuit_is_audited())
+            Some(shielded_activation_for(
+                &args.chain_id,
+                maya_zk_stark::pool::circuit_is_audited(),
+            ))
         },
         bft,
     }
@@ -474,8 +486,9 @@ fn consensus_section(committee: Option<&[committee::Member]>) -> String {
 fn shielded_line(config: &GenesisConfig) -> &'static str {
     match config.shielded_activation_height {
         Some(u64::MAX) => "off (ADR-037: unaudited circuit; a later upgrade may turn it on)",
+        Some(0) => "on from block zero",
         Some(_) => "on from a scheduled height",
-        None => "on from block zero",
+        None => "off (no height named: the pool runs only where a genesis names one)",
     }
 }
 
@@ -533,24 +546,23 @@ fn split_supply(
     Ok((treasury, remainder))
 }
 
-/// Writes `bytes` to `path` with an owner-only mode where the platform has one.
+/// Writes `bytes` to a new file at `path` with an owner-only mode where the
+/// platform has one.
+///
+/// `create_new` makes the open fail on any existing path, a symlink included,
+/// so a planted link is never followed and an existing secret is never
+/// truncated. The mode is set at creation, so no path-based chmod is needed.
 fn write_secret(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
     use std::io::Write as _;
     let mut options = fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     // Owner-only from creation, not after: no window with the default mode.
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
     options.open(path)?.write_all(bytes)?;
-
-    // Unix only. Windows inherits the directory ACL, which is why the ceremony
-    // directory itself is created fresh rather than reused — an existing
-    // directory may already be readable by someone.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
+    // Windows inherits the directory ACL, which is why the ceremony directory
+    // itself is created fresh rather than reused — an existing directory may
+    // already be readable by someone.
     Ok(())
 }
 
@@ -813,12 +825,21 @@ fn contribute(label: &str, out_dir: &Path, force: bool) -> Result<(), Box<dyn Er
         )
         .into());
     }
+    // Checked before any key is generated. A root secret already at this label
+    // is never replaced, --force or not: it may be the only copy of that key.
+    let secret_path = out_dir.join(format!("{label}.secret"));
+    if secret_path.symlink_metadata().is_ok() {
+        return Err(format!(
+            "{} already exists; a root secret is never replaced, even with --force",
+            secret_path.display()
+        )
+        .into());
+    }
     fs::create_dir_all(out_dir)?;
 
     let key = hybrid::generate_signing_key()?;
     let address = hex::encode(key.address());
 
-    let secret_path = out_dir.join(format!("{label}.secret"));
     write_secret(&secret_path, key.to_bytes().as_slice())?;
 
     let mut public = Vec::new();
@@ -884,7 +905,8 @@ fn collect_contributions(dir: &Path) -> Result<Vec<Contribution>, Box<dyn Error>
             continue;
         };
 
-        if name.ends_with(".secret") {
+        // Case-insensitive: `Alice.SECRET` must not pass the guard.
+        if name.to_ascii_lowercase().ends_with(".secret") {
             return Err(format!(
                 "{} contains {name}.\n\
                  \n\
@@ -898,6 +920,15 @@ fn collect_contributions(dir: &Path) -> Result<Vec<Contribution>, Box<dyn Error>
             .into());
         }
 
+        // A near miss such as `Alice.PUBLIC` is refused, not skipped: a skipped
+        // contribution would vanish from the allocation without a message.
+        if name.to_ascii_lowercase().ends_with(PUBLIC_SUFFIX) && !name.ends_with(PUBLIC_SUFFIX) {
+            return Err(format!(
+                "{}: a contribution is named <label>{PUBLIC_SUFFIX} in lower case",
+                path.display()
+            )
+            .into());
+        }
         let Some(label) = name.strip_suffix(PUBLIC_SUFFIX) else {
             continue;
         };
@@ -938,11 +969,16 @@ fn collect_contributions(dir: &Path) -> Result<Vec<Contribution>, Box<dyn Error>
     // Two participants who generated the same address is either a collision,
     // which does not happen, or the same contribution submitted twice, which
     // does. Silently merging them would halve one participant's allocation.
-    for pair in found.windows(2) {
-        if pair[0].address == pair[1].address {
+    // Keyed by address, not by neighbour in label order: the same key under
+    // labels that sort apart is still the same contribution.
+    let mut by_address = std::collections::BTreeMap::new();
+    for contribution in &found {
+        if let Some(first) =
+            by_address.insert(contribution.address.clone(), contribution.label.clone())
+        {
             return Err(format!(
-                "{} and {} are the same address; a contribution was submitted twice",
-                pair[0].label, pair[1].label
+                "{first} and {} are the same address; a contribution was submitted twice",
+                contribution.label
             )
             .into());
         }
@@ -1145,10 +1181,10 @@ mod shielded_tests {
     #[test]
     fn a_mainnet_genesis_keeps_the_pool_off_while_the_circuit_is_unaudited() {
         for chain in ["maya-mainnet", "mainnet"] {
-            assert_eq!(shielded_activation_for(chain, false), Some(u64::MAX));
+            assert_eq!(shielded_activation_for(chain, false), u64::MAX);
             // After an audit the ceremony stops forcing it; turning the pool
             // on for a running mainnet is still a scheduled upgrade.
-            assert_eq!(shielded_activation_for(chain, true), None);
+            assert_eq!(shielded_activation_for(chain, true), 0);
         }
     }
 
@@ -1177,18 +1213,25 @@ mod shielded_tests {
     #[test]
     fn case_and_spaces_do_not_turn_mainnet_into_a_testnet() {
         for name in ["Maya-Mainnet", "MAINNET", " mainnet "] {
-            assert_eq!(
-                shielded_activation_for(name, false),
-                Some(u64::MAX),
-                "{name:?}"
-            );
+            assert_eq!(shielded_activation_for(name, false), u64::MAX, "{name:?}");
         }
     }
 
     #[test]
-    fn any_other_genesis_keeps_the_id_it_always_had() {
-        assert_eq!(shielded_activation_for("maya-testnet-1", false), None);
-        assert_eq!(shielded_activation_for("maya-genesis-rc1", false), None);
+    fn any_other_genesis_names_the_pool_on_from_block_zero() {
+        // Named, not left out: an unnamed pool is off (P4).
+        assert_eq!(shielded_activation_for("maya-testnet-1", false), 0);
+        assert_eq!(shielded_activation_for("maya-genesis-rc1", false), 0);
+    }
+
+    #[test]
+    fn a_mainnet_spelling_outside_the_list_is_still_value_bearing() {
+        use super::is_value_bearing;
+        for chain in ["maya2c-mainnet", "maya-mainnet-1", "Maya-MainNet-Beta"] {
+            assert!(is_value_bearing(chain), "{chain}");
+            assert_eq!(shielded_activation_for(chain, false), u64::MAX, "{chain}");
+        }
+        assert!(!is_value_bearing("maya-testnet-2"));
     }
 }
 
@@ -1196,7 +1239,9 @@ mod shielded_tests {
 mod mining_tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-    use super::{Args, check_supply_policy, committee, launch_config, split_supply};
+    use super::{
+        Args, check_mining_profile, check_supply_policy, committee, launch_config, split_supply,
+    };
     use custom_l1_node::crypto::validator_keys as keys;
     use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
 
@@ -1264,6 +1309,17 @@ mod mining_tests {
         let mut unbonded = members();
         unbonded[1].bond = None;
         assert!(committee::check_tiny_bonds(&unbonded, floor).is_err());
+    }
+
+    #[test]
+    fn a_value_bearing_chain_mines_under_the_mainnet_profile_only() {
+        let mainnet = MiningGenesis {
+            dag: DagProfile::Mainnet,
+            ..mining()
+        };
+        assert!(check_mining_profile("maya-mainnet", &mainnet).is_ok());
+        assert!(check_mining_profile("maya2c-mainnet", &mining()).is_err());
+        assert!(check_mining_profile("maya-testnet-2", &mining()).is_ok());
     }
 
     #[test]
@@ -1340,5 +1396,81 @@ mod mining_tests {
             .and_then(|()| config.state_root().map(|_| ()))
             .unwrap_err();
         assert!(err.to_string().contains("mining reserve"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod contribution_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
+    use super::{collect_contributions, contribute, hybrid, write_secret};
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// A fresh, empty directory under the system temp dir, named for the test.
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("genesis-ceremony-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    /// The hex of a fresh hybrid public key. Key generation needs the ceremony's
+    /// stack, which the default test thread does not have.
+    fn public_hex() -> String {
+        let mut bytes = Vec::new();
+        hybrid::generate_signing_key()
+            .expect("key")
+            .public_key()
+            .encode_into(&mut bytes);
+        hex::encode(bytes)
+    }
+
+    #[test]
+    fn a_key_under_two_labels_is_refused_whatever_their_order() {
+        let (first, second) = std::thread::Builder::new()
+            .stack_size(super::CEREMONY_STACK_BYTES)
+            .spawn(|| (public_hex(), public_hex()))
+            .expect("thread")
+            .join()
+            .expect("keys");
+        let dir = scratch("same-key");
+        fs::write(dir.join("alice.public"), &first).unwrap();
+        fs::write(dir.join("bob.public"), &second).unwrap();
+        // alice and zed sort apart from each other, so they were never neighbours.
+        fs::write(dir.join("zed.public"), &first).unwrap();
+        let err = collect_contributions(&dir).err().expect("refused");
+        assert!(err.to_string().contains("same address"), "{err}");
+    }
+
+    #[test]
+    fn a_secret_or_a_misnamed_contribution_in_any_case_is_refused() {
+        for name in ["alice.SECRET", "alice.PUBLIC"] {
+            let dir = scratch(name);
+            fs::write(dir.join(name), "00").unwrap();
+            assert!(collect_contributions(&dir).is_err(), "{name}");
+        }
+    }
+
+    #[test]
+    fn contribute_never_replaces_an_existing_root_secret() {
+        let dir = scratch("replace");
+        fs::write(dir.join("alice.secret"), b"keep").unwrap();
+        let err = contribute("alice", &dir, true).unwrap_err();
+        assert!(err.to_string().contains("never replaced"), "{err}");
+        assert_eq!(fs::read(dir.join("alice.secret")).unwrap(), b"keep");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_link_at_the_secret_path_is_not_followed() {
+        let dir = scratch("link");
+        let target = dir.join("outside.bin");
+        fs::write(&target, b"keep").unwrap();
+        let link = dir.join("alice.secret");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(write_secret(&link, b"root").is_err());
+        assert_eq!(fs::read(&target).unwrap(), b"keep");
     }
 }

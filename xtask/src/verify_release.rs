@@ -21,10 +21,12 @@ use std::io::{self, Read};
 use std::path::Path;
 use std::process::Command;
 
-const REPO: &str = "EricWijesinghe/Maya2C";
+const REPO: &str = "maya2c/Maya2C";
 const OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 /// Only the release workflow, run on a `node-v*` tag, may sign a release.
-const IDENTITY_REGEX: &str = r"^https://github\.com/EricWijesinghe/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$";
+// The repository moved from EricWijesinghe/Maya2C to maya2c/Maya2C on 2026-11-24. Releases signed before the
+// move carry the old path in their certificate, so both owners are accepted; both accounts belong to the project owner.
+const IDENTITY_REGEX: &str = r"^https://github\.com/(maya2c|EricWijesinghe)/Maya2C/\.github/workflows/release-binaries\.yml@refs/tags/node-v.+$";
 const SUMS: &str = "SHA256SUMS";
 const BUNDLE_SUFFIX: &str = ".sigstore.json";
 const HASH_HEX_LEN: usize = 64;
@@ -32,19 +34,7 @@ const SEPARATOR: &str = "  "; // sha256sum text mode
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let (dir, checksums_only) = parse_args(args)?;
-    let sums_path = dir.join(SUMS);
-    let text =
-        fs::read_to_string(&sums_path).map_err(|e| format!("{}: {e}", sums_path.display()))?;
-    let entries = parse_sums(&text)?;
-    check_unlisted(&dir, &entries)?;
-    for (listed, name) in &entries {
-        let actual = sha256_file(&dir.join(name))?;
-        if &actual != listed {
-            return Err(format!(
-                "{name}: checksum mismatch (listed {listed}, actual {actual})"
-            ));
-        }
-    }
+    let entries = verify_checksums(&dir)?;
     println!("checksums: {} files match {SUMS}", entries.len());
     if checksums_only {
         println!("signatures: NOT CHECKED (--checksums-only)");
@@ -62,6 +52,25 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     println!("verify-release: all checks passed");
     Ok(())
+}
+
+/// SHA256SUMS against the directory: every listed file hashes to its listed
+/// value, and no file is unlisted. Returns the listed entries.
+fn verify_checksums(dir: &Path) -> Result<Vec<(String, String)>, String> {
+    let sums_path = dir.join(SUMS);
+    let text =
+        fs::read_to_string(&sums_path).map_err(|e| format!("{}: {e}", sums_path.display()))?;
+    let entries = parse_sums(&text)?;
+    check_unlisted(dir, &entries)?;
+    for (listed, name) in &entries {
+        let actual = sha256_file(&dir.join(name))?;
+        if &actual != listed {
+            return Err(format!(
+                "{name}: checksum mismatch (listed {listed}, actual {actual})"
+            ));
+        }
+    }
+    Ok(entries)
 }
 
 fn parse_args(args: &[String]) -> Result<(std::path::PathBuf, bool), String> {
@@ -211,6 +220,67 @@ mod tests {
             parse_sums(&binary).expect("binary-mode line"),
             parse_sums(&text).expect("again")
         );
+    }
+
+    /// A release directory holding one file, listed in SHA256SUMS as sha256sum writes it.
+    fn release_with(tag: &str, content: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("verify-release-{tag}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("scratch dir");
+        fs::write(dir.join("app.bin"), content).expect("write release file");
+        let sums = format!("{}  app.bin\n", hex::encode(Sha256::digest(content)));
+        fs::write(dir.join(SUMS), sums).expect("write SHA256SUMS");
+        dir
+    }
+
+    #[test]
+    fn untouched_release_passes_checksums() {
+        let dir = release_with("untouched", b"abc");
+        let entries = verify_checksums(&dir).expect("untouched release verifies");
+        assert_eq!(
+            entries,
+            vec![(ABC_SHA256.to_string(), "app.bin".to_string())]
+        );
+    }
+
+    #[test]
+    fn tampered_file_fails_checksums() {
+        let dir = release_with("tampered", b"abc");
+        fs::write(dir.join("app.bin"), b"abd").expect("tamper");
+        let err = verify_checksums(&dir).expect_err("a changed byte must fail");
+        assert!(err.contains("checksum mismatch"), "{err}");
+    }
+
+    #[test]
+    fn unlisted_file_fails_checksums() {
+        let dir = release_with("unlisted", b"abc");
+        fs::write(dir.join("extra.bin"), b"x").expect("extra file");
+        let err = verify_checksums(&dir).expect_err("an unlisted file must fail");
+        assert!(err.contains("not listed"), "{err}");
+    }
+
+    /// The signer identity the cosign check pins (wrong signer = wrong key).
+    /// The cryptographic check itself runs only in the real tag run: NOT VERIFIED here.
+    #[test]
+    fn signer_identity_pins_release_workflow_on_a_node_tag() {
+        let re = regex::Regex::new(IDENTITY_REGEX).expect("pattern compiles");
+        for good in [
+            "https://github.com/maya2c/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.3.0",
+            // signed before the 2026-11-24 move: must keep verifying
+            "https://github.com/EricWijesinghe/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.1.0-testnet.1",
+        ] {
+            assert!(re.is_match(good), "release identity rejected: {good}");
+        }
+        for wrong in [
+            "https://github.com/EricWijesinghe/Maya2C/.github/workflows/ci.yml@refs/tags/node-v0.1.0",
+            "https://github.com/EricWijesinghe/Maya2C/.github/workflows/release-binaries.yml@refs/heads/master",
+            "https://github.com/Someone/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.1.0",
+            "https://github.com/maya2c-evil/Maya2C/.github/workflows/release-binaries.yml@refs/tags/node-v0.1.0",
+            "https://github.com/maya2c/Maya2C/.github/workflows/ci.yml@refs/tags/node-v0.1.0",
+            "https://github.com/EricWijesinghe/Maya2C/.github/workflows/release-binaries.yml@refs/tags/wallet-v1",
+        ] {
+            assert!(!re.is_match(wrong), "accepted {wrong}");
+        }
     }
 
     #[test]
