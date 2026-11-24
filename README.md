@@ -13,11 +13,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/EricWijesinghe/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI status" src="https://img.shields.io/github/actions/workflow/status/EricWijesinghe/Maya2C/ci.yml?branch=master&label=master%20CI&labelColor=06202c"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/pulse"><img alt="commits per week" src="https://img.shields.io/github/commit-activity/w/EricWijesinghe/Maya2C?label=commits&color=1fd3cc&labelColor=06202c"></a>
-  <a href="https://github.com/EricWijesinghe/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/EricWijesinghe/Maya2C/master?color=1fd3cc&labelColor=06202c"></a>
+  <a href="https://github.com/maya2c/Maya2C/actions/workflows/ci.yml?query=branch%3Amaster"><img alt="master CI status" src="https://img.shields.io/github/actions/workflow/status/maya2c/Maya2C/ci.yml?branch=master&label=master%20CI&labelColor=06202c"></a>
+  <a href="https://github.com/maya2c/Maya2C/pulse"><img alt="commits per week" src="https://img.shields.io/github/commit-activity/w/maya2c/Maya2C?label=commits&color=1fd3cc&labelColor=06202c"></a>
+  <a href="https://github.com/maya2c/Maya2C/commits/master"><img alt="last commit" src="https://img.shields.io/github/last-commit/maya2c/Maya2C/master?color=1fd3cc&labelColor=06202c"></a>
   <a href="Cargo.toml"><img alt="minimum Rust version" src="https://img.shields.io/badge/dynamic/toml?url=https%3A%2F%2Fraw.githubusercontent.com%2FEricWijesinghe%2FMaya2C%2Fmaster%2FCargo.toml&query=%24.workspace.package%5B%27rust-version%27%5D&label=rust&color=a1afb9&labelColor=06202c&logo=rust"></a>
-  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/EricWijesinghe/Maya2C?color=ff9c47&labelColor=06202c"></a>
+  <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/maya2c/Maya2C?color=ff9c47&labelColor=06202c"></a>
 </p>
 
 <p align="center">
@@ -25,8 +25,8 @@
   <a href="docs/README.md">Docs</a> ·
   <a href="docs/ecosystem/ROADMAP.md">Roadmap</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="https://github.com/EricWijesinghe/Maya2C/discussions">Discussions</a> ·
-  <a href="https://github.com/EricWijesinghe/Maya2C/contribute">Good first issues</a> ·
+  <a href="https://github.com/maya2c/Maya2C/discussions">Discussions</a> ·
+  <a href="https://github.com/maya2c/Maya2C/contribute">Good first issues</a> ·
   <a href="SECURITY.md">Security</a>
 </p>
 
@@ -98,7 +98,7 @@ transfer **13,215 bytes** ([docs/hybrid-signatures.md](docs/hybrid-signatures.md
 
 No release is published yet. When one is, installers for Maya2C Wallet,
 Maya2C Chat and the node binaries go on the
-[Releases](https://github.com/EricWijesinghe/Maya2C/releases) page with a
+[Releases](https://github.com/maya2c/Maya2C/releases) page with a
 `SHA256SUMS` file to check them against. Until then, build from source as
 below. Maya2C Hub builds with `cargo xtask hub-bundle`
 ([apps/hub/README.md](apps/hub/README.md)).
@@ -109,7 +109,7 @@ Needs the Rust toolchain pinned in `rust-toolchain.toml` (rustup installs it
 on first use). The commands take seconds to type; the first build takes longer.
 
 ```sh
-git clone https://github.com/EricWijesinghe/Maya2C && cd Maya2C
+git clone https://github.com/maya2c/Maya2C && cd Maya2C
 cargo xtask kit up       # 4 DAG-BFT validators, gateway, chat relay, faucet, explorer, funded wallet
 cargo xtask kit status   # which endpoints answer
 cargo xtask kit down     # stop exactly what `kit up` started
@@ -171,12 +171,12 @@ merged pull request. Where it stands now: [STATE.md](STATE.md).
 ## Contributing
 
 Suggestions, bug reports, docs fixes and tests are welcome. Issues labelled
-[good first issue](https://github.com/EricWijesinghe/Maya2C/labels/good%20first%20issue)
+[good first issue](https://github.com/maya2c/Maya2C/labels/good%20first%20issue)
 each name the files, the context and the check that proves them done.
 [CONTRIBUTING.md](CONTRIBUTING.md) explains setup on each OS, the build rule
 that keeps this repository's machine alive, test-first expectations, and what
 gets merged as written. Questions go to
-[Discussions](https://github.com/EricWijesinghe/Maya2C/discussions). Conduct:
+[Discussions](https://github.com/maya2c/Maya2C/discussions). Conduct:
 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## Documentation
