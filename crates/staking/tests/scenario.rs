@@ -499,9 +499,11 @@ fn staking_min_committee() -> usize {
     maya_staking::MIN_COMMITTEE
 }
 
-/// Security review of S-033: the floor is counted after the slash. Two
-/// thin bonds fall below `min_self_bond` when slashed, leaving four eligible,
-/// so the third down validator (the worst) must stay seated, not be jailed.
+/// Security review of S-033: the floor must hold for the set the slash leaves.
+/// Two thin bonds would fall below `min_self_bond` if slashed. Since the
+/// ADR-070 amendment 2026-11-21 the floor keeps the best of the down
+/// validators (thin bond 6, ties by id) and does not slash it below the
+/// minimum; the worst offender and the other thin bond are jailed.
 #[test]
 fn the_committee_floor_is_counted_after_the_slash() {
     let mut s = Staking::new(Params::DEVNET).unwrap();
@@ -531,13 +533,72 @@ fn the_committee_floor_is_counted_after_the_slash() {
             Amount::ZERO,
         )
         .unwrap();
-    assert!(
-        out.active.contains(&id(4)),
-        "the floor keeps the worst offender seated"
-    );
     assert_eq!(out.active.len(), staking_min_committee());
-    // The thin bonds are jailed for free: they no longer count.
-    assert!(out.jailed.contains(&id(5)) && out.jailed.contains(&id(6)));
+    assert!(
+        out.active.contains(&id(6)),
+        "the floor keeps the best of the down"
+    );
+    assert_eq!(
+        s.validators[&id(6)].self_bond,
+        a(1_005),
+        "kept, so not slashed below the minimum"
+    );
+    assert_eq!(out.jailed, vec![id(4), id(5)]);
+    assert_eq!(s.validators[&id(4)].self_bond, a(9_900));
+    assert_eq!(s.validators[&id(5)].self_bond, a(995));
+}
+
+/// S-033 at mainnet bonds (ADR-070 amendment 2026-11-21): every validator
+/// bonds exactly `min_self_bond` (`xtask genesis-check`), and one more goes
+/// down each epoch. A 1% slash would leave any of them ineligible, so before
+/// the amendment the committee went 7, 6, 5, 4, 3, 2. The floor now holds four
+/// seats: a kept validator is not slashed below the minimum, stays eligible
+/// and is still unpaid.
+#[test]
+fn at_mainnet_bonds_downtime_never_shrinks_the_committee_below_four_seats() {
+    let mut s = Staking::new(Params::DEVNET).unwrap();
+    let min = Params::DEVNET.min_self_bond;
+    for n in 1..=7 {
+        s.register(account(n), id(n), min, 0).unwrap();
+    }
+    s.end_epoch(&Participation::default(), Amount::ZERO)
+        .unwrap();
+    let mut down = BTreeSet::new();
+    for n in 1..=6 {
+        down.insert(id(n));
+        let authored = s
+            .active
+            .iter()
+            .map(|v| (*v, if down.contains(v) { 0 } else { 100 }))
+            .collect();
+        let out = s
+            .end_epoch(
+                &Participation {
+                    rounds: 100,
+                    authored,
+                    ..Participation::default()
+                },
+                a(1_000),
+            )
+            .unwrap();
+        assert_eq!(
+            out.active.len(),
+            (7 - usize::try_from(n).unwrap()).max(staking_min_committee()),
+            "epoch {n}: {:?}",
+            out.active
+        );
+        for v in out.active.iter().filter(|v| down.contains(*v)) {
+            assert_eq!(
+                s.validators[v].self_bond, min,
+                "kept {v:?} slashed below the minimum"
+            );
+            let paid = out
+                .effects
+                .iter()
+                .any(|e| matches!(e, Effect::Credit(to, _) if s.validators[v].operator == *to));
+            assert!(!paid, "kept {v:?} was paid while down");
+        }
+    }
 }
 
 /// Pre-audit S-030: a validator the node's empty-committee fallback keeps
@@ -546,14 +607,19 @@ fn the_committee_floor_is_counted_after_the_slash() {
 #[test]
 fn a_jailed_validator_kept_by_the_fallback_is_not_punished_twice() {
     let mut s = Staking::new(Params::DEVNET).unwrap();
-    // A thin bond: one downtime slash drops it below the minimum, so it is
-    // jailed even though the floor protects small committees.
+    // Four healthy validators leave the floor nothing to keep, so the down
+    // one is jailed, and its thin bond leaves it ineligible afterwards.
     s.register(account(1), id(1), a(1_005), 0).unwrap();
+    for n in 2..=5 {
+        s.register(account(n), id(n), a(10_000), 0).unwrap();
+    }
     s.end_epoch(&Participation::default(), Amount::ZERO)
         .unwrap();
     let down = || Participation {
         rounds: 100,
-        authored: BTreeMap::from([(id(1), 0)]),
+        authored: (1..=5)
+            .map(|n| (id(n), if n == 1 { 0 } else { 100 }))
+            .collect(),
         ..Participation::default()
     };
     let out = s.end_epoch(&down(), Amount::ZERO).unwrap();
