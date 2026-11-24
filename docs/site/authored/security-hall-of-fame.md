@@ -11,7 +11,7 @@ project are how it gets safer, and this page names the people who sent them.
 **There are no cash rewards yet.** A bounty programme is planned, not live, and
 it depends on funding that does not exist today. No amount is promised here or
 anywhere else. When rewards are offered, this page and
-[SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md)
+[SECURITY.md](https://github.com/maya2c/Maya2C/blob/master/SECURITY.md)
 will say so and say what they are.
 
 Recognition is what there is for now: a line on this page, a badge, and credit
@@ -30,10 +30,10 @@ scanner's output alone.
 Report privately, never in a public issue:
 
 1. Open
-   [private vulnerability reporting](https://github.com/EricWijesinghe/Maya2C/security/advisories/new).
+   [private vulnerability reporting](https://github.com/maya2c/Maya2C/security/advisories/new).
 2. Include what you found, how to reproduce it, and the commit you tested.
 3. Read the response targets and the rules of engagement in
-   [SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md).
+   [SECURITY.md](https://github.com/maya2c/Maya2C/blob/master/SECURITY.md).
 
 Testing is for your own local devnet or the public testnet only. Do not test
 against anyone else's funds or accounts.

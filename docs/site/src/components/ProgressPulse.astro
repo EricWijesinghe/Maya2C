@@ -3,7 +3,7 @@
 // scripts/gen-progress.mjs counts at each build (every 6 h and on each merge).
 import OrbRow from "./OrbRow.astro";
 import p from "../../public/progress.json";
-const repo = "https://github.com/EricWijesinghe/Maya2C";
+const repo = "https://github.com/maya2c/Maya2C";
 const when = (iso) => (iso ? new Date(iso).toISOString().slice(0, 16).replace("T", " ") + " UTC" : "unknown");
 const items = [
   { title: `${p.gates.met} of ${p.gates.total} gates`, line: "Mainnet checks passed", href: `${repo}/blob/master/docs/mainnet-v1-plan.md` },
