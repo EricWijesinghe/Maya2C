@@ -393,6 +393,10 @@ Tests:
   `absent_cheap_seats_past_a_third_of_the_seats_halt_a_weighted_chain_too` (was
   `absent_cheap_seats_cannot_halt_a_stake_weighted_chain`) and
   `an_absent_cheap_seat_within_a_third_of_the_seats_cannot_halt_a_weighted_chain`;
+  `a_node_catches_up_by_checkpoints_across_a_boundary_that_shrinks_the_committee` now
+  shrinks five seats to four (one absent seat), because the three absent seats of seven it
+  used before halt the chain before the boundary under this rule (it failed at
+  "no second boundary" until changed);
 - `crates/light-client/tests/finality_tests.rs`: `stake_on_a_few_seats_is_never_a_checkpoint_quorum`;
 - CON-20 vectors in `spec/tests/consensus.json` (18 cases), replayed by
   `crates/node/tests/consensus_conformance.rs` and `spec/verifier-ts/verify.ts`.
