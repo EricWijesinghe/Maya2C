@@ -175,7 +175,7 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
         // Built from nodes, not HTML: these strings come from committed files.
         const note = $("finNote"); note.textContent = `Submit to finalized, ${f.validators} validators on ${f.machine}, commit `;
         const code = document.createElement("code"); code.textContent = f.commit;
-        const link = document.createElement("a"); link.href = `https://github.com/EricWijesinghe/Maya2C/blob/master/${f.report}`; link.textContent = "Full report";
+        const link = document.createElement("a"); link.href = `https://github.com/maya2c/Maya2C/blob/master/${f.report}`; link.textContent = "Full report";
         note.append(code, ". Not a network figure. ", link, ".");
       }
     }
