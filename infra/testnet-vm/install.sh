@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # infra/testnet-vm/install.sh — a public Maya2C testnet on ONE Linux VM.
 #
-#   git clone https://github.com/EricWijesinghe/Maya2C && cd Maya2C
+#   git clone https://github.com/maya2c/Maya2C && cd Maya2C
 #   sudo DOMAIN=testnet.example.org EMAIL=you@example.org infra/testnet-vm/install.sh
 #
 # What it builds and runs, each as a sandboxed systemd service under a

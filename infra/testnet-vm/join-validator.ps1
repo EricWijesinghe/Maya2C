@@ -151,7 +151,7 @@ $ScriptParams = $PSBoundParameters
 Set-StrictMode -Version Latest
 
 # --- Constants: one place, no magic numbers scattered through the body. ------
-$Repo        = 'EricWijesinghe/Maya2C'
+$Repo        = 'maya2c/Maya2C'
 $InstallDir  = Join-Path $env:ProgramFiles 'Maya2C'
 $DataDir     = Join-Path $env:ProgramData  'Maya2C'
 $LogDir      = Join-Path $DataDir 'logs'
@@ -169,9 +169,9 @@ $PubPath     = Join-Path $DataDir 'validator.pub'
 $Settings    = Join-Path $DataDir 'settings.json'  # the ports this install chose
 $SelfCopy    = Join-Path $InstallDir 'maya2c-validator.ps1'
 $MenuDir     = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Maya2C'
-$SelfUrl     = 'https://raw.githubusercontent.com/EricWijesinghe/Maya2C/master/infra/testnet-vm/join-validator.ps1'
+$SelfUrl     = 'https://raw.githubusercontent.com/maya2c/Maya2C/master/infra/testnet-vm/join-validator.ps1'
 $PublicRpc   = 'https://rpc.maya2c.dev/rpc'
-$ApplyUrl    = 'https://github.com/EricWijesinghe/Maya2C/issues/new?template=validator-application.yml'
+$ApplyUrl    = 'https://github.com/maya2c/Maya2C/issues/new?template=validator-application.yml'
 $SyncedWithin = 5   # blocks behind the network that still count as "in sync"
 $RestartSeconds = 10 # pause before the launcher restarts a node that exited
 $MinBond     = 1000000000 # the seed's --min-register-bond: smaller bonds never join
