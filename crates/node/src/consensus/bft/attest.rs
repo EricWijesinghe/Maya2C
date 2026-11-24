@@ -348,9 +348,23 @@ pub struct Collector {
     /// The first block each validator attested at each pending height.
     seen: BTreeMap<(u64, u64, u16), [u8; 32]>,
     newest: Option<Checkpoint>,
+    /// The epoch whose committee this collector is given, when bound. The
+    /// driver routes by epoch; binding it here keeps an attestation of
+    /// another epoch out even if a caller passes the wrong committee, since
+    /// the same keys at the same indices verify in both epochs.
+    epoch: Option<u64>,
 }
 
 impl Collector {
+    /// A collector that refuses any attestation not of `epoch`.
+    #[must_use]
+    pub fn for_epoch(epoch: u64) -> Self {
+        Self {
+            epoch: Some(epoch),
+            ..Self::default()
+        }
+    }
+
     /// The newest checkpoint, if any block has reached a quorum.
     #[must_use]
     pub fn newest(&self) -> Option<&Checkpoint> {
@@ -363,7 +377,10 @@ impl Collector {
     /// # Errors
     ///
     /// As [`Attestation::verify`]: a bad attestation is refused, never
-    /// counted.
+    /// counted. A repeat of the block already counted for its slot returns
+    /// [`Collected::Ignored`] without being verified again (ADR-147).
+    /// [`NodeError::Decode`] for an attestation of another epoch than the one
+    /// a [`Collector::for_epoch`] collector is bound to, before any check.
     pub fn add(
         &mut self,
         attestation: Attestation,
@@ -371,6 +388,12 @@ impl Collector {
         committee: &[VerifyingKey],
         weights: Option<&[u64]>,
     ) -> Result<Collected> {
+        if let Some(epoch) = self.epoch.filter(|e| *e != attestation.epoch) {
+            return Err(NodeError::Decode(format!(
+                "attestation of epoch {} offered to the collector of epoch {epoch}",
+                attestation.epoch
+            )));
+        }
         if self
             .newest
             .as_ref()
@@ -378,12 +401,14 @@ impl Collector {
         {
             return Ok(Collected::Ignored);
         }
-        attestation.verify(chain, committee)?;
         let slot = (attestation.epoch, attestation.height, attestation.validator);
+        // A repeat of the block already counted is dropped before the ML-DSA
+        // check, so replayed frames cost no signature verification.
+        if self.seen.get(&slot) == Some(&attestation.block) {
+            return Ok(Collected::Ignored);
+        }
+        attestation.verify(chain, committee)?;
         if let Some(first) = self.seen.get(&slot) {
-            if *first == attestation.block {
-                return Ok(Collected::Ignored);
-            }
             let earlier = Attestation {
                 block: *first,
                 signature: self.pending[&(slot.0, slot.1, *first)][&slot.2].clone(),
@@ -574,6 +599,57 @@ mod tests {
             collector.pending.len(),
             1,
             "height 1 can no longer complete"
+        );
+    }
+
+    #[test]
+    fn a_bound_collector_refuses_a_valid_attestation_of_another_epoch() {
+        // The same keys sit at the same indices in both epochs, so an epoch-0
+        // attestation verifies against the epoch-1 committee: only the
+        // collector's epoch keeps it out.
+        let (signing, committee) = keys(4);
+        let of_epoch = |epoch: u64, v: u16| {
+            Attestation::sign(&signing[usize::from(v)], v, &CHAIN, epoch, 5, [1; 32]).unwrap()
+        };
+        let mut bound = Collector::for_epoch(1);
+        for v in 0..3 {
+            assert!(
+                bound.add(of_epoch(0, v), &CHAIN, &committee, None).is_err(),
+                "an epoch-0 attestation was taken by the epoch-1 collector"
+            );
+        }
+        assert!(bound.newest().is_none());
+        assert_eq!(
+            bound.add(of_epoch(1, 0), &CHAIN, &committee, None).unwrap(),
+            Collected::Counted
+        );
+        // Unbound (the default) keeps today's behaviour.
+        let mut unbound = Collector::default();
+        assert_eq!(
+            unbound
+                .add(of_epoch(0, 0), &CHAIN, &committee, None)
+                .unwrap(),
+            Collected::Counted
+        );
+    }
+
+    #[test]
+    fn a_replay_of_a_counted_attestation_is_ignored_before_verification() {
+        let (signing, committee) = keys(4);
+        let mut collector = Collector::default();
+        let counted = attest(&signing, 1, 4, 1);
+        assert_eq!(
+            collector
+                .add(counted.clone(), &CHAIN, &committee, None)
+                .unwrap(),
+            Collected::Counted
+        );
+        let mut replay = counted;
+        replay.signature[0] ^= 1;
+        assert_eq!(
+            collector.add(replay, &CHAIN, &committee, None).unwrap(),
+            Collected::Ignored,
+            "a repeat of a counted block must not reach signature verification"
         );
     }
 
