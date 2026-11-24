@@ -51,7 +51,7 @@ const ROUNDS_PER_BLOCK: u64 = 4;
 /// builder's decode budget at the block-byte ceiling, plus every member's
 /// certificate carrying a full quorum of the largest signatures the wire reads.
 const ROUND_BYTES: u64 =
-    crate::consensus::bft::builder::decode_budget(maya_fee_market::limits::BLOCK_BYTES_CEILING)
+    crate::consensus::bft::builder::decode_budget(crate::state::fees::BLOCK_BYTES_CEILING)
         + (super::store::MAX_COMMITTEE as u64)
             * (super::store::MAX_COMMITTEE as u64)
             * (4 + 8 + super::wire::MAX_SIGNATURE_BYTES as u64);
@@ -553,7 +553,7 @@ mod tests {
         // Before ADR-155 the bound was a fixed 4 GiB; a mainnet epoch at the
         // starting 5 MiB cap alone is 17.58 GiB.
         let epoch = 3_600;
-        assert!(max_epoch_bytes(epoch) >= epoch * maya_fee_market::limits::BLOCK_BYTES_CEILING);
+        assert!(max_epoch_bytes(epoch) >= epoch * crate::state::fees::BLOCK_BYTES_CEILING);
         assert_eq!(max_epoch_bytes(0), 0);
         assert_eq!(
             max_epoch_bytes(u64::MAX),

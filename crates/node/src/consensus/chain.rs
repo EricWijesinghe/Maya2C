@@ -35,8 +35,8 @@ use crate::crypto::dag::registry::{CacheRegistry, DagConfig};
 use crate::crypto::pow::meets_target;
 use crate::error::{NodeError, Result};
 use crate::state::context::SHIELDED_ACTIVATION_HEIGHT;
+use crate::state::fees::{BLOCK_BYTES_CEILING, BLOCK_TXS_CEILING};
 use crate::state::{BlockContext, StateDB};
-use maya_fee_market::limits::{BLOCK_BYTES_CEILING, BLOCK_TXS_CEILING};
 
 /// Opening a stored chain, importing headers ahead of bodies, and pruning.
 mod store;

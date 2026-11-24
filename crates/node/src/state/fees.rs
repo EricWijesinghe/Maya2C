@@ -28,6 +28,8 @@ use maya_dex::Amount;
 /// The block byte cap (ADR-072), re-exported so the node names the fee market
 /// only through this module and genesis (`fee_market_tests` gate).
 pub use maya_fee_market::limits::MAX_BLOCK_BYTES;
+/// The compiled ceilings no vote moves past, and the decoder's per-entry floor (ADR-155).
+pub use maya_fee_market::limits::{BLOCK_BYTES_CEILING, BLOCK_TXS_CEILING, MIN_TX_ENTRY_BYTES};
 
 /// The fee state record. Under the staking layer's prefix: fees and staking
 /// are one economic subsystem, and one more layer would buy nothing.
