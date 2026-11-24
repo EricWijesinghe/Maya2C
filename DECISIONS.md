@@ -964,3 +964,8 @@ Two findings that contradict the brief, reported rather than worked around (Stan
 - **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
 - **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
 - **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-24 — The sparse accounts tree from genesis (Eric 2026-11-24, BRIEF-4)
+
+- **Decision:** ADR-062a's option (a). A genesis whose schedule switches `FeatureSet::STATELESS` on at height 1 seeds the `sl:accounts-sparse` marker and commits the sparse accounts root from block zero; `genesis-ceremony` writes that entry into every genesis. The dense tree stays as the reference for chains built without the entry (the test fixtures). Guarantee: no account-count ceiling on the state root. Spec ROOT-6, ADR-062 amendment 2026-11-24.
+- **Left open:** the light client's SPV check and the RPC account proof use the dense path, which a sparse state refuses (#540); they must move to the sparse witness before a light client can check a mainnet balance.

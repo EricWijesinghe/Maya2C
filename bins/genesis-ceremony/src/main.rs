@@ -451,7 +451,9 @@ fn launch_config(
         oracle: None,
         sealed: None,
         treasury,
-        protocol_upgrades: Vec::new(),
+        // BRIEF-4 (Eric 2026-11-24): the sparse accounts tree from block zero,
+        // so no account count is a ceiling for this network's state root.
+        protocol_upgrades: vec![sparse_from_genesis()],
         suite_deprecations: Vec::new(),
         security_council: None,
         shielded_activation_height: if args.shielded_never {
@@ -460,6 +462,17 @@ fn launch_config(
             shielded_activation_for(&args.chain_id, maya_zk_stark::pool::circuit_is_audited())
         },
         bft,
+    }
+}
+
+/// The schedule entry that commits the sparse accounts tree from block zero
+/// (`GenesisConfig::sparse_accounts_at_genesis`, BRIEF-4).
+fn sparse_from_genesis() -> custom_l1_node::upgrade::ProtocolUpgrade {
+    use custom_l1_node::upgrade::{FeatureSet, ProtocolUpgrade, SUPPORTED_PROTOCOL_VERSION};
+    ProtocolUpgrade {
+        version: SUPPORTED_PROTOCOL_VERSION,
+        activation_height: 1,
+        features: FeatureSet(FeatureSet::STATELESS),
     }
 }
 

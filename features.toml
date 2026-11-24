@@ -2133,7 +2133,7 @@ tier = "extended"
 class = "RESEARCH"
 status = "working"
 tests = ["crates/stateless-core/tests/light_node_memory.rs", "crates/stateless-core/tests/transition_tests.rs", "crates/stateless-core/tests/tree_tests.rs", "crates/node/tests/stateless_equivalence.rs", "crates/node/tests/root_cache_chain_tests.rs"]
-note = "ADR-062a (2026-11-14, revised after the PR #540 review): the sparse accounts root is maintained incrementally from a local-only `smt:` cache of branches (N - 1 entries for N accounts, whatever the addresses), equal to the full rebuild; unit tests in crates/node/src/state/root_cache_tests.rs, chain-level test named above. Dark with the sparse tree: at genesis accounts are the dense tree and no cache is kept, so mainnet per-block accounts cost is unchanged until STATELESS activates. Accounts layer only; record layers are still rebuilt each block."
+note = "ADR-062a (2026-11-14, revised after the PR #540 review): the sparse accounts root is maintained incrementally from a local-only `smt:` cache of branches (N - 1 entries for N accounts, whatever the addresses), equal to the full rebuild; unit tests in crates/node/src/state/root_cache_tests.rs, chain-level test named above. Active from genesis on every ceremony genesis (Eric 2026-11-24, BRIEF-4, spec ROOT-6): the schedule switches STATELESS on at height 1 and the genesis seeds the sparse marker, so the accounts root is sparse from block zero; chains built without that entry (test fixtures) keep the dense tree as the reference. The light client SPV path and RPC account proof still use the dense path and are refused on a sparse state (open). Accounts layer only; record layers are still rebuilt each block."
 
 [[subsystem]]
 id = "universal-evm-svm-move-transpilation"

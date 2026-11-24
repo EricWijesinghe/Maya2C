@@ -110,6 +110,46 @@ fn different_chain_ids_produce_different_genesis_blocks() {
 }
 
 #[test]
+fn a_genesis_that_switches_stateless_on_at_block_one_is_sparse_from_block_zero() {
+    // BRIEF-4 (Eric 2026-11-24): the sparse accounts tree from genesis. The
+    // seeded state carries the marker, so its root, the config's root and
+    // the genesis header all name the sparse tree; a dense account proof is
+    // refused because no header commits to a dense root.
+    use custom_l1_node::upgrade::{FeatureSet, ProtocolUpgrade, SUPPORTED_PROTOCOL_VERSION};
+    let mut sparse = config();
+    sparse.protocol_upgrades = vec![ProtocolUpgrade {
+        version: SUPPORTED_PROTOCOL_VERSION,
+        activation_height: 1,
+        features: FeatureSet(FeatureSet::STATELESS),
+    }];
+    assert!(sparse.sparse_accounts_at_genesis().expect("schedule"));
+    let (state, _dir) = open_state();
+    let root = sparse.seed_state(&state).expect("seed");
+    assert_eq!(
+        root,
+        sparse.genesis_block().expect("block").header.state_root
+    );
+    let address = sparse.accounts().expect("accounts")[0].0;
+    assert!(
+        state.account_proof(&address).is_err(),
+        "a sparse state refuses a dense proof"
+    );
+
+    // A later activation stays dense at genesis: the marker is block 1's.
+    let mut later = sparse.clone();
+    later.protocol_upgrades[0].activation_height = 2;
+    assert!(!later.sparse_accounts_at_genesis().expect("schedule"));
+    let (dense_state, _dense_dir) = open_state();
+    later.seed_state(&dense_state).expect("seed");
+    assert!(
+        dense_state
+            .account_proof(&address)
+            .expect("proof")
+            .is_some()
+    );
+}
+
+#[test]
 fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
     // ADR-037. Absent, the id is what it was before the field existed, so
     // the running testnet keeps its genesis; named, it is committed, so two

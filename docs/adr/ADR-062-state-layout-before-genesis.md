@@ -178,3 +178,34 @@ is a local constant, not consensus.
 No spec rule changes and no conformance vector changes: the root is the same function of state.
 `spec/03-state.md` records that the value is the full function and an implementation may compute
 it incrementally.
+
+## Amendment 2026-11-24 — the sparse accounts tree from genesis (Eric 2026-11-24, BRIEF-4)
+
+**Decision (a) above, taken by Eric.** Guarantee: no account count is a
+ceiling on the state root. The accounts root is the keyed sparse tree from
+block zero, so a block's root follows the accounts it touched (ADR-062a's
+cache) on the genesis chain itself, not after a later upgrade.
+
+- `GenesisConfig::sparse_accounts_at_genesis()`: the schedule switches
+  `FeatureSet::STATELESS` on at height 1 (the earliest an entry may name;
+  height 0 is the implicit version 1). Then `seeded_records()` also seeds
+  `sl:accounts-sparse`, and `GenesisConfig::state_root()` builds the sparse
+  accounts root, so the seeded database, the config and the genesis header
+  agree (`seed_state` checks it).
+- `genesis-ceremony` writes that entry (`version = SUPPORTED_PROTOCOL_VERSION`,
+  height 1, `STATELESS`) into every genesis it makes. The entry is in the
+  genesis id through the upgrade commitment, as every schedule entry is.
+- The dense address-ordered tree stays: every chain built without the entry
+  (the test suites' fixtures, `xtask` devnets) keeps it, and it is the
+  reference those suites compare against.
+- Spec `03-state.md` ROOT-6.
+
+**What this retires, stated:** `StateDB::account_proof` (the dense path the
+light client's SPV check verifies) refuses on a sparse state, as #540 made it.
+A wallet or light client on a ceremony genesis must use the sparse witness
+(`StateDB::transaction_witness` / `block_witness`); moving the light client's
+SPV path and the RPC account-proof call to it is **not done here** and is
+needed before a light client can check a mainnet balance.
+
+**Evidence:** `genesis_tests::a_genesis_that_switches_stateless_on_at_block_one_is_sparse_from_block_zero`.
+

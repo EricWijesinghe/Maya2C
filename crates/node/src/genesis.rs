@@ -629,6 +629,19 @@ impl GenesisConfig {
         UpgradeSchedule::new(self.protocol_upgrades.clone())
     }
 
+    /// Whether this genesis commits the sparse accounts tree from block zero
+    /// (Eric 2026-11-24, BRIEF-4): its schedule switches
+    /// `FeatureSet::STATELESS` on at height 1, the first block, so no block
+    /// of the chain ever runs on the address-ordered tree. The genesis then
+    /// seeds the `sl:` marker itself, and its root is the sparse one.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::upgrade_schedule`].
+    pub fn sparse_accounts_at_genesis(&self) -> Result<bool> {
+        Ok(self.upgrade_schedule()?.features().stateless <= 1)
+    }
+
     /// The validated suite deprecations (ADR-082).
     ///
     /// # Errors
@@ -898,12 +911,16 @@ impl GenesisConfig {
     ///
     /// Propagates validation failures.
     pub fn state_root(&self) -> Result<[u8; 32]> {
-        let leaves: Vec<[u8; 32]> = self
-            .accounts()?
-            .iter()
-            .map(|(address, account)| account_leaf(address, account))
-            .collect();
-        let accounts = merkle_root(&leaves);
+        let accounts = if self.sparse_accounts_at_genesis()? {
+            crate::state::stateless::sparse_accounts_root(&self.accounts()?.into_iter().collect())?
+        } else {
+            let leaves: Vec<[u8; 32]> = self
+                .accounts()?
+                .iter()
+                .map(|(address, account)| account_leaf(address, account))
+                .collect();
+            merkle_root(&leaves)
+        };
         // Record layers a genesis can seed (staking, the council), folded in
         // the layer order and by prefix exactly as `StateDB::state_layers`
         // folds them, so the seeded database reproduces this root.
@@ -950,6 +967,14 @@ impl GenesisConfig {
             records.insert(
                 crate::state::upgrades::sunset_key(sunset.suite.to_byte()),
                 crate::state::upgrades::encode_sunset(&sunset),
+            );
+        }
+        // BRIEF-4: the marker `mark_sparse_accounts` would write in block 1,
+        // written at block zero instead, so the genesis root is sparse too.
+        if self.sparse_accounts_at_genesis()? {
+            records.insert(
+                crate::state::stateless::SPARSE_ACCOUNTS_KEY.to_vec(),
+                vec![1],
             );
         }
         if let Some(council) = &self.security_council {

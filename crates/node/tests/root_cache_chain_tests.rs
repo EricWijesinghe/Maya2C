@@ -30,6 +30,10 @@ fn sender() -> HybridSigningKey {
 }
 
 fn config() -> GenesisConfig {
+    config_at(ACTIVATION)
+}
+
+fn config_at(activation: u64) -> GenesisConfig {
     GenesisConfig {
         chain_id: "root-cache-chain".into(),
         timestamp: 1_000_000,
@@ -44,7 +48,7 @@ fn config() -> GenesisConfig {
         treasury: None,
         protocol_upgrades: vec![ProtocolUpgrade {
             version: SUPPORTED_PROTOCOL_VERSION,
-            activation_height: ACTIVATION,
+            activation_height: activation,
             features: FeatureSet(FeatureSet::STATELESS),
         }],
         suite_deprecations: Vec::new(),
@@ -57,7 +61,10 @@ fn config() -> GenesisConfig {
 /// Opens the chain in `dir`, seeding genesis state only into a fresh
 /// database (invariant 26: re-seeding an evolved one overwrites it).
 fn open(dir: &TempDir) -> Chain {
-    let config = config();
+    open_with(dir, &config())
+}
+
+fn open_with(dir: &TempDir, config: &GenesisConfig) -> Chain {
     let state = Arc::new(StateDB::open(dir.path()).unwrap());
     if state.chain_meta().unwrap().is_none() {
         config.seed_state(&state).unwrap();
@@ -190,4 +197,25 @@ fn chain_open_rebuilds_a_damaged_cache_before_the_first_block() {
     next(&mut chain, 0);
     assert_cache_holds(&chain);
     assert_eq!(chain.state().root_cache_stats().repaired, 1);
+}
+
+#[test]
+fn a_chain_sparse_from_genesis_keeps_the_cache_equal_to_the_full_rebuild() {
+    // BRIEF-4 (Eric 2026-11-24, spec ROOT-6): switched on at height 1, the
+    // genesis is already sparse, so there is no dense block to switch from.
+    let config = config_at(1);
+    assert!(config.sparse_accounts_at_genesis().unwrap());
+    let dir = TempDir::new().unwrap();
+    let mut chain = open_with(&dir, &config);
+    let genesis = chain.get(&chain.tip()).unwrap();
+    assert_eq!(genesis.header.state_root, config.state_root().unwrap());
+    assert_eq!(
+        chain.state().state_root().unwrap(),
+        genesis.header.state_root
+    );
+    for _ in 0..SHARED {
+        next(&mut chain, 0);
+        assert_cache_holds(&chain);
+    }
+    assert_eq!(chain.state().root_cache_stats().repaired, 0);
 }
