@@ -546,7 +546,10 @@ mod tests {
         // the held seat is not the second voter.
         let c = Committee::weighted(vec![20, 1, 1, 1, 0]).expect("5");
         assert!(c.weight_of([0, 4]) >= c.validity());
-        assert!(!c.is_validity([0, 4]), "the held seat is not a second voter");
+        assert!(
+            !c.is_validity([0, 4]),
+            "the held seat is not a second voter"
+        );
         assert!(c.is_validity([0, 1]));
     }
 

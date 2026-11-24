@@ -75,7 +75,7 @@ fn absent_minimum_bond_seats_never_pass_a_third_of_the_committee() {
     let honest = |v: &[u8; 32]| v[0] <= 7;
     for epoch in 0..8 {
         epoch_where(&mut s, honest);
-        let absent = s.active.iter().filter(|v| !honest(v)).count();
+        let absent = s.active.iter().filter(|v| !honest(*v)).count();
         assert!(
             absent <= seat_faults(s.active.len()) / 2,
             "epoch {epoch}: {absent} absent seats of {}, at most half of f_n allowed",
@@ -175,9 +175,8 @@ fn a_patient_attacker_needs_several_epochs_of_service_to_hold_a_third() {
         let attacker = s.active.iter().filter(|v| v[0] >= 20).count();
         if attacker > seat_faults(s.active.len()) {
             println!(
-                "STK-23 measured: an online attacker held {attacker} of {} seats, past f_n, after {epochs} epochs at {} per seat",
-                s.active.len(),
-                Params::DEVNET.min_self_bond
+                "STK-23 measured: an online attacker held {attacker} of {} seats, past f_n, after {epochs} epochs, each seat at the minimum bond",
+                s.active.len()
             );
             break;
         }
