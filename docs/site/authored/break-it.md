@@ -26,7 +26,7 @@ and 2026-11-09: seven validators on one machine, attacked as follows.
 - One validator is down past the engine's window and must rejoin.
 
 Every day's report, failures included, is published unedited:
-**[attacknet reports](https://github.com/EricWijesinghe/Maya2C/tree/attacknet-reports)**.
+**[attacknet reports](https://github.com/maya2c/Maya2C/tree/attacknet-reports)**.
 One operator attacking their own network is a floor. This page is how it
 becomes more than that.
 
@@ -40,7 +40,7 @@ becomes more than that.
 | Network | libp2p, the ML-KEM handshake, the WebSocket bootnode | a crash or stall from crafted frames, peer-slot exhaustion with amplification |
 | Public services | `rpc.maya2c.dev`, `faucet.maya2c.dev`, `bootstrap.maya2c.dev` | a method the gateway should refuse, faucet limits bypassed |
 
-The code is at [github.com/EricWijesinghe/Maya2C](https://github.com/EricWijesinghe/Maya2C).
+The code is at [github.com/maya2c/Maya2C](https://github.com/maya2c/Maya2C).
 The fastest way in is to run the attacknet yourself and add an attack it
 does not have.
 
@@ -58,8 +58,8 @@ does not have.
 
 ## Reporting
 
-Report privately with GitHub's **[Report a vulnerability](https://github.com/EricWijesinghe/Maya2C/security/advisories/new)**,
-as [SECURITY.md](https://github.com/EricWijesinghe/Maya2C/blob/master/SECURITY.md)
+Report privately with GitHub's **[Report a vulnerability](https://github.com/maya2c/Maya2C/security/advisories/new)**,
+as [SECURITY.md](https://github.com/maya2c/Maya2C/blob/master/SECURITY.md)
 describes. Include what you found, how to reproduce it, and the commit you
 tested. You will get an acknowledgement within 3 working days. Please
 allow 90 days, or until a fix ships, before publishing.
