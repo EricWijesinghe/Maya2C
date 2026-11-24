@@ -1,4 +1,4 @@
-//! `spec/05-consensus.md` CON-5 to CON-8, and `spec/02-transactions.md` TX-4.
+//! `spec/05-consensus.md` CON-5 to CON-8 and CON-20, and `spec/02-transactions.md` TX-4.
 //!
 //! 256-bit arithmetic is written out here on four little-endian `u64` limbs,
 //! slowly and plainly, rather than borrowed from the node's `U256`.
@@ -324,4 +324,88 @@ pub fn decode_fair(entries: &[(u16, u64, u64)], committee: u64, budget: u64) -> 
     }
     admitted.sort_unstable();
     (admitted, budget - remaining)
+}
+
+/// CON-20: the weight and the seats `signers` carry. Each member counts
+/// once and a non-member not at all; a member of weight 0 adds nothing to
+/// either (it holds a seat but is not a voter).
+fn carried(weights: &[u64], signers: &[u16]) -> (u128, u128) {
+    let mut seen = vec![false; weights.len()];
+    let (mut weight, mut seats) = (0u128, 0u128);
+    for &s in signers {
+        let i = usize::from(s);
+        if i < weights.len() && !seen[i] && weights[i] > 0 {
+            seen[i] = true;
+            weight += u128::from(weights[i]);
+            seats += 1;
+        }
+    }
+    (weight, seats)
+}
+
+/// CON-20: `(W, n)`, the total weight and the members of positive weight.
+fn measures(weights: &[u64]) -> (u128, u128) {
+    let total = weights.iter().map(|w| u128::from(*w)).sum();
+    let voters = weights.iter().filter(|w| **w > 0).count() as u128;
+    (total, voters)
+}
+
+/// CON-20: `(W − f_W, n − f_n)`, the weight and the seats a quorum needs.
+#[must_use]
+pub fn quorum_thresholds(weights: &[u64]) -> (u128, u128) {
+    let (total, n) = measures(weights);
+    (
+        total - total.saturating_sub(1) / 3,
+        n - n.saturating_sub(1) / 3,
+    )
+}
+
+/// CON-20: `(f_W + 1, f_n + 1)`, the weight and the seats validity needs.
+#[must_use]
+pub fn validity_thresholds(weights: &[u64]) -> (u128, u128) {
+    let (total, n) = measures(weights);
+    (total.saturating_sub(1) / 3 + 1, n.saturating_sub(1) / 3 + 1)
+}
+
+/// CON-20: a committee whose members all weigh 0 is refused.
+fn no_committee(weights: &[u64]) -> bool {
+    !weights.is_empty() && weights.iter().all(|w| *w == 0)
+}
+
+/// CON-20: `signers` are a quorum only with both thresholds met.
+///
+/// # Errors
+///
+/// `"NoCommittee"` when every weight is 0; `"NoQuorum"` when either the
+/// weight or the seats fall short.
+pub fn dual_quorum(weights: &[u64], signers: &[u16]) -> Result<(), &'static str> {
+    if no_committee(weights) {
+        return Err("NoCommittee");
+    }
+    let (weight, seats) = carried(weights, signers);
+    let (need_weight, need_seats) = quorum_thresholds(weights);
+    if weight >= need_weight && seats >= need_seats {
+        Ok(())
+    } else {
+        Err("NoQuorum")
+    }
+}
+
+/// CON-20: `signers` carry validity only with both thresholds met.
+///
+/// # Errors
+///
+/// `"NoCommittee"` when every weight is 0; `"NoValidity"` when either the
+/// weight or the seats fall short.
+pub fn dual_validity(weights: &[u64], signers: &[u16]) -> Result<(), &'static str> {
+    if no_committee(weights) {
+        return Err("NoCommittee");
+    }
+    let (weight, seats) = carried(weights, signers);
+    let (need_weight, need_seats) = validity_thresholds(weights);
+    if weight >= need_weight && seats >= need_seats {
+        Ok(())
+    } else {
+        Err("NoValidity")
+    }
 }

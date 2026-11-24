@@ -167,9 +167,14 @@ every member of a committee would have weight 0, the members keep their stake we
 ADR-028 keeps a chain with no eligible validator running for governance to fix, and a
 zero total would make any set a quorum.
 
-**The guarantee.** With four seats and one held tombstone the quorum is the three voters'
-`W − f`, so the trade recorded in the amendment above is gone on a stake-weighted chain:
-the floor keeps four seats and the safety of three. The proven equivocator's signature
+**The guarantee.** With four seats and one held tombstone a quorum needs the three voters'
+`W − f` of weight **and** all three voters by count (CON-20 counted over voters, below), so
+the trade recorded in the amendment above is gone on a stake-weighted chain: the floor
+keeps four seats and the safety of three voters, whatever their stakes. Weight alone would
+not give that with unequal stakes: on `[9000, 5000, 3000, 0]`, `W − f` is 11,334, and
+`{0, 1}` (14,000) and `{0, 2}` (12,000) both clear it while sharing only validator 0. The
+seat threshold refuses both, with or without the tombstone's signature
+(`unequal_stakes_beside_a_held_seat_need_every_voter`). The proven equivocator's signature
 never completes a certificate, an attestation checkpoint or a catch-up quorum (all three
 build `Committee::weighted` from the same frozen weights). Weights are frozen at the
 boundary, so in the epoch of the offence the tombstone keeps the weight it was frozen
@@ -182,16 +187,35 @@ voters, the members with positive weight (`Committee::voters`), and only voters'
 signatures count toward it (`Committee::voters_in`). A held tombstone is not a voter:
 counting its seat would let a proven equivocator's key stand in for an honest member in
 the count rule, the kind of cheap head the count rule exists to stop. Four seats with
-one held: the count rule needs `3 − ⌊(3 − 1)/3⌋ = 3` voters, which the weight rule
-already requires.
+one held: the count rule needs `3 − ⌊(3 − 1)/3⌋ = 3` voters. With equal stakes the weight
+rule already requires all three; with unequal stakes it does not, and the count rule is what
+makes every quorum all three voters. That is why this amendment is built on the dual quorum
+(#707 stacked on #706) and not merged ahead of it. `tally`, `count_faults`, `count_quorum`,
+`count_validity` and the head-count floor `min_quorum_size` all count voters only.
+
+**Liveness: that of three voters.** The held seat keeps `n = 4` seats, and the count is
+three voters with `f_n = 0`; by weight, three equal voters need `2w + 1`, all three. So the
+chain tolerates no voter offline: one honest voter down halts rounds, certificates and
+checkpoints until it returns, though the other two and the held seat are up. That is the
+liveness of the three-seat committee in STK-14, no worse; under the leftover-stake rule
+before this amendment, two voters plus the tombstone could keep going, at the safety cost
+recorded above. The held seat also keeps its round-robin leader slot
+(`Committee::leader`), so an equivocator that withholds its anchors costs one anchor
+timeout on every fourth anchor. Whether the leader schedule should skip zero-weight seats
+is a consensus change of its own, put to Eric and not made here.
 
 **Not covered.** A one-seat-one-vote chain (`stake_weighted = false`, no weights record)
 still counts the held seat as one head: it has no weights to zero. `genesis-check`
 refuses a value-bearing genesis that is not stake-weighted, so this is a devnet and
 test-chain gap only.
 
-Tests: `a_zero_weight_seat_is_seated_but_never_counted`, `a_committee_with_no_weight_is_refused`
-(`crates/dag-bft/src/vertex.rs`); `a_tombstone_held_by_the_floor_votes_with_zero_weight`
+Tests: `a_zero_weight_seat_is_seated_but_never_counted`, `a_committee_with_no_weight_is_refused`,
+`unequal_stakes_beside_a_held_seat_need_every_voter` (`crates/dag-bft/src/vertex.rs`);
+`zero_weight_seats_change_neither_threshold` (`crates/dag-bft/tests/property_tests.rs`, from #706);
+`two_voters_beside_a_held_seat_never_make_conflicting_checkpoints`
+(`crates/node/src/consensus/bft/attest.rs`); CON-20 vectors (from #706)
+`quorum-zero-weight-seat-is-no-voter`, `quorum-zero-weight-seat-spends-no-seat-fault`,
+`validity-zero-weight-seat-is-no-second-voter`, `quorum-committee-of-zero-weights-refused`; `a_tombstone_held_by_the_floor_votes_with_zero_weight`
 (`crates/node/src/state/staking.rs`); `a_zero_weight_seat_is_not_an_operator_the_cap_counts`
 (`crates/node/src/state/weight_cap.rs`: counted as an operator, the zero seat dropped the
 CON-06 water-filling level to 0 and flattened every voter to weight 1, found by the

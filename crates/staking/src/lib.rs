@@ -44,7 +44,7 @@ mod proofs;
 pub use maya_amount::Amount;
 
 pub use concentration::{Concentration, concentration};
-pub use epoch::{EpochOutcome, MAX_HELD_TOMBSTONES, MIN_COMMITTEE, Participation};
+pub use epoch::{EpochOutcome, MAX_HELD_TOMBSTONES, MIN_COMMITTEE, Participation, entry_limit};
 pub use params::Params;
 pub use types::{
     Address, Effect, Stake, StakeError, Staking, Status, Unbonding, ValidatorId, ValidatorRecord,

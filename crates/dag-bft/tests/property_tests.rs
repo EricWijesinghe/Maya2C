@@ -22,6 +22,26 @@ fn check(committee: &Committee, total: u128) -> Result<(), TestCaseError> {
         "honest weight cannot reach quorum: W={total} q={q} f={f}"
     );
     prop_assert!(committee.validity() == f + 1);
+    // The seat dimension of the dual quorum (ADR-040 amendment 2026-11-24),
+    // counted over voters: a zero-weight seat is none (third round 5).
+    let n = u128::from(committee.voters());
+    let (qc, fc) = (
+        u128::from(committee.count_quorum()),
+        u128::from(committee.count_faults()),
+    );
+    prop_assert!(n > 3 * fc, "f too large by seats: n={n} f={fc}");
+    prop_assert!(
+        2 * qc > n + fc,
+        "quorums may share no honest seat: n={n} q={qc}"
+    );
+    prop_assert!(
+        qc <= n - fc,
+        "honest seats cannot reach quorum: n={n} q={qc}"
+    );
+    prop_assert!(u128::from(committee.count_validity()) == fc + 1);
+    // Every member is a quorum together; the floor never exceeds the seats.
+    prop_assert!(committee.is_quorum(0..committee.size()));
+    prop_assert!(u128::from(committee.min_quorum_size()) <= n);
     Ok(())
 }
 
@@ -38,5 +58,21 @@ proptest! {
         let total = weights.iter().map(|&w| u128::from(w)).sum();
         let committee = Committee::weighted(weights).expect("non-empty, non-zero weights");
         check(&committee, total)?;
+    }
+
+    #[test]
+    fn zero_weight_seats_change_neither_threshold(
+        weights in prop::collection::vec(0u64..=1_000, 1..64),
+    ) {
+        prop_assume!(weights.iter().any(|w| *w > 0));
+        let total = weights.iter().map(|&w| u128::from(w)).sum();
+        let voters: Vec<u64> = weights.iter().copied().filter(|w| *w > 0).collect();
+        let committee = Committee::weighted(weights).expect("some weight");
+        check(&committee, total)?;
+        // The same thresholds as the committee of its voters alone.
+        let without = Committee::weighted(voters).expect("some weight");
+        prop_assert_eq!(committee.quorum(), without.quorum());
+        prop_assert_eq!(committee.count_quorum(), without.count_quorum());
+        prop_assert_eq!(committee.count_validity(), without.count_validity());
     }
 }

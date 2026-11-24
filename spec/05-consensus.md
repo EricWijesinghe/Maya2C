@@ -5,7 +5,7 @@ The node runs one of two engines, chosen by its genesis: **DAG-BFT**
 when the genesis names a `bft` committee, and Nakamoto **proof of work**
 otherwise. Under DAG-BFT a block is derived from certificates and no work is
 verified, so CON-5, CON-6 and CON-7 apply to proof-of-work chains only,
-CON-9 to DAG-BFT chains only, and CON-1 to CON-4 and CON-8 to both.
+CON-9 and CON-20 to DAG-BFT chains only, and CON-1 to CON-4 and CON-8 to both.
 
 Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
 
@@ -30,24 +30,28 @@ Node: `crates/node/src/core/block.rs`, `crates/node/src/consensus/`.
   - Admitted payloads are emitted in commit order, so execution order is the commit order restricted to the admitted set.
   - The bytes charged are raw payload bytes, per author. Payloads not admitted are not in the block and stay with their proposers.
   - Decode work per block is at most `DECODE_BUDGET`. Removing repeats compares raw bytes and decodes nothing (ADR-072).
+- **CON-20** Under DAG-BFT a set of committee members is a **quorum** only when it holds at least `W − f_W` of the committee's weight **and** at least `n − f_n` of its seats, where `W` is the total weight, `n` the number of members of positive weight (voters), `f_W = ⌊(W − 1) ÷ 3⌋` and `f_n = ⌊(n − 1) ÷ 3⌋`. It holds **validity** only with at least `f_W + 1` of the weight **and** `f_n + 1` of the seats. A member counts once however often it is named, and a non-member counts for nothing. A member of weight 0 (a tombstone held in its seat by the committee floor, which has zero consensus weight: Eric 2026-11-24 third round 5) keeps its index and leader slot and counts for nothing by either measure, so it never spends a seat fault and its signature never stands in for a voter's. A committee whose weights are all 0 is refused (`NoCommittee`). Weights are the epoch's stake weights on a stake-weighted chain (STK-16) and all 1 otherwise, where the two thresholds coincide. A vertex is certified, a round is complete, a vertex's parents suffice and a finality checkpoint verifies only on a quorum; an anchor commits directly only on validity. Any two quorums share more than `f_W` of the weight and more than `f_n` of the seats, so finality is safe while the faulty members hold at most a third of the weight **or** at most a third of the seats: stake spread over a few addresses finalizes nothing without two thirds of the seats, and seats bought without stake finalize nothing without two thirds of the weight. To finalize alone a party needs both: two thirds of the weight and two thirds of the voters, each seat costing at least `min_self_bond` (more than the smallest seated stake once the committee is full) and entering at no more than STK-23's rate. It is live while the honest members hold more than two thirds of both; STK-23 bounds the seats that never come online, from seven seats up, to half of `f_n` until the boundary that jails them. (Eric 2026-11-24, third round; ADR-040 and ADR-027 amendments 2026-11-24.)
 
 ## Vectors and gaps
 
 CON-1 to CON-3 are in `spec/tests/headers.json`, CON-4 in
 `state_transitions.json` (a declared root that matches and one that does
-not) and CON-5 to CON-8, CON-10, CON-11 and CON-12 in `consensus.json`. CON-6's vectors pin the
+not) and CON-5 to CON-8, CON-10, CON-11, CON-12 and CON-20 in `consensus.json`.
+CON-20's vectors are checked against the engine's `Committee`, which the node's
+certificates, its checkpoints and the light client all count through
+(`crates/node/tests/consensus_conformance.rs`). CON-6's vectors pin the
 comparison of a hash with a target; the proof-of-work hash itself
 (`argonblake-pow`) has no language-neutral vector.
 
 DAG construction, the commit rule, finality and fork choice under DAG-BFT
 are specified only by the node's code and `crates/dag-bft`, and have no rule
-IDs yet.
+IDs yet, except the thresholds they count with (CON-20).
 
 Catch-up by certificate replay (ADR-052) is specified by its ADR and the node,
 with no rule IDs and no conformance vectors yet. Its wire rule: `get_certificates`
 serves at most 256 records per page and about 8 MiB; a client refuses a larger
 page, a page that makes no progress, and any certificate without a quorum
-(`n − f` by the engine's rule) of valid signatures over its digest from the
+(CON-20, the engine's rule) of valid signatures over its digest from the
 epoch's committee. A page must end where its records end, and a finished epoch
 is complete only if the replayed history contains its attested end (the epoch's
 final checkpoint, a quorum-signed block id at a height). A peer's `done` is not
