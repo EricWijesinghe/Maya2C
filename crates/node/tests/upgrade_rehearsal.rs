@@ -46,6 +46,7 @@ fn config(protocol_upgrades: Vec<ProtocolUpgrade>) -> GenesisConfig {
         protocol_upgrades,
         suite_deprecations: Vec::new(),
         security_council: None,
+        sparse_accounts: false,
         shielded_activation_height: None,
         bft: None,
     }

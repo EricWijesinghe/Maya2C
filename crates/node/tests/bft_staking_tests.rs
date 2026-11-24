@@ -71,6 +71,7 @@ fn genesis_with(stake_weighted: bool) -> GenesisConfig {
         protocol_upgrades: Vec::new(),
         suite_deprecations: Vec::new(),
         security_council: None,
+        sparse_accounts: false,
         shielded_activation_height: None,
         bft: Some(BftGenesis {
             validators,

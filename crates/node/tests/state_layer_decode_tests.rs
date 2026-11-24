@@ -196,6 +196,7 @@ fn a_witness_from_a_state_holding_stateless_and_upgrade_records_verifies() {
         }],
         suite_deprecations: Vec::new(),
         security_council: None,
+        sparse_accounts: false,
         shielded_activation_height: None,
         bft: None,
     };

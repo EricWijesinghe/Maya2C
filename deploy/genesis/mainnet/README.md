@@ -102,6 +102,9 @@ cargo xtask genesis-check out/genesis.json
   - **Bonds:** every bond equals `min_self_bond` exactly.
   - **Operator cap:** no operator holds more than 20% of the bonded stake.
   - **Shielded pool:** off (`shielded_activation_height` = `u64::MAX`, ADR-037).
+  - **Sparse accounts tree:** `sparse_accounts` is `true`, so the accounts root has no
+    account-count ceiling from block zero (BRIEF-4, spec ROOT-6). The ceremony writes it as a
+    genesis field, not an upgrade entry, so `protocol_upgrades` stays empty.
   - **Voting:** stake-weighted.
   - **Proof of work:** `difficulty_bits` is non-zero, or `bft.mining` is present.
   - **Fees:** `bft.fees` is present and `min_base_fee` is at least 10^6 (S-007).

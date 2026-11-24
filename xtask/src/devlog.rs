@@ -81,8 +81,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
         [cmd, rest @ ..] if cmd == "week" => {
             let since = match rest {
-                [] => (chrono::Local::now().date_naive() - chrono::Duration::days(DAYS_PER_WEEK))
-                    .to_string(),
+                [] => {
+                    // The operator's calendar day; UTC where the offset cannot be read.
+                    let now = time::OffsetDateTime::now_local()
+                        .unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+                    (now.date() - time::Duration::days(DAYS_PER_WEEK)).to_string()
+                }
                 [flag, date] if flag == "--since" && is_date(date) => date.clone(),
                 _ => return Err(USAGE.into()),
             };
@@ -208,8 +212,24 @@ fn splice_counts(readme: &str, table: &str) -> Result<String, String> {
     Ok(format!("{}\n{table}{}", &readme[..start], &readme[end..]))
 }
 
+/// Whether `s` is a calendar date written `YYYY-MM-DD`.
 fn is_date(s: &str) -> bool {
-    chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").is_ok()
+    let parts: Vec<&str> = s.split('-').collect();
+    let [year, month, day] = parts.as_slice() else {
+        return false;
+    };
+    if year.len() != 4 || month.len() != 2 || day.len() != 2 {
+        return false;
+    }
+    let (Ok(year), Ok(month), Ok(day)) =
+        (year.parse::<i32>(), month.parse::<u8>(), day.parse::<u8>())
+    else {
+        return false;
+    };
+    time::Month::try_from(month)
+        .ok()
+        .and_then(|month| time::Date::from_calendar_date(year, month, day).ok())
+        .is_some()
 }
 
 fn merged_prs(search: Option<&str>) -> Result<Vec<Pr>, String> {
@@ -312,7 +332,7 @@ fn render_week(since: &str, prs: &[Pr]) -> String {
         "## Maya2C dev log: merged since {since}\n\n\
          {} pull requests merged into `master`. Every line links to the pull request \
          it describes. Where the project stands: \
-         [README](https://github.com/EricWijesinghe/Maya2C#readme).\n",
+         [README](https://github.com/maya2c/Maya2C#readme).\n",
         prs.len()
     );
     for group in [
@@ -432,6 +452,22 @@ mod tests {
                 name: "docs".into(),
             }],
             merged_at: merged_at.into(),
+        }
+    }
+
+    #[test]
+    fn only_a_real_calendar_date_is_a_since_date() {
+        assert!(is_date("2026-11-21"));
+        assert!(is_date("2028-02-29"));
+        for bad in [
+            "2026-02-30",
+            "2026-13-01",
+            "26-11-21",
+            "2026-1-21",
+            "2026-11-21x",
+            "",
+        ] {
+            assert!(!is_date(bad), "{bad}");
         }
     }
 

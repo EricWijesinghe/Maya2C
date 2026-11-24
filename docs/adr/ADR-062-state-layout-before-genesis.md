@@ -178,3 +178,50 @@ is a local constant, not consensus.
 No spec rule changes and no conformance vector changes: the root is the same function of state.
 `spec/03-state.md` records that the value is the full function and an implementation may compute
 it incrementally.
+
+## Amendment 2026-11-24 — the sparse accounts tree from genesis (Eric 2026-11-24, BRIEF-4)
+
+**Decision (a) above, taken by Eric.** Guarantee: no account count is a
+ceiling on the state root. The accounts root is the keyed sparse tree from
+block zero, so a block's root follows the accounts it touched (ADR-062a's
+cache) on the genesis chain itself, not after a later upgrade.
+
+- `GenesisConfig::sparse_accounts` (a genesis field, default `false`). True,
+  `seeded_records()` also seeds `sl:accounts-sparse`, and
+  `GenesisConfig::state_root()` builds the sparse accounts root, so the seeded
+  database, the config and the genesis header agree (`seed_state` checks it).
+  The field is committed by the genesis block through that `state_root`.
+- `genesis-ceremony` and `maya2c-genesis` write `sparse_accounts = true` into
+  every genesis they make, and `cargo xtask genesis-check` refuses a mainnet
+  genesis without it.
+- **Why a field and not a schedule entry** (revised after the PR #703
+  review): the first version wrote an upgrade entry (`version = 2`, height 1,
+  `STATELESS`). That failed the launch gate, which refuses any pending
+  upgrade, and it spent `SUPPORTED_PROTOCOL_VERSION`: versions must rise
+  strictly and `features()` ignores entries above the supported one, so no
+  dark feature (work claims, DvP, IoT, threat intel, lattice HTLCs, strict
+  RWA) could then have been switched on by an on-chain schedule without a new
+  binary. The field spends no version.
+- `stateless_transaction_witness` is off unless the operator enables it
+  (`RpcContext::with_witnesses`): `StateDB::witness_for` scans every account
+  and rebuilds every record layer per call, which the sparse genesis makes
+  reachable. It opens to all callers once the witness is cut from the `smt:`
+  cache (O(touched x log N)).
+- The dense address-ordered tree stays: every chain built without the entry
+  (the test suites' fixtures, `xtask` devnets) keeps it, and it is the
+  reference those suites compare against.
+- Spec `03-state.md` ROOT-6.
+
+**What this retires, stated:** `StateDB::account_proof` (the dense path the
+light client's SPV check verifies) refuses on a sparse state, as #540 made it.
+A wallet or light client on a ceremony genesis must use the sparse witness
+(`StateDB::transaction_witness` / `block_witness`); moving the light client's
+SPV path and the RPC account-proof call to it is **not done here** and is
+needed before a light client can check a mainnet balance.
+
+**Evidence:** `genesis_tests::a_genesis_that_names_the_sparse_tree_is_sparse_from_block_zero`,
+`root_cache_chain_tests::a_chain_sparse_from_genesis_keeps_the_cache_equal_to_the_full_rebuild`,
+`root_cache_chain_tests::the_witness_rpc_is_refused_unless_the_operator_serves_it`,
+genesis-ceremony `ceremony_output_tests::a_mainnet_genesis_from_the_ceremony_passes_genesis_check`,
+xtask `genesis_check::tests::a_genesis_without_the_sparse_tree_fails`.
+

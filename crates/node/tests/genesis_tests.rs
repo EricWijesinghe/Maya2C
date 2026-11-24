@@ -44,6 +44,7 @@ fn config() -> GenesisConfig {
         protocol_upgrades: Vec::new(),
         suite_deprecations: Vec::new(),
         security_council: None,
+        sparse_accounts: false,
         shielded_activation_height: None,
         bft: None,
     }
@@ -106,6 +107,64 @@ fn different_chain_ids_produce_different_genesis_blocks() {
         first.genesis_block().expect("block").header.id(),
         second.genesis_block().expect("block").header.id(),
         "chain id must be bound into the genesis hash"
+    );
+}
+
+#[test]
+fn a_genesis_that_names_the_sparse_tree_is_sparse_from_block_zero() {
+    // BRIEF-4 (Eric 2026-11-24, spec ROOT-6): the sparse accounts tree from
+    // genesis, as a genesis field. The seeded state carries the marker, so
+    // its root, the config's root and the genesis header all name the sparse
+    // tree; a dense account proof is refused because no header commits to a
+    // dense root. No schedule entry is spent, so the protocol versions stay
+    // free for the dark features.
+    let mut sparse = config();
+    sparse.sparse_accounts = true;
+    assert!(sparse.protocol_upgrades.is_empty());
+    let (state, _dir) = open_state();
+    let root = sparse.seed_state(&state).expect("seed");
+    assert_eq!(
+        root,
+        sparse.genesis_block().expect("block").header.state_root
+    );
+    assert_ne!(
+        root,
+        config().state_root().expect("dense root"),
+        "the flag is committed by the genesis root"
+    );
+    let address = sparse.accounts().expect("accounts")[0].0;
+    assert!(
+        state.account_proof(&address).is_err(),
+        "a sparse state refuses a dense proof"
+    );
+
+    // Without the flag, even a schedule switching STATELESS on at block 1
+    // keeps genesis dense: the marker is block 1's (ADR-062a).
+    use custom_l1_node::upgrade::SUPPORTED_PROTOCOL_VERSION;
+    let mut later = config();
+    later.protocol_upgrades = vec![ProtocolUpgrade {
+        version: SUPPORTED_PROTOCOL_VERSION,
+        activation_height: 1,
+        features: FeatureSet(FeatureSet::STATELESS),
+    }];
+    let (dense_state, _dense_dir) = open_state();
+    later.seed_state(&dense_state).expect("seed");
+    assert!(
+        dense_state
+            .account_proof(&address)
+            .expect("proof")
+            .is_some()
+    );
+
+    // The flag round-trips, and a file without it reads as dense.
+    let text = sparse.to_json().expect("json");
+    let back: GenesisConfig = serde_json::from_str(&text).expect("parse");
+    assert!(back.sparse_accounts);
+    assert!(
+        !config()
+            .to_json()
+            .expect("json")
+            .contains("sparse_accounts")
     );
 }
 

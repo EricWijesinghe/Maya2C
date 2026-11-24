@@ -133,6 +133,17 @@ pub struct GenesisConfig {
     /// runs cannot mint.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shielded_activation_height: Option<u64>,
+    /// The sparse accounts tree from block zero (Eric 2026-11-24, BRIEF-4,
+    /// spec ROOT-6). True, the genesis seeds the `sl:accounts-sparse` marker
+    /// and its accounts root is the keyed sparse tree, so no account count is
+    /// a ceiling on the state root. A genesis field rather than an upgrade
+    /// entry: it spends no protocol version, so every dark feature can still
+    /// be switched on by a schedule entry later. Committed by the genesis
+    /// block itself: the marker record and the sparse root change its
+    /// `state_root`, hence its id. Absent (false), the address-ordered tree,
+    /// which every genesis file written before this field meant.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sparse_accounts: bool,
 }
 
 /// One suite deprecation as a genesis file names it (ADR-082).
@@ -898,12 +909,16 @@ impl GenesisConfig {
     ///
     /// Propagates validation failures.
     pub fn state_root(&self) -> Result<[u8; 32]> {
-        let leaves: Vec<[u8; 32]> = self
-            .accounts()?
-            .iter()
-            .map(|(address, account)| account_leaf(address, account))
-            .collect();
-        let accounts = merkle_root(&leaves);
+        let accounts = if self.sparse_accounts {
+            crate::state::stateless::sparse_accounts_root(&self.accounts()?.into_iter().collect())?
+        } else {
+            let leaves: Vec<[u8; 32]> = self
+                .accounts()?
+                .iter()
+                .map(|(address, account)| account_leaf(address, account))
+                .collect();
+            merkle_root(&leaves)
+        };
         // Record layers a genesis can seed (staking, the council), folded in
         // the layer order and by prefix exactly as `StateDB::state_layers`
         // folds them, so the seeded database reproduces this root.
@@ -950,6 +965,14 @@ impl GenesisConfig {
             records.insert(
                 crate::state::upgrades::sunset_key(sunset.suite.to_byte()),
                 crate::state::upgrades::encode_sunset(&sunset),
+            );
+        }
+        // BRIEF-4: the marker `mark_sparse_accounts` writes at an activation,
+        // written at block zero instead, so the genesis root is sparse too.
+        if self.sparse_accounts {
+            records.insert(
+                crate::state::stateless::SPARSE_ACCOUNTS_KEY.to_vec(),
+                vec![1],
             );
         }
         if let Some(council) = &self.security_council {
@@ -1382,6 +1405,7 @@ mod tests {
             protocol_upgrades: Vec::new(),
             suite_deprecations: Vec::new(),
             security_council: None,
+            sparse_accounts: false,
             shielded_activation_height: None,
             bft: Some(BftGenesis {
                 validators: vec![hex::encode(validator.verifying_key().to_bytes())],
@@ -1427,6 +1451,7 @@ mod tests {
             protocol_upgrades: Vec::new(),
             suite_deprecations: Vec::new(),
             security_council: None,
+            sparse_accounts: false,
             shielded_activation_height: None,
             bft: Some(BftGenesis {
                 validators: vec!["00".repeat(32)],
@@ -1478,6 +1503,7 @@ mod tests {
             protocol_upgrades: Vec::new(),
             suite_deprecations: Vec::new(),
             security_council: None,
+            sparse_accounts: false,
             shielded_activation_height: None,
             bft: Some(BftGenesis {
                 validators: vec!["00".repeat(32)],
