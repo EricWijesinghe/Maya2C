@@ -168,7 +168,7 @@ impl EpochCommittee {
             Some(w) => Committee::weighted(w.to_vec()),
             None => u16::try_from(self.keys.len()).ok().map(Committee::new),
         }
-        .ok_or_else(|| NodeError::Decode("committee exceeds u16".to_string()))
+        .ok_or_else(|| NodeError::Decode("committee exceeds u16 or carries no weight".to_string()))
     }
 }
 

@@ -116,7 +116,10 @@ pub fn decode_weights(bytes: &[u8]) -> Result<Vec<u64>> {
 /// weight is shifted right by the same number of bits, which keeps each
 /// member's share to within 2^-63 of the largest stake. While every stake fits
 /// a `u64` the shift is zero and the weights are the stakes, exactly as before.
-/// A member with any stake keeps a weight of at least one.
+/// A member with any stake keeps a weight of at least one, except a
+/// tombstone the committee floor holds in its seat, whose weight is zero
+/// (STK-22, Eric 2026-11-24 third round): the seat counts for the floor,
+/// never for a quorum.
 ///
 /// CON-06 (Eric 2026-11-24): no operator holds more than
 /// [`MAX_OPERATOR_WEIGHT_BPS`](crate::state::weight_cap::MAX_OPERATOR_WEIGHT_BPS)
@@ -133,15 +136,21 @@ pub fn stake_weights(staking: &maya_staking::Staking, active: &[[u8; 32]]) -> Ve
 }
 
 fn uncapped_weights(staking: &maya_staking::Staking, active: &[[u8; 32]]) -> Vec<u64> {
-    let stakes: Vec<maya_staking::Amount> = active
-        .iter()
-        .map(|id| {
-            staking.validators.get(id).map_or(
-                maya_staking::Amount::ZERO,
-                maya_staking::ValidatorRecord::total,
-            )
-        })
-        .collect();
+    let stake = |id: &[u8; 32], tombstones_vote: bool| {
+        staking
+            .validators
+            .get(id)
+            .filter(|v| tombstones_vote || v.status != Status::Tombstoned)
+            .map_or(Amount::ZERO, ValidatorRecord::total)
+    };
+    // STK-22: a tombstone the floor holds in its seat votes with weight zero.
+    let mut stakes: Vec<Amount> = active.iter().map(|id| stake(id, false)).collect();
+    // Unless nobody else is left: a zero total would make any set a quorum,
+    // so a committee of tombstones alone runs on its stakes (ADR-028 keeps a
+    // chain with no eligible validator running for governance to fix).
+    if stakes.iter().all(|s| s.is_zero()) {
+        stakes = active.iter().map(|id| stake(id, true)).collect();
+    }
     let largest = stakes
         .iter()
         .copied()
@@ -555,6 +564,42 @@ mod tests {
             StakingRecord::decode(&empty).is_err(),
             "and v3 has no section"
         );
+    }
+
+    /// STK-22 (Eric 2026-11-24, third round 5): the floor holds a tombstoned
+    /// validator in its seat, and that seat votes with weight zero; the
+    /// others keep their stake weights.
+    #[test]
+    fn a_tombstone_held_by_the_floor_votes_with_zero_weight() {
+        let mut staking = Staking::new(Params::DEVNET).unwrap();
+        for n in 1..=4u8 {
+            staking
+                .register([n; 32], [n; 32], Amount::from_u64(10_000), 0)
+                .unwrap();
+        }
+        staking
+            .end_epoch(&maya_staking::Participation::default(), Amount::ZERO)
+            .unwrap();
+        staking.slash_double_sign([4; 32]).unwrap();
+        staking
+            .end_epoch(&maya_staking::Participation::default(), Amount::ZERO)
+            .unwrap();
+        assert!(
+            staking.active.contains(&[4; 32]),
+            "the floor holds the seat"
+        );
+        let weights = stake_weights(&staking, &staking.active);
+        let held = staking.active.iter().position(|id| *id == [4; 32]).unwrap();
+        for (i, w) in weights.iter().enumerate() {
+            if i == held {
+                assert_eq!(*w, 0, "the held tombstone has no say");
+            } else {
+                assert_eq!(*w, 10_000, "a voter keeps its stake weight");
+            }
+        }
+        // A committee of tombstones alone keeps its stakes: zero total weight
+        // would make any set of signers a quorum.
+        assert_eq!(stake_weights(&staking, &[[4; 32]]), vec![5_000]);
     }
 
     #[test]

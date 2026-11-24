@@ -161,13 +161,14 @@ setting: set it to "Do nothing" on AC. Details:
   slots it led in an epoch loses 1% of its bond and is jailed for two epochs.
 - **Double signing is slashed hard.** 50% of the bond, and the key is retired.
   Signing two blocks at one height (attestations) counts the same as signing
-  two vertices for one slot. Evidence can be filed for `unbonding_epochs + 1`
-  epochs after the offence.
+  two vertices for one slot. Evidence can be filed for the whole unbonding
+  period (`unbonding_epochs`) after the offence, and it reaches stake that is
+  still unbonding: leaving does not escape it.
 - **Penalties and exits never shrink the committee below four seats.** A full
   unbond at the floor waits until a replacement bonds. A retired key keeps its
   seat at the floor until a replacement bonds too, one at a time. The slash for
-  an offence is never delayed. Holding that seat keeps the chain moving at the
-  cost of the floor's fault margin, which the retired key has already used.
+  an offence is never delayed. A held retired key votes with zero weight, so
+  the floor keeps four seats and the safety of the three that still vote.
 - **No operator address holds more than a fifth of the vote.** Stake above that
   still earns its full reward. The weight it gives up is spread over the other
   addresses, so the cap bounds each address, not each owner

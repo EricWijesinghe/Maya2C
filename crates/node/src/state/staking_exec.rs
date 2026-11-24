@@ -207,8 +207,8 @@ impl StateDB {
                 .undelegate(*sender, *validator, to_amount(*amount))
                 .map_err(stake_err)?,
             StakingAction::ReportEquivocation { first, second } => {
-                let id = self.verify_equivocation(overlay, first, second)?;
-                s.slash_double_sign(id).map_err(stake_err)?
+                let (id, epoch) = self.verify_equivocation(overlay, first, second)?;
+                s.report_double_sign(id, epoch).map_err(stake_err)?
             }
         };
         let encoded = record.encode();
@@ -232,13 +232,13 @@ impl StateDB {
 
     /// Checks two `Propose` frames, or two attestation frames (CON-05), are a
     /// real equivocation by a member of the
-    /// committee of the epoch they name, and returns its id.
+    /// committee of the epoch they name, and returns its id and that epoch.
     fn verify_equivocation(
         &self,
         overlay: &Overlay,
         first: &[u8],
         second: &[u8],
-    ) -> Result<[u8; 32]> {
+    ) -> Result<([u8; 32], u64)> {
         // An attestation frame's first byte is never an engine frame's
         // (`attest::ATTEST_FRAME`), so the evidence names its own kind and no
         // pair can be read as the other kind.
@@ -266,7 +266,7 @@ impl StateDB {
         }
         committee
             .get(usize::from(evidence.first.author))
-            .copied()
+            .map(|id| (*id, evidence.first.epoch))
             .ok_or_else(|| NodeError::Decode("evidence author outside the committee".to_string()))
     }
 
@@ -279,7 +279,7 @@ impl StateDB {
         overlay: &Overlay,
         first: &[u8],
         second: &[u8],
-    ) -> Result<[u8; 32]> {
+    ) -> Result<([u8; 32], u64)> {
         let a = Attestation::decode(first)?;
         let b = Attestation::decode(second)?;
         if a.epoch != b.epoch || a.height != b.height || a.validator != b.validator {
@@ -299,12 +299,13 @@ impl StateDB {
         b.verify(chain, &keys)?;
         committee
             .get(usize::from(a.validator))
-            .copied()
+            .map(|id| (*id, a.epoch))
             .ok_or_else(|| NodeError::Decode("evidence author outside the committee".to_string()))
     }
 
-    /// The committee frozen for `epoch`, while evidence against it is still
-    /// admissible (kept for the unbonding window, `end_epoch`).
+    /// The committee frozen for `epoch`. Kept one epoch longer than evidence
+    /// against it is admissible (`end_epoch`, STK-21), so pruning can never
+    /// refuse evidence the unbonding period still admits.
     fn evidence_committee(&self, overlay: &Overlay, epoch: u64) -> Result<Vec<[u8; 32]>> {
         self.record(overlay, &committee_record(epoch))?
             .map(|bytes| decode_committee(&bytes))
@@ -399,8 +400,11 @@ impl StateDB {
                 ))),
             );
         }
-        // Evidence is admissible while the offender's funds can still be
-        // reached: keep committees for the unbonding window, drop older ones.
+        // Evidence is admissible for the unbonding period (STK-21: epochs
+        // e ..= e + unbonding_epochs - 1, `Staking::report_double_sign`).
+        // Committees are kept one epoch past that, then dropped; keys
+        // (`k:key:`) are never dropped, and block pruning (invariant 27)
+        // touches neither, so nothing evidence needs goes before it expires.
         let keep = record.staking.params.unbonding_epochs.saturating_add(1);
         if let Some(stale) = epoch.checked_sub(keep) {
             overlay.records.insert(committee_record(stale), None);

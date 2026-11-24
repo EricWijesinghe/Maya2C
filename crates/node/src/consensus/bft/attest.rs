@@ -238,7 +238,9 @@ fn has_quorum(
         }
         None => u16::try_from(size).ok().map(Committee::new),
     }
-    .ok_or_else(|| NodeError::Decode("committee larger than u16".to_string()))?;
+    .ok_or_else(|| {
+        NodeError::Decode("committee larger than u16 or carrying no weight".to_string())
+    })?;
     Ok(committee.is_quorum(signers))
 }
 

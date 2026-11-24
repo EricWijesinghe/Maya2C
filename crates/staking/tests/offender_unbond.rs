@@ -141,3 +141,54 @@ fn a_delegators_unbonding_funds_are_cut_when_the_validator_is_slashed_after_exit
     assert_eq!(burned, 2 * cut);
     assert_eq!(credited, 2 * (u128::from(BOND) - cut));
 }
+
+/// STK-21 (Eric 2026-11-24, third round 4): evidence of an offence in epoch
+/// `e` is admissible in epochs `e ..= e + unbonding_epochs - 1`, exactly as
+/// long as a stake that backed epoch `e` can still be unbonding. A validator
+/// that leaves in the offence epoch itself is reached by evidence filed in
+/// the last epoch before its funds are released.
+#[test]
+fn evidence_filed_in_the_last_epoch_of_the_unbonding_period_reaches_the_unbonded_funds() {
+    let window = Params::DEVNET.unbonding_epochs;
+    let mut s = registered();
+    let offence = s.epoch;
+    s.unbond(OPERATOR, OFFENDER, amount(BOND)).unwrap();
+    let mut effects = epochs(&mut s, window - 1);
+    assert_eq!(s.epoch, offence + window - 1, "the last admissible epoch");
+    effects.extend(
+        s.report_double_sign(OFFENDER, offence)
+            .expect("evidence filed inside the unbonding period must land"),
+    );
+    effects.extend(epochs(&mut s, 2));
+    let cut = u128::from(Params::DEVNET.double_sign_slash_bps) * u128::from(BOND) / 10_000;
+    assert_eq!(totals(&effects), (cut, u128::from(BOND) - cut));
+}
+
+/// One epoch later the period is over: the evidence is refused and nothing
+/// changes.
+#[test]
+fn evidence_older_than_the_unbonding_period_is_refused() {
+    let window = Params::DEVNET.unbonding_epochs;
+    let mut s = registered();
+    let offence = s.epoch;
+    epochs(&mut s, window);
+    let before = s.clone();
+    assert_eq!(
+        s.report_double_sign(OFFENDER, offence).unwrap_err(),
+        StakeError::EvidenceOutsideWindow
+    );
+    assert_eq!(s, before, "a refusal changes nothing");
+    // The epoch after the offence is still inside its own window.
+    let burned = s.report_double_sign(OFFENDER, offence + 1).unwrap();
+    assert!(matches!(burned.as_slice(), [Effect::Burn(a)] if !a.is_zero()));
+}
+
+#[test]
+fn evidence_naming_an_epoch_not_yet_reached_is_refused() {
+    let mut s = registered();
+    let next = s.epoch + 1;
+    assert_eq!(
+        s.report_double_sign(OFFENDER, next).unwrap_err(),
+        StakeError::EvidenceOutsideWindow
+    );
+}

@@ -32,16 +32,46 @@ impl Committee {
     }
 
     /// A committee whose member `i` votes with `weights[i]`, or `None` for
-    /// more members than a `u16` validator id can name. A zero weight is
-    /// counted as one, so every member can still be heard; the staking
-    /// module never elects a member without stake, and the node must hand
-    /// every peer the same weights (ADR-040 part 2).
+    /// more members than a `u16` validator id can name, or for members whose
+    /// weights are all zero (every set of signers would be a quorum). The
+    /// node must hand every peer the same weights (ADR-040 part 2).
+    ///
+    /// A zero weight is a seat with no say (STK-22): the member keeps its
+    /// index and its leader slot, and its signature adds nothing to any
+    /// threshold. That is how a tombstone held by the committee floor sits.
     #[must_use]
     pub fn weighted(weights: Vec<u64>) -> Option<Self> {
         u16::try_from(weights.len()).ok()?;
-        Some(Self::from_weights(
-            weights.into_iter().map(|w| w.max(1)).collect(),
-        ))
+        if !weights.is_empty() && weights.iter().all(|w| *w == 0) {
+            return None;
+        }
+        Some(Self::from_weights(weights.into()))
+    }
+
+    /// Members with a positive weight: the `n` of a head-count rule. A
+    /// zero-weight seat is not a voter, so the dual quorum's count rule
+    /// (n − f members, ADR-040 amendment, third round 3) is counted over
+    /// voters, and a held tombstone's signature never stands in for one.
+    #[must_use]
+    pub fn voters(&self) -> u16 {
+        self.voters_in(0..self.size())
+    }
+
+    /// Distinct voters among `members` (zero-weight seats and strangers
+    /// are not counted).
+    pub fn voters_in(&self, members: impl IntoIterator<Item = ValidatorId>) -> u16 {
+        let mut seen = vec![false; self.weights.len()];
+        let n = members
+            .into_iter()
+            .filter(|m| {
+                self.weight(*m) > 0
+                    && seen
+                        .get_mut(usize::from(*m))
+                        .is_some_and(|s| !std::mem::replace(s, true))
+            })
+            .count();
+        // At most `size()`, which `weighted` bounds by u16::MAX.
+        u16::try_from(n).unwrap_or(u16::MAX)
     }
 
     fn from_weights(weights: Arc<[u64]>) -> Self {
@@ -368,6 +398,38 @@ mod tests {
     #[test]
     fn a_committee_larger_than_a_validator_id_can_name_is_refused() {
         assert!(Committee::weighted(vec![1; usize::from(u16::MAX) + 1]).is_none());
+    }
+
+    /// STK-22 (Eric 2026-11-24, third round 5): a tombstone the floor holds
+    /// in its seat has weight zero. It keeps the seat (four members, a leader
+    /// slot) and never adds to a quorum, by weight or by head count.
+    #[test]
+    fn a_zero_weight_seat_is_seated_but_never_counted() {
+        let c = Committee::weighted(vec![5, 5, 5, 0]).expect("4");
+        assert_eq!(c.size(), 4, "the seat is held");
+        assert_eq!(c.weight(3), 0);
+        assert_eq!(c.voters(), 3, "the count rule's n is the three voters");
+        assert_eq!(c.quorum(), 11);
+        assert!(c.is_quorum([0, 1, 2]));
+        assert!(!c.is_quorum([0, 1, 3]), "the held seat adds no weight");
+        assert_eq!(c.min_quorum_size(), 3);
+        // Count rule over voters: n - f of the three = 3; the held seat's
+        // signature never stands in for a voter's.
+        let (n, signers) = (c.voters(), c.voters_in([0, 1, 3, 3]));
+        assert_eq!(signers, 2);
+        assert!(signers < n - (n - 1) / 3);
+        assert_eq!(c.voters_in([0, 1, 2]), 3);
+        assert_eq!(c.leader(6), Some(3), "it keeps its leader slot");
+    }
+
+    #[test]
+    fn a_committee_with_no_weight_is_refused() {
+        // Every set would be a quorum of zero.
+        assert!(Committee::weighted(vec![0; 4]).is_none());
+        assert!(
+            Committee::weighted(Vec::new()).is_some(),
+            "empty stays as it was"
+        );
     }
 
     #[test]

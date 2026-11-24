@@ -151,4 +151,51 @@ committee_exits` gave `FAILED. 2 passed; 4 failed`):
   exit is above the floor and starts at once, as those tests assume.
 
 Not covered: the floor counts validators, not stake. On a stake-weighted chain a held
-tombstone votes with what is left of its stake after the slash.
+tombstone votes with what is left of its stake after the slash. (Superseded by the
+third-round amendment below: it now votes with zero.)
+
+## Amendment 2026-11-24 (third round): a held tombstone votes with zero weight
+
+Eric 2026-11-24, third round, decision 5, answering the question raised above: a
+tombstoned validator the floor holds in its seat has zero consensus weight. The seat
+counts for the floor (four members, a leader slot); its weight counts for no quorum.
+
+**The rule (STK-22).** `stake_weights` gives a tombstoned committee member weight 0,
+before the operator cap. DAG-BFT's `Committee::weighted` keeps a zero weight as zero (it
+used to raise it to one) and refuses a non-empty committee whose weights are all zero. If
+every member of a committee would have weight 0, the members keep their stake weights:
+ADR-028 keeps a chain with no eligible validator running for governance to fix, and a
+zero total would make any set a quorum.
+
+**The guarantee.** With four seats and one held tombstone the quorum is the three voters'
+`W − f`, so the trade recorded in the amendment above is gone on a stake-weighted chain:
+the floor keeps four seats and the safety of three. The proven equivocator's signature
+never completes a certificate, an attestation checkpoint or a catch-up quorum (all three
+build `Committee::weighted` from the same frozen weights). Weights are frozen at the
+boundary, so in the epoch of the offence the tombstone keeps the weight it was frozen
+with; it has weight 0 from the first epoch it is held. It keeps its leader slots: an
+anchor it proposes commits only on voters' weight, and an anchor it withholds costs one
+slot, as any absent leader does.
+
+**With the dual quorum (third round, decision 3).** The count rule is counted over
+voters, the members with positive weight (`Committee::voters`), and only voters'
+signatures count toward it (`Committee::voters_in`). A held tombstone is not a voter:
+counting its seat would let a proven equivocator's key stand in for an honest member in
+the count rule, the kind of cheap head the count rule exists to stop. Four seats with
+one held: the count rule needs `3 − ⌊(3 − 1)/3⌋ = 3` voters, which the weight rule
+already requires.
+
+**Not covered.** A one-seat-one-vote chain (`stake_weighted = false`, no weights record)
+still counts the held seat as one head: it has no weights to zero. `genesis-check`
+refuses a value-bearing genesis that is not stake-weighted, so this is a devnet and
+test-chain gap only.
+
+Tests: `a_zero_weight_seat_is_seated_but_never_counted`, `a_committee_with_no_weight_is_refused`
+(`crates/dag-bft/src/vertex.rs`); `a_tombstone_held_by_the_floor_votes_with_zero_weight`
+(`crates/node/src/state/staking.rs`); `a_zero_weight_seat_is_not_an_operator_the_cap_counts`
+(`crates/node/src/state/weight_cap.rs`: counted as an operator, the zero seat dropped the
+CON-06 water-filling level to 0 and flattened every voter to weight 1, found by the
+staking test above); `a_held_tombstone_votes_with_zero_weight_and_the_chain_runs_on`
+(`crates/node/tests/bft_staking_tests.rs`). Red before the change: the dag-bft test did
+not compile (no `voters`), and with `[5, 5, 5, 0]` read as `[5, 5, 5, 1]`, as
+`Committee::weighted` used to, the set `{0, 1, 3}` weighs 11 of 16, a quorum.
