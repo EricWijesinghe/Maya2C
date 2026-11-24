@@ -332,7 +332,7 @@ fn render_week(since: &str, prs: &[Pr]) -> String {
         "## Maya2C dev log: merged since {since}\n\n\
          {} pull requests merged into `master`. Every line links to the pull request \
          it describes. Where the project stands: \
-         [README](https://github.com/EricWijesinghe/Maya2C#readme).\n",
+         [README](https://github.com/maya2c/Maya2C#readme).\n",
         prs.len()
     );
     for group in [

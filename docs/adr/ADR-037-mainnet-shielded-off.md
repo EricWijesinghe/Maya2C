@@ -77,3 +77,27 @@ that no operator can quietly switch it back on.
   on its commitment sheet; `maya2c-node` started on that genesis; the same
   genesis with the field removed was refused with
   `UnauditedShieldedCircuit { network: "maya-mainnet" }`.
+
+## Amendment 2026-11-24 — an unnamed pool is off (P4, Eric 2026-11-24)
+
+**Guarantee:** the shielded pool runs only on a network whose genesis turns it
+on by name. A genesis file that lost the field, or a tool that never wrote it,
+fails closed: no join-split executes at any height.
+
+- `GenesisConfig::shielded_activation()` reads an absent field as
+  `SHIELDED_NEVER` (`u64::MAX`), not block zero. The id rule is unchanged:
+  absent folds nothing into the genesis id, present is hashed in as before.
+- `genesis-ceremony` always names the field: `u64::MAX` for a value-bearing
+  chain on an unaudited circuit, `0` otherwise, so a ceremony testnet still
+  runs the pool and its commitment sheet says so. An unnamed field prints as
+  "off".
+- The node's startup guard (`check_shielded_guard`) is unchanged and still
+  keyed by chain name (P5, a separate item); with this amendment a mainnet
+  genesis that drops the field is off rather than refused, and the guard
+  refuses only a mainnet genesis that names a height.
+- Consequence for running networks: a testnet genesis written without the
+  field now runs with the pool off. The testnet is re-genesised for CT-05
+  anyway; its new genesis comes from the ceremony, which names `0`.
+- Evidence: `genesis_tests::a_genesis_that_names_no_shielded_activation_keeps_the_pool_off`
+  (red before: `left: 0, right: 18446744073709551615`), and the ceremony's
+  `shielded_tests::any_other_genesis_names_the_pool_on_from_block_zero`.
