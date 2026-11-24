@@ -3,8 +3,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability (private)
-    url: https://github.com/EricWijesinghe/Maya2C/security/advisories/new
+    url: https://github.com/maya2c/Maya2C/security/advisories/new
     about: Never open a public issue for a vulnerability. This form is seen only by the maintainer.
   - name: Ask a question or share an idea
-    url: https://github.com/EricWijesinghe/Maya2C/discussions
+    url: https://github.com/maya2c/Maya2C/discussions
     about: Questions, ideas and show-and-tell belong in Discussions.

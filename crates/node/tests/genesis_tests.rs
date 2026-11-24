@@ -110,6 +110,22 @@ fn different_chain_ids_produce_different_genesis_blocks() {
 }
 
 #[test]
+fn a_genesis_that_names_no_shielded_activation_keeps_the_pool_off() {
+    // P4 (Eric 2026-11-24): the pool runs only where a genesis turns it on by
+    // name. A genesis file that lost the field, or a tool that never wrote it,
+    // fails closed: no join-split executes at any height.
+    let unnamed = config();
+    assert_eq!(unnamed.shielded_activation_height, None);
+    assert_eq!(
+        unnamed.shielded_activation(),
+        custom_l1_node::state::context::SHIELDED_NEVER
+    );
+    let context = custom_l1_node::state::context::BlockContext::at_height(1)
+        .with_shielded_activation(unnamed.shielded_activation());
+    assert!(!context.shielded_active(), "an unnamed pool must not run");
+}
+
+#[test]
 fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
     // ADR-037. Absent, the id is what it was before the field existed, so
     // the running testnet keeps its genesis; named, it is committed, so two
@@ -121,7 +137,7 @@ fn the_shielded_activation_is_bound_into_the_genesis_only_when_named() {
     let mut never = config();
     never.shielded_activation_height = Some(u64::MAX);
 
-    assert_eq!(unnamed.shielded_activation(), 0);
+    assert_eq!(zero.shielded_activation(), 0);
     assert_eq!(never.shielded_activation(), u64::MAX);
     assert_ne!(id(&unnamed), id(&never));
     assert_ne!(id(&zero), id(&never));
@@ -396,6 +412,7 @@ fn the_upgrade_schedule_suite_deprecations_and_pow_floor_each_change_the_id() {
     scheduled.protocol_upgrades = vec![ProtocolUpgrade {
         version: 2,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
         activation_height: 100,
     }];
     let mut sunset = config();
@@ -407,12 +424,16 @@ fn the_upgrade_schedule_suite_deprecations_and_pow_floor_each_change_the_id() {
     }];
     let mut floor = config();
     floor.pow_limit_bits = 8;
+    // The release an upgrade names is part of what genesis commits to (ADR-155).
+    let mut named = scheduled.clone();
+    named.protocol_upgrades[0].binary_hash = [0x5a; 32];
 
     let ids = [
         genesis_id(&plain),
         genesis_id(&scheduled),
         genesis_id(&sunset),
         genesis_id(&floor),
+        genesis_id(&named),
     ];
     for (i, a) in ids.iter().enumerate() {
         for b in &ids[i + 1..] {
@@ -427,6 +448,7 @@ fn the_upgrade_schedule_is_bound_in_whatever_order_the_file_lists_it() {
         version,
         activation_height,
         features: FeatureSet::default(),
+        binary_hash: [0; 32],
     };
     let mut forward = config();
     forward.protocol_upgrades = vec![upgrade(2, 10), upgrade(3, 20)];

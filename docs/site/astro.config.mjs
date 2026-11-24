@@ -99,7 +99,7 @@ export default defineConfig({
                 name: "Maya2C",
                 url: "https://maya2c.dev/",
                 logo: "https://maya2c.dev/apple-touch-icon.png",
-                sameAs: ["https://github.com/EricWijesinghe/Maya2C"],
+                sameAs: ["https://github.com/maya2c/Maya2C"],
               },
               {
                 "@type": "WebSite",
@@ -118,7 +118,7 @@ export default defineConfig({
                 operatingSystem: "Linux, Windows",
                 // Matches the newest release tag (node-v0.1.0-testnet.4); bump with each release.
                 softwareVersion: "0.1.0-testnet.4",
-                downloadUrl: "https://github.com/EricWijesinghe/Maya2C/releases",
+                downloadUrl: "https://github.com/maya2c/Maya2C/releases",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
                 publisher: { "@id": "https://maya2c.dev/#org" },
                 description:
@@ -127,7 +127,7 @@ export default defineConfig({
               {
                 "@type": "SoftwareSourceCode",
                 name: "Maya2C",
-                codeRepository: "https://github.com/EricWijesinghe/Maya2C",
+                codeRepository: "https://github.com/maya2c/Maya2C",
                 programmingLanguage: "Rust",
                 license: "https://www.apache.org/licenses/LICENSE-2.0",
                 publisher: { "@id": "https://maya2c.dev/#org" },
@@ -168,7 +168,7 @@ export default defineConfig({
         Head: "./src/components/Head.astro",
       },
       social: [
-        { icon: "github", label: "GitHub", href: "https://github.com/EricWijesinghe/Maya2C" },
+        { icon: "github", label: "GitHub", href: "https://github.com/maya2c/Maya2C" },
       ],
       sidebar: [
         {
@@ -176,6 +176,8 @@ export default defineConfig({
           items: [
             { label: "Experience Maya2C", link: "/experience/" },
             { label: "Live statistics", link: "/stats/" },
+            { label: "Live network", link: "/network/" },
+            { label: "Design proposals", link: "/design/" },
             { label: "FAQ", link: "/guides/faq" },
             { label: "Help run the network (easy)", link: "/guides/help-run" },
             { label: "Join the testnet", link: "/guides/testnet" },
@@ -187,6 +189,7 @@ export default defineConfig({
             { label: "Run a validator", link: "/guides/validators" },
             { label: "Break it", link: "/guides/break-it" },
             { label: "Security Hall of Fame", link: "/guides/security-hall-of-fame" },
+            { label: "Check the foundation", link: "/guides/trust-log" },
             { label: "Contributors & badges", link: "/guides/contributors" },
             { label: "API reference", link: "/guides/api" },
             { label: "Wallet integration", link: "/guides/wallet" },

@@ -901,3 +901,38 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Founder mining:** the founder mines from block 1, and this is disclosed publicly.
 - **Watchdog alerts:** sent through ntfy.sh.
 - **BitLocker:** turned on for the validator PC before genesis.
+
+## 2026-11-24 — Upgrades name their release and have room for 128 features (Eric 2026-11-24)
+
+Eric 2026-11-24: every limit liftable without a hard fork, each fix a guarantee from block 0. ADR-155 §5 (G21, NEW-3), spec CON-14.
+
+- **Feature set 128 bits.** Bits 0-10 are taken on master and the v2/v3 branches and the v4 umbrella claims 40-47; a `u64` was a few dozen features from a new record kind. The proposal, the stored record and the genesis id carry 16 bytes.
+- **Release hash.** A version entry names the BLAKE3 hash of the release that implements it (zeros for none), in the proposal, the record and the genesis id. Voters and operators check a binary against it; no node compares it with its own executable. A sunset-only entry names none.
+- **Versioned record.** `up:v` is `layout 1 ‖ version ‖ height ‖ features ‖ hash` (61 bytes); another layout or length is refused, so a wider set later is a new layout, not a new kind.
+- **Takes effect at the re-genesis** (proposal wire, record and genesis id change). Stacked on #506.
+## 2026-11-14 — Notary (ADR-094) stays a tool and moves to working on its devnet test (Claude, under Eric's approval, Eric 2026-11-14)
+
+- **Tool only:** the notary is `maya2c notary` on the existing `AnchorAttestation` payload (tag 34, schema `notary-v1`). No consensus, wire or state change; no node RPC added.
+- **Status:** `features.toml` `notary` moves from stub to working on `bins/maya2c-cli/tests/notary_devnet_tests.rs` (a stamp lands in a block on a dev node, the receipt matches that block, one changed byte is refused). Class stays RESEARCH: no consensus path calls it.
+- **Verify hardening:** verify checks each served block's body against the `tx_root` in the header its id hashes (not the separate JSON field), checks the id is the one named, refuses a non-contiguous batch, and checks the stamp's signature.
+- **Shortcuts kept:** finality is the node's checkpoint with committee signatures unverified, and the chain tag comes from the node's `get_chain_info`.
+- **Open anomaly:** one early manual run never saw the stamp land; it was not reproduced and its cause is unknown.
+
+## 2026-11-21 — Wasmtime 48.0.10 rides the mainnet genesis; gas pinned to golden vectors (Claude, under Eric 2026-11-17 pre-approval)
+
+- **Why now:** RUSTSEC-2026-0566..0573 (fixed in 48.0.9) turned `cargo deny` red on master. 48.0.10 is the newest 48.x; its one further fix is in `wasmtime-wasi`, which the VM does not link. The pin is consensus-critical, and genesis is a fresh chain, so the bump costs no extra fork.
+- **Reachability:** none of the eight reaches a contract here. Three are in `wasmtime-wasi`/`wasmtime-wasi-http` or the component model, not linked. The two GC-heap ones need GC objects, which a build without the `gc` feature cannot create. The `threads` one needs the threads proposal turned on, and the config never does. The no-`gc` one needs a runtime check against a non-final function type; the VM refuses every table, and the cast instructions need reference types, which are off (`vm_tests.rs` pins both). `Caller::get_module_export` is not called.
+- **Gas evidence:** a `diff -r` of the registry sources (48.0.8 vs 48.0.10) shows one codegen change: 48.0.9's GC-object field address computation in `wasmtime-internal-cranelift` (`bounds_checks.rs`, `func_environ/gc.rs`). Linear-memory accesses pass `None` for the new backwards offset, so contract IR is identical. The `wasmtime` crate also caps non-moving memory growth at `memory_reservation`, unreachable with `MAX_MEMORY_PAGES` = 256 (16 MiB). `cranelift-codegen`, `cranelift-frontend` and `pulley-interpreter` are byte-identical, and no changed line in any wasmtime crate mentions fuel. `crates/vm/tests/gas_golden_tests.rs` was recorded on 48.0.8 and gave the same values on 48.0.10 on Windows (Linux differed on one vector; see the 2026-11-23 entry). It pins gas, the smallest sufficient gas limit and the output of seven modules.
+- **Locks:** the root, `fuzz/`, `offsec-sandbox/` and `apps/wallet-gui/src-tauri/` locks change only the 25 wasmtime, cranelift and pulley packages (version and checksum). `cargo update` also rewrote unrelated dependency edges in the wallet lock, so that lock was spliced instead. `cargo metadata --locked` passes in all four.
+
+## 2026-11-23 — VM data-segment gas made host-independent: copy-on-write memory images off (Eric, 2026-11-23, "#641 fix only")
+
+- **Finding:** Linux CI on #641 measured 186 gas for the "host calls" golden vector where Windows recorded 4,283. PR #674 traced it to wasmtime's copy-on-write memory image: Linux maps a module's data segments for free, Windows copies the page-padded image through metered code. One 16-byte segment cost 2 gas on Linux and 4,099 on Windows **on Cranelift**, the tier the node runs, so validators on two operating systems could split on any call whose gas limit falls in the gap. Present on 48.0.8 too; not caused by the bump.
+- **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
+- **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
+- **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — An unnamed shielded pool is off; the fee spec states the node's burn-all split (Eric 2026-11-24, P4 and FEE-1)
+
+- **P4 (guarantee: the pool runs only where a genesis turns it on by name).** `GenesisConfig::shielded_activation()` reads an absent `shielded_activation_height` as `SHIELDED_NEVER`, not block zero. The genesis id rule is unchanged (absent folds nothing). The ceremony now always names the field (`u64::MAX` for an unaudited value-bearing chain, `0` otherwise). Red first: `genesis_tests::a_genesis_that_names_no_shielded_activation_keeps_the_pool_off` failed on master with `left: 0, right: 18446744073709551615`. ADR-037 amendment 2026-11-24. A testnet genesis without the field now runs the pool off; the testnet re-genesis (CT-05) uses a ceremony file that names `0`.
+- **FEE-1 (guarantee: every base fee burns, and no vote can redirect fees).** Spec and code disagreed; the **spec was wrong**. `spec/04-fees.md` v0.1.0 said the fee market was "inactive on every network", that tips go "whole to the producer" and that a `max_fee` field is checked (FEE-5). The node (`state/fee_exec.rs`: `charge_fee` books `base_fee × size`, `settle_fees` moves exactly that from `FEE_COLLECTOR` to `FEE_SINK`; `take_fee_pool` hands the rest, the tips, to the epoch's staking reward pool) has run ADR-029's rule since it landed: FEE-1 with `bps = 0`, wherever genesis sets `bft.fees`, pinned by `fee_market_live_tests::an_unpaid_transfer_is_refused_and_a_paid_one_burns_its_base_fee`. The code is kept; v0.2.0 of the spec states it (FEE-1 note, FEE-5 rewritten, new FEE-7). ADR-029's "governance can add one" was also false (no parameter names a treasury share) and is corrected. No behaviour change, so no red test.

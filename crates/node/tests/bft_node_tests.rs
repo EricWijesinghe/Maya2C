@@ -141,6 +141,7 @@ fn seed_newer_version(state_dir: &PathBuf) {
             version: SUPPORTED_PROTOCOL_VERSION + 1,
             activation_height: HALT_AT,
             features: FeatureSet::default(),
+            binary_hash: [0; 32],
         }],
         suite_deprecations: Vec::new(),
         security_council: None,
@@ -154,7 +155,7 @@ fn seed_newer_version(state_dir: &PathBuf) {
 }
 
 /// A feature bit no binary defines (ADR-082 amendment).
-const UNKNOWN_BIT: u64 = 1 << 63;
+const UNKNOWN_BIT: u128 = 1 << 63;
 
 /// Writes an entry for the version this binary implements, carrying a feature
 /// bit it does not, at [`HALT_AT`]. No genesis may carry it (boot refuses an
@@ -165,6 +166,7 @@ fn seed_unknown_bit(state_dir: &PathBuf) {
         version: SUPPORTED_PROTOCOL_VERSION,
         activation_height: HALT_AT,
         features: FeatureSet(UNKNOWN_BIT),
+        binary_hash: [0; 32],
     };
     let state = StateDB::open(state_dir).unwrap();
     state

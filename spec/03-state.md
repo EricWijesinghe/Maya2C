@@ -1,4 +1,4 @@
-# 3. State transition — v0.1.0
+# 3. State transition — v0.2.0
 
 The accounts-only transfer path. Reference: `crates/spec-ref/src/{stf,root}.rs`.
 Node: `StateDB::stage_transaction`, `StateDB::apply_block`,
@@ -16,13 +16,17 @@ order, and the first rule that fails is the result:
 - **STF-7** An address with no record reads as balance 0, nonce 0; a credit creates the record.
 - **STF-8** A block applies all its transactions in order, each seeing the effects of those before it, or it applies none: one failing transaction makes the block invalid and leaves state untouched.
 
+## Shielded pool activation
+
+- **SHL-1** A shielded join-split executes only in a block whose height is at or above the genesis's `shielded_activation_height`; below it, or when the genesis names no height at all, the join-split makes its block invalid and nothing moves. An absent field means never (`u64::MAX`, Eric 2026-11-24, P4); a named field is folded into the genesis id (ADR-037), an absent one is not. *(external vectors: crates/node/tests/genesis_tests.rs)*
+
 ## State root
 
 - **ROOT-1** An account's leaf is `blake3(0x00 ‖ address ‖ balance_u256 ‖ nonce_u64)`: the balance as 32 bytes little-endian (ADR-046), the nonce as 8. *(positive only: defines a value)*
 - **ROOT-2** An internal node is `blake3(0x01 ‖ left ‖ right)`. *(positive only: defines a value)*
 - **ROOT-3** Leaves are paired left to right; an unpaired last node is promoted unchanged, not duplicated; this repeats until one node remains. With no leaves the root is 32 zero bytes. *(positive only: defines a value)*
 - **ROOT-4** Leaves are ordered by ascending address. With no other state layer present, the state root is this accounts root. *(positive only: defines a value)*
-- **ROOT-5** Each further layer (channels, notes, trading, governance, …) is folded in, in the order `state::proof::StateLayer` fixes, only once it holds a record, so a chain that never used a layer keeps the root it always had. *(positive only: defines a value)*
+- **ROOT-5** Each further layer (channels, notes, trading, governance, …) is folded in, in the order `state::proof::LAYER_ORDER` lists (the order `StateDB::state_layers` folds: channels, then the record layers in `RECORD_LAYERS` order, with stateless `sl:` before upgrade-schedule `up:`, then shielded, contracts, nullifiers; not the `StateLayer` declaration order), only once it holds a record, so a chain that never used a layer keeps the root it always had. *(positive only: defines a value)*
 
 ## Gaps
 

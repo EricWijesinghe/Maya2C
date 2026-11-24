@@ -158,7 +158,7 @@ pub enum NodeError {
         /// Feature bits the entry carries that this binary cannot execute:
         /// undefined ones, and zkML until it has a verifier. Zero when the
         /// version alone is what this binary lacks.
-        unimplemented_features: u64,
+        unimplemented_features: u128,
     },
 
     /// The computed post-state root did not match the value committed in the
@@ -899,7 +899,7 @@ pub type Result<T> = ::core::result::Result<T, NodeError>;
 
 /// The cause half of [`NodeError::UpgradeRequired`]'s message: the version, the
 /// feature bits, or both, whichever this binary lacks.
-fn upgrade_reason(version: u32, supported: u32, unimplemented: u64) -> String {
+fn upgrade_reason(version: u32, supported: u32, unimplemented: u128) -> String {
     match (version > supported, unimplemented) {
         (true, 0) => format!(
             "protocol version {version} activates there and this binary supports up to version {supported}"

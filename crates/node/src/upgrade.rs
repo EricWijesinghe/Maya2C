@@ -35,33 +35,39 @@ pub const SUPPORTED_PROTOCOL_VERSION: u32 = 2;
 
 /// The dark features an upgrade entry can switch on, as a bitmask. The bit
 /// positions are consensus: never renumber, only append.
+///
+/// 128 bits (ADR-155, NEW-3): bits 0-10 are taken on master and the v2/v3
+/// branches and the v4 umbrella claims 40-47, so a `u64` would have run out
+/// after a few dozen features. The width is in the proposal, the stored record
+/// and the genesis id from block 0, and the record carries its own version
+/// byte, so a wider set later is a new record version, not a new kind.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct FeatureSet(pub u64);
+pub struct FeatureSet(pub u128);
 
 impl FeatureSet {
     /// Delivery-versus-payment swaps.
-    pub const DVP: u64 = 1 << 0;
+    pub const DVP: u128 = 1 << 0;
     /// `IoT` anchor transactions.
-    pub const IOT: u64 = 1 << 1;
+    pub const IOT: u128 = 1 << 1;
     /// Attack attestations.
-    pub const THREAT_INTEL: u64 = 1 << 2;
+    pub const THREAT_INTEL: u128 = 1 << 2;
     /// The sparse accounts tree.
-    pub const STATELESS: u64 = 1 << 3;
+    pub const STATELESS: u128 = 1 << 3;
     /// Work-claim credit.
-    pub const WORK_CLAIM: u64 = 1 << 4;
+    pub const WORK_CLAIM: u128 = 1 << 4;
     /// Lattice HTLCs.
-    pub const HTLC_LATTICE: u64 = 1 << 5;
+    pub const HTLC_LATTICE: u128 = 1 << 5;
     /// zkML proof verification.
-    pub const ZKML: u64 = 1 << 6;
+    pub const ZKML: u128 = 1 << 6;
     /// Strictly ascending RWA issuer lists.
-    pub const RWA_STRICT: u64 = 1 << 7;
+    pub const RWA_STRICT: u128 = 1 << 7;
     /// Every bit this binary defines. A bit outside it names no feature.
-    pub const KNOWN: u64 = (1 << 8) - 1;
+    pub const KNOWN: u128 = (1 << 8) - 1;
 
     /// Every bit this binary can execute: the known bits less zkML, which
     /// stays unimplemented until `zkml::verdict` is a real verifier (M3).
-    pub const IMPLEMENTED: u64 = Self::KNOWN & !Self::ZKML;
+    pub const IMPLEMENTED: u128 = Self::KNOWN & !Self::ZKML;
 
     /// Whether every bit names a feature this binary defines. An entry
     /// carrying any other bit is still valid: it is unsupported here, and this
@@ -73,13 +79,13 @@ impl FeatureSet {
 
     /// The bits this binary cannot execute: undefined ones, and zkML.
     #[must_use]
-    pub const fn unimplemented(self) -> u64 {
+    pub const fn unimplemented(self) -> u128 {
         self.0 & !Self::IMPLEMENTED
     }
 
     /// Whether `bit` is set.
     #[must_use]
-    pub const fn contains(self, bit: u64) -> bool {
+    pub const fn contains(self, bit: u128) -> bool {
         self.0 & bit != 0
     }
 }
@@ -137,6 +143,30 @@ pub struct ProtocolUpgrade {
     /// suite sunsets.
     #[serde(default)]
     pub features: FeatureSet,
+    /// BLAKE3 hash of the release that implements this version (ADR-155,
+    /// G21): what an operator checks a binary against before the activation
+    /// height. All zeros when the entry names none. Committed in the record,
+    /// the proposal and the genesis id; no node compares it with its own
+    /// executable, which cannot reliably hash itself.
+    #[serde(default, with = "hex32")]
+    pub binary_hash: [u8; 32],
+}
+
+/// A 32-byte hash as a hex string in genesis JSON.
+mod hex32 {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error};
+
+    pub fn serialize<S: Serializer>(bytes: &[u8; 32], s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&hex::encode(bytes))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<[u8; 32], D::Error> {
+        let text = String::deserialize(d)?;
+        let bytes = hex::decode(&text).map_err(D::Error::custom)?;
+        bytes
+            .try_into()
+            .map_err(|_| D::Error::custom("binary_hash must be 32 bytes"))
+    }
 }
 
 impl ProtocolUpgrade {
@@ -175,6 +205,7 @@ impl UpgradeSchedule {
             version: 1,
             activation_height: 0,
             features: FeatureSet::default(),
+            binary_hash: [0; 32],
         };
         for u in &upgrades {
             if u.version <= last.version || u.activation_height <= last.activation_height {
@@ -216,7 +247,7 @@ impl UpgradeSchedule {
     /// height instead ([`Self::first_unsupported`]).
     #[must_use]
     pub fn features(&self) -> FeatureActivations {
-        let at = |bit: u64, default: u64| {
+        let at = |bit: u128, default: u64| {
             self.upgrades
                 .iter()
                 .find(|u| u.is_supported_by(SUPPORTED_PROTOCOL_VERSION) && u.features.contains(bit))
@@ -295,14 +326,16 @@ mod tests {
             version,
             activation_height,
             features: FeatureSet::default(),
+            binary_hash: [0; 32],
         }
     }
 
-    fn with(version: u32, activation_height: u64, features: u64) -> ProtocolUpgrade {
+    fn with(version: u32, activation_height: u64, features: u128) -> ProtocolUpgrade {
         ProtocolUpgrade {
             version,
             activation_height,
             features: FeatureSet(features),
+            binary_hash: [0; 32],
         }
     }
 

@@ -55,7 +55,7 @@ function Start-IfStopped([string]$name, [string]$command, [string]$log) {
 # nothing else is affected (the old forward also carried the public RPC and
 # ran out of file handles: "accept: Too many open files").
 Start-IfStopped 'ssh' `
-    "C:\Windows\System32\OpenSSH\ssh.exe -N -i C:\Users\EricW\.ssh\maya_oci -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -L 18601:127.0.0.1:8545 ubuntu@193.122.176.219" `
+    "C:\Windows\System32\OpenSSH\ssh.exe -N -i C:\Users\EricW\.ssh\maya_oci -o StrictHostKeyChecking=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -L 18601:127.0.0.1:8545 ubuntu@193.122.176.219" `
     'vm-forward.log'
 Start-Sleep -Seconds 5
 Start-Sleep -Seconds 5

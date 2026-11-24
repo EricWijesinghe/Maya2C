@@ -1,0 +1,12 @@
+[
+  {"number": 1, "title": "Replay protection", "state": "met", "note": "Signatures commit to their chain (ADR-036).", "evidence": "docs/adr/ADR-036-chain-bound-signatures.md"},
+  {"number": 2, "title": "Shielded pool off at genesis", "state": "partial", "note": "Done in code (ADR-037); its PR was still pending at the plan's date.", "evidence": "docs/adr/ADR-037-mainnet-shielded-off.md"},
+  {"number": 3, "title": "7 days without a halt", "state": "met", "note": "Met 2026-10-28: 7 d 15 h streak, no halts on the testnet.", "evidence": "reports/sessions/2026-10-28-testnet-stopped.md"},
+  {"number": 4, "title": "4 validators, joined by staking", "state": "partial", "note": "Four project validators on one PC (ADR-047); separate operators come after launch.", "evidence": "docs/adr/ADR-047-single-pc-foundation-set.md"},
+  {"number": 5, "title": "Genesis ceremony", "state": "partial", "note": "Rehearsed on one machine 2026-10-10; the real ceremony is open.", "evidence": "docs/runbooks/genesis-ceremony.md"},
+  {"number": 6, "title": "Economics decided", "state": "partial", "note": "Block rewards chosen (ADR-044); parameters not yet frozen.", "evidence": "docs/adr/ADR-044-mining-rewards-lane.md"},
+  {"number": 7, "title": "CI, reviews and tagged release", "state": "open", "note": "Open: green CI, security reviews of gates 1 and 2, release from a tag.", "evidence": null},
+  {"number": 8, "title": "Validator rejoins after restart", "state": "met", "note": "Checkpoints (ADR-038) and snapshots (ADR-043); attacknet attack 7 passed.", "evidence": "docs/adr/ADR-043-rejoin-after-any-outage.md"},
+  {"number": 9, "title": "Consensus logs bounded", "state": "met", "note": "Met by measurement 2026-10-10: two epoch directories per validator.", "evidence": "docs/adr/ADR-040-stake-weighted-committee.md"},
+  {"number": 10, "title": "No cheap capture, way back from halt", "state": "partial", "note": "Capture done in code; recovery after losing over a third of stake is open.", "evidence": "docs/runbooks/chain-halt.md"}
+]

@@ -10,6 +10,7 @@
 
 pub mod commands;
 pub mod deeplink;
+pub mod sign_checks;
 
 use commands::Session;
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -36,12 +37,15 @@ fn with_automation_args<R: tauri::Runtime>(mut context: tauri::Context<R>) -> ta
 /// Builds and runs the application.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // Must be first: a second launch (with a link) hands its argv to the
-        // running app and exits, instead of opening a second wallet.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            deeplink::focus(app);
-        }))
+    let builder = tauri::Builder::default();
+    // Must be first: a second launch (with a link) hands its argv to the
+    // running app and exits, instead of opening a second wallet. Desktop
+    // only; Android's `singleTask` activity is the same guarantee.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        deeplink::focus(app);
+    }));
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(maya_app_update::dialog())
         .setup(|app| {
@@ -77,7 +81,14 @@ pub fn run() {
             commands::fee_options,
             commands::network_status,
             commands::receive_request,
+            commands::chat_binding,
             deeplink::take_pending_pay,
+            commands::contacts,
+            commands::add_contact,
+            commands::remove_contact,
+            commands::export_contacts,
+            commands::import_contacts,
+            commands::check_recipient,
         ])
         .run(with_automation_args(tauri::generate_context!()))
         .expect("error while running the wallet");

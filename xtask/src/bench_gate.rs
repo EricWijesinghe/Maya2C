@@ -264,10 +264,7 @@ fn record(path: &Path, runner: &str, current: &Metrics) -> Result<(), String> {
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_default();
-    let today = chrono::Local::now()
-        .date_naive()
-        .format("%Y-%m-%d")
-        .to_string();
+    let today = crate::stamp::date(crate::stamp::local_now());
     let new_file = !path.exists();
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;

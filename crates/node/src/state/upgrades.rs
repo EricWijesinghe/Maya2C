@@ -46,7 +46,12 @@ pub const UPGRADE_PREFIX: &[u8] = b"up:";
 const VERSION_KIND: u8 = b'v';
 const SUNSET_KIND: u8 = b's';
 
-const VERSION_RECORD_LEN: usize = 4 + 8 + 8;
+/// Layout version of a stored `up:v` record, its first byte (ADR-155). A
+/// record of another layout version is refused, never read as this one.
+const VERSION_RECORD_LAYOUT: u8 = 1;
+
+/// `layout ‖ version ‖ activation height ‖ features (16) ‖ binary hash (32)`.
+const VERSION_RECORD_LEN: usize = 1 + 4 + 8 + 16 + 32;
 const SUNSET_RECORD_LEN: usize = 8 + 8 + 1;
 
 /// Key of the version entry for `version`.
@@ -88,6 +93,9 @@ pub struct ScheduleRequest {
     pub version: Option<u32>,
     /// Features the epoch switches on. Must be empty when `version` is `None`.
     pub features: FeatureSet,
+    /// Hash of the release that implements the epoch, zeros for none
+    /// (ADR-155). Must be zeros when `version` is `None`.
+    pub binary_hash: [u8; 32],
     /// Suites the entry retires.
     pub sunsets: Vec<SunsetSpec>,
 }
@@ -156,6 +164,9 @@ impl EffectiveSchedule {
         if request.version.is_none() && request.features.0 != 0 {
             return refuse("a sunset-only entry cannot switch features on".into());
         }
+        if request.version.is_none() && request.binary_hash != [0; 32] {
+            return refuse("a sunset-only entry names no release".into());
+        }
         // Heights are bounded above as well as below. Without a horizon one far
         // entry would fix the floor for every later entry of its kind.
         let horizon = now.saturating_add(MAX_SCHEDULE_HORIZON_BLOCKS);
@@ -186,6 +197,7 @@ impl EffectiveSchedule {
                 version,
                 activation_height: request.activation,
                 features: request.features,
+                binary_hash: request.binary_hash,
             });
             UpgradeSchedule::new(versions)?;
         }
@@ -242,6 +254,7 @@ impl EffectiveSchedule {
             version,
             activation_height: request.activation,
             features: request.features,
+            binary_hash: request.binary_hash,
         });
         // Only suites the spec names are validated by `admit`, so a byte that is
         // not a suite is dropped here rather than written.
@@ -336,9 +349,11 @@ impl StateDB {
 
 pub(crate) fn encode_version(u: &ProtocolUpgrade) -> Vec<u8> {
     let mut out = Vec::with_capacity(VERSION_RECORD_LEN);
+    out.push(VERSION_RECORD_LAYOUT);
     out.extend_from_slice(&u.version.to_le_bytes());
     out.extend_from_slice(&u.activation_height.to_le_bytes());
     out.extend_from_slice(&u.features.0.to_le_bytes());
+    out.extend_from_slice(&u.binary_hash);
     out
 }
 
@@ -346,12 +361,19 @@ fn decode_version(bytes: &[u8]) -> Result<ProtocolUpgrade> {
     let record: &[u8; VERSION_RECORD_LEN] = bytes
         .try_into()
         .map_err(|_| NodeError::Decode("upgrade version record length".to_string()))?;
+    if record[0] != VERSION_RECORD_LAYOUT {
+        return Err(NodeError::Decode(format!(
+            "upgrade version record layout {}, expected {VERSION_RECORD_LAYOUT}",
+            record[0]
+        )));
+    }
     Ok(ProtocolUpgrade {
-        version: u32::from_le_bytes(record[0..4].try_into().unwrap_or_default()),
-        activation_height: u64::from_le_bytes(record[4..12].try_into().unwrap_or_default()),
-        features: FeatureSet(u64::from_le_bytes(
-            record[12..20].try_into().unwrap_or_default(),
+        version: u32::from_le_bytes(record[1..5].try_into().unwrap_or_default()),
+        activation_height: u64::from_le_bytes(record[5..13].try_into().unwrap_or_default()),
+        features: FeatureSet(u128::from_le_bytes(
+            record[13..29].try_into().unwrap_or_default(),
         )),
+        binary_hash: record[29..61].try_into().unwrap_or_default(),
     })
 }
 
@@ -423,6 +445,7 @@ mod tests {
             activation,
             version: Some(SUPPORTED_VERSION_FOR_TESTS),
             features: FeatureSet(FeatureSet::DVP),
+            binary_hash: [0; 32],
             sunsets: Vec::new(),
         }
     }
@@ -434,6 +457,7 @@ mod tests {
             activation: announced,
             version: None,
             features: FeatureSet::default(),
+            binary_hash: [0; 32],
             sunsets: vec![SunsetSpec {
                 suite: suite.to_byte(),
                 sunset_height: announced + WINDOW,
@@ -471,6 +495,7 @@ mod tests {
             version: SUPPORTED_VERSION_FOR_TESTS,
             activation_height: pending,
             features: FeatureSet(FeatureSet::DVP),
+            binary_hash: [0; 32],
         }])
         .unwrap();
         schedule.last_version_height = pending;
@@ -567,6 +592,7 @@ mod tests {
         let activation = NOW + MIN_UPGRADE_LEAD_BLOCKS;
         let request = ScheduleRequest {
             features: FeatureSet(FeatureSet::ZKML),
+            binary_hash: [0; 32],
             ..version_at(activation)
         };
         empty()

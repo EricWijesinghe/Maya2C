@@ -43,9 +43,10 @@ on:
 # Trusted publishing. No registry token is stored anywhere: PyPI and npm both
 # mint short-lived credentials from this workflow's OIDC identity, so there is
 # no long-lived secret to leak, rotate, or forget to scope.
+# Read-only by default. Each publish job grants `id-token` itself, so the wheel
+# build (third-party build code) never holds an OIDC token it could exchange.
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   # Never cancel a publish in progress. A cancelled `npm publish` can leave a
@@ -61,6 +62,12 @@ jobs:
   npm:
     name: maya2c.js → npm
     runs-on: ubuntu-latest
+    # The environment is what the npm trusted publisher can be bound to; with
+    # no binding set on npmjs.com the environment name is not checked.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -73,10 +80,11 @@ jobs:
 
       # `ci`, not `install`: it installs exactly the lockfile and fails if
       # package.json and the lock disagree, rather than quietly resolving
-      # something new on the day the release happens.
+      # something new on the day the release happens. `--ignore-scripts`: the
+      # SDK's dependencies need no install hooks, and this job holds id-token.
       - name: Install
         working-directory: sdks/sdk-js
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Typecheck
         working-directory: sdks/sdk-js
@@ -110,17 +118,23 @@ jobs:
           fi
 
       - name: Publish
-        if: github.event_name == 'push' || inputs.dry_run == false
+        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.dry_run == false)
         working-directory: sdks/sdk-js
         # `--provenance` attaches a signed attestation linking the tarball to
         # this workflow run and this commit, so a consumer can check that what
         # they installed was built from what they can read.
-        run: npm publish --provenance --access public
+        # Staged, not published (owner decision 2026-11-24): the npm trusted
+        # publisher for maya2c.js only allows `npm stage publish`, so a release
+        # stays private until the owner approves it on npmjs.com with 2FA. A
+        # stolen token or a compromised run cannot put a package in front of users.
+        run: npm stage publish . --provenance --access public
 
   # ---------------------------------------------------------------------------
   wheels:
     name: maya2c wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       # One platform failing should not hide whether the others are fine —
       # a wheel matrix is exactly where "it works on Linux" hides a macOS
@@ -166,6 +180,9 @@ jobs:
     name: maya2c → PyPI
     needs: wheels
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     # A dedicated environment so the trusted-publisher binding is scoped to it
     # rather than to the whole repository, and so a publish can require a
     # reviewer if you configure one.
@@ -186,5 +203,5 @@ jobs:
       # minutes when it works, and a failure without a C++ toolchain. Shipping
       # one would mostly generate bug reports about somebody else's compiler.
       - name: Publish
-        if: github.event_name == 'push' || inputs.dry_run == false
+        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.dry_run == false)
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1

@@ -64,6 +64,9 @@ pub struct ScheduleUpgrade {
     pub activation_height: u64,
     /// Dark features the epoch switches on, as a [`FeatureSet`] bitmask.
     pub features: FeatureSet,
+    /// BLAKE3 hash of the release that implements the epoch, or zeros when the
+    /// proposal names none (ADR-155, G21). Voters see what they schedule.
+    pub binary_hash: [u8; 32],
     /// Suites retired at `activation_height`.
     pub sunsets: Vec<SunsetSpec>,
 }
@@ -74,6 +77,7 @@ impl ScheduleUpgrade {
         buf.extend_from_slice(&self.version.to_le_bytes());
         buf.extend_from_slice(&self.activation_height.to_le_bytes());
         buf.extend_from_slice(&self.features.0.to_le_bytes());
+        buf.extend_from_slice(&self.binary_hash);
         buf.extend_from_slice(&(self.sunsets.len() as u64).to_le_bytes());
         for sunset in &self.sunsets {
             buf.push(sunset.suite);
@@ -91,7 +95,8 @@ impl ScheduleUpgrade {
     pub fn decode(reader: &mut ByteReader<'_>) -> Result<Self> {
         let version = u32::from_le_bytes(reader.read_array::<4>()?);
         let activation_height = reader.read_u64()?;
-        let features = FeatureSet(reader.read_u64()?);
+        let features = FeatureSet(u128::from_le_bytes(reader.read_array::<16>()?));
+        let binary_hash = reader.read_array::<32>()?;
         let count = reader.read_collection_len(SUNSET_SIZE)?;
         if count > MAX_SUNSETS {
             return Err(NodeError::Decode(format!(
@@ -110,6 +115,7 @@ impl ScheduleUpgrade {
             version,
             activation_height,
             features,
+            binary_hash,
             sunsets,
         })
     }
