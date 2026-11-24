@@ -239,6 +239,12 @@ Both are in the frozen node binary (bb4e0940), so they are recorded, not fixed.
   ciphertext fields would halve every message and double the sticker limit,
   but it changes the chat wire format for the relay and every client: do it
   with a version byte, while users are few.
+- **Chat: re-handshake after a session eviction (APP-13 follow-up).** Past
+  `MAX_SESSIONS` (4,096) a session is evicted silently; a `Chat` from that
+  peer then fails with `NoSession` and the peer's outbox resends under the
+  dead session until expiry. Record evicted peers in a small bounded set,
+  surface them (or a distinct error) to the CLI and GUI, and re-open with a
+  fetched prekey bundle. Today recovery is manual.
 
 - **Measure line coverage of the core crates** with `cargo llvm-cov`
   (installed, 0.8.7; never run). M1 criterion 8. Source: EMPIRE.md.
