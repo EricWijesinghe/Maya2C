@@ -34,7 +34,7 @@ export const categories: { key: Category; label: string }[] = [
   { key: "economics", label: "Economics" },
 ];
 
-export const prUrl = (n: number) => `https://github.com/EricWijesinghe/Maya2C/pull/${n}`;
+export const prUrl = (n: number) => `https://github.com/maya2c/Maya2C/pull/${n}`;
 
 export const proposals: DesignProposal[] = [
   { id: 102, title: "Stealth addresses", gives: "Receive payments that nobody can link to your published address.", category: "privacy", status: "proposed", pr: P.a, needsDecision: false,

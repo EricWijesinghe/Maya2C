@@ -18,7 +18,7 @@ pub const CORS_ENV: &str = "MAYA2C_CORS_ALLOWED_ORIGINS";
 /// The disclosure file body. Points at GitHub's private advisory form so no
 /// mailbox address has to be published. Expires one year after it was written;
 /// RFC 9116 requires a renewal before then.
-pub const SECURITY_TXT: &str = "Contact: https://github.com/EricWijesinghe/Maya2C/security/advisories/new\n\
+pub const SECURITY_TXT: &str = "Contact: https://github.com/maya2c/Maya2C/security/advisories/new\n\
 Expires: 2027-11-08T00:00:00.000Z\n\
 Preferred-Languages: en\n";
 
