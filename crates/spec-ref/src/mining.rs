@@ -202,9 +202,12 @@ pub fn share_payload(payload: &[u8]) -> Result<(), &'static str> {
     if u64::try_from(body.len()).ok() != count.checked_mul(8) {
         return bad;
     }
+    // The length check above leaves no remainder.
     let nonces: Vec<u64> = body
-        .chunks_exact(8)
-        .map(|c| u64::from_le_bytes(c.try_into().unwrap_or_default()))
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|c| u64::from_le_bytes(*c))
         .collect();
     if nonces.windows(2).any(|w| w[0] >= w[1]) {
         return bad;

@@ -811,7 +811,7 @@ fn a_batch_counts_every_share_against_the_block_cap_and_fails_whole() {
         "three past a cap of two: {err:?}"
     );
 
-    let miss = (good[0] + 1..).find(|n| !good.contains(n)).unwrap();
+    let miss = (good[0] + 1..u64::MAX).find(|n| !good.contains(n)).unwrap();
     let mut mixed = vec![good[0], miss];
     mixed.sort_unstable();
     let err = c
