@@ -22,7 +22,7 @@ function ecosystemDir(): string {
 }
 const read = (name: string) => readFileSync(resolve(ecosystemDir(), name), "utf8");
 
-const REPO_ECOSYSTEM = "https://github.com/EricWijesinghe/Maya2C/blob/master/docs/ecosystem/";
+const REPO_ECOSYSTEM = "https://github.com/maya2c/Maya2C/blob/master/docs/ecosystem/";
 
 export const WAVES = ["W0", "W1", "W2", "W3", "W4"] as const;
 export type Wave = (typeof WAVES)[number];

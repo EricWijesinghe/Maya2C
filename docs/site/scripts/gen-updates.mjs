@@ -10,7 +10,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-const REPO = "EricWijesinghe/Maya2C";
+const REPO = "maya2c/Maya2C";
 const OUT = new URL("../public/updates/", import.meta.url);
 
 // Release asset name prefix -> manifest name. Asset names have spaces
