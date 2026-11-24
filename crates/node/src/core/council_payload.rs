@@ -2,7 +2,7 @@
 //! bounded number of blocks, or resume it early.
 //!
 //! ```text
-//! action   = kind nonce:u64 n:u64 (member:u8 sig[3309])*n
+//! action   = kind nonce:u64 n:u64 (member:u8 suite:u8 sig[3309])*n
 //! kind     = 0 module:u8 blocks:u64      pause
 //!          | 1 module:u8                 resume
 //! ```
@@ -117,6 +117,9 @@ impl CouncilAction {
         buf.extend_from_slice(&(self.approvals.len() as u64).to_le_bytes());
         for (member, sig) in &self.approvals {
             buf.push(*member);
+            // NEW-2: each approval names its suite, so the signature's length
+            // is known before any state is read.
+            buf.push(crate::state::council::COUNCIL_SUITES[0].to_byte());
             buf.extend_from_slice(sig.as_slice());
         }
     }
@@ -160,12 +163,16 @@ impl CouncilAction {
             t => return Err(NodeError::Decode(format!("council action kind {t}"))),
         };
         let nonce = r.read_u64()?;
-        let n = r.read_collection_len(1 + SIGNATURE_LENGTH)?;
+        let n = r.read_collection_len(2 + SIGNATURE_LENGTH)?;
         if n > MAX_APPROVALS {
             return Err(NodeError::Decode(format!("{n} council approvals")));
         }
         let approvals = (0..n)
-            .map(|_| Ok((r.read_u8()?, Box::new(r.read_array()?))))
+            .map(|_| {
+                let member = r.read_u8()?;
+                crate::state::council::council_suite(r.read_u8()?)?;
+                Ok((member, Box::new(r.read_array()?)))
+            })
             .collect::<Result<_>>()?;
         Ok(Self {
             kind,

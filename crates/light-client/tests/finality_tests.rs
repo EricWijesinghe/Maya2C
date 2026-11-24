@@ -13,6 +13,7 @@ use custom_l1_node::core::{BlockHeader, ChainTag};
 use custom_l1_node::crypto::validator_keys::{SigningKey, VerifyingKey, signing_key_from_seed};
 use custom_l1_node::state::merkle::{account_leaf, merkle_path, merkle_root, verify_path};
 use custom_l1_node::state::proof::StateLayer;
+use custom_l1_node::state::staking::encode_key_value;
 use custom_l1_node::state::staking::{
     STATE_KEY, committee_record, committee_weights_record, decode_committee, encode_committee,
     encode_weights, key_record, validator_id,
@@ -304,7 +305,7 @@ impl Node {
         let ids: Vec<[u8; 32]> = keys.iter().map(|k| validator_id(&k.to_bytes())).collect();
         self.put(committee_record(epoch), encode_committee(&ids));
         for (id, key) in ids.iter().zip(keys) {
-            self.put(key_record(id), key.to_bytes().to_vec());
+            self.put(key_record(id), encode_key_value(&key.to_bytes()));
         }
         if let Some(w) = weights {
             self.put(committee_weights_record(epoch), encode_weights(w));
@@ -443,7 +444,7 @@ fn a_key_that_does_not_hash_to_its_validator_id_is_refused() {
     node.commit_epoch(1, &keys1, None);
     // The record under member 0's id now holds member 1's key.
     let id0 = validator_id(&keys1[0].to_bytes());
-    node.put(key_record(&id0), keys1[1].to_bytes().to_vec());
+    node.put(key_record(&id0), encode_key_value(&keys1[1].to_bytes()));
     let h1 = node.header(10);
     let cp1 = checkpoint(&signing0, &CHAIN, 0, 10, h1.id(), &[0, 1, 2]);
     let ho1 = node.handoff(h1, cp1, 1);

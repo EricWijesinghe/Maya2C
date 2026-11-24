@@ -1,13 +1,17 @@
 //! Staking transactions (ADR-028): what a sender can do to the validator set.
 //!
 //! ```text
-//! action = 0 key[2592] bond:u256 commission:u16 possession[4627]   register
+//! action = 0 suite:u8 key[2592] bond:u256 commission:u16 possession[4627]   register
 //!        | 1 id[32] amount:u256                                    bond more
 //!        | 2 id[32] amount:u256                                    unbond
 //!        | 3 id[32] amount:u256                                    delegate
 //!        | 4 id[32] amount:u256                                    undelegate
 //!        | 5 len:u64 frame len:u64 frame                          equivocation
 //! ```
+//!
+//! The suite byte names the key's signature suite (NEW-2, ADR-153): today
+//! only `0x11`, ML-DSA-87 under the validator context; any other byte is a
+//! decode error until an upgrade adds a validator suite.
 //!
 //! A registration carries the validator's ML-DSA-87 key and a *proof of
 //! possession*: that key's signature over the sender's address. Without it
@@ -19,7 +23,9 @@
 //! signatures against the committee of the epoch they name.
 
 use crate::core::codec::ByteReader;
-use crate::crypto::validator_keys::{PUBLIC_KEY_LEN, SIGNATURE_LENGTH};
+use crate::crypto::validator_keys::{
+    DEFAULT_VALIDATOR_SUITE, PUBLIC_KEY_LEN, SIGNATURE_LENGTH, validator_suite,
+};
 use crate::error::{NodeError, Result};
 
 /// Domain of the proof-of-possession signature.
@@ -110,6 +116,7 @@ impl StakingAction {
                 possession,
             } => {
                 buf.push(REGISTER);
+                buf.push(DEFAULT_VALIDATOR_SUITE.to_byte());
                 buf.extend_from_slice(key.as_slice());
                 crate::core::codec::put_amount(buf, bond);
                 buf.extend_from_slice(&commission_bps.to_le_bytes());
@@ -144,7 +151,10 @@ impl StakingAction {
         };
         Ok(match tag {
             REGISTER => Self::Register {
-                key: Box::new(r.read_array()?),
+                key: {
+                    validator_suite(r.read_u8()?)?;
+                    Box::new(r.read_array()?)
+                },
                 bond: r.read_amount()?,
                 commission_bps: u16::from_le_bytes(r.read_array()?),
                 possession: Box::new(r.read_array()?),
@@ -228,6 +238,28 @@ mod tests {
         ];
         for a in &actions {
             assert_eq!(&round_trip(a), a);
+        }
+    }
+
+    #[test]
+    fn a_registration_names_its_key_suite_and_only_a_validator_suite_decodes() {
+        // NEW-2: the byte after the tag is the key's suite.
+        let register = StakingAction::Register {
+            key: Box::new([3; PUBLIC_KEY_LEN]),
+            bond: primitive_types::U256::from(1),
+            commission_bps: 0,
+            possession: Box::new([4; SIGNATURE_LENGTH]),
+        };
+        let mut buf = Vec::new();
+        register.encode_into(&mut buf);
+        assert_eq!(buf[..2], [REGISTER, 0x11]);
+        for other in [0x10_u8, 0x21, 0x30, 0xFF] {
+            let mut forged = buf.clone();
+            forged[1] = other;
+            assert!(
+                StakingAction::decode(&mut ByteReader::new(&forged)).is_err(),
+                "suite 0x{other:02x}"
+            );
         }
     }
 

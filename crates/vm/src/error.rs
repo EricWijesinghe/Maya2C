@@ -93,6 +93,44 @@ pub enum VmError {
     /// divergence in data.
     #[error("zkML verification is not available at this height")]
     ZkmlUnavailable,
+
+    /// The engine on this node could not do the work: the operating system
+    /// refused memory for an instance, its linear memory or compiled code.
+    ///
+    /// Says nothing about the transaction. Every other failure here is a
+    /// function of the module, the input, the state and the gas, so every
+    /// validator reaches it; this one is not. A caller must treat it as a
+    /// fault of its own (the node maps it to `NodeError::Storage`), never as
+    /// the call failing: recording it as a failed call would give this node a
+    /// state root the healthy ones do not compute (#647 review).
+    #[error("engine fault on this node: {0}")]
+    LocalFault(String),
+}
+
+impl VmError {
+    /// What a failed `Module::new` is: a module the chain refuses, or an
+    /// engine that could not compile on this node ([`VmError::LocalFault`]).
+    pub(crate) fn from_compile(error: &wasmtime::Error) -> Self {
+        if is_local_fault(error) {
+            Self::LocalFault(format!("{error:#}"))
+        } else {
+            Self::InvalidModule(error.to_string())
+        }
+    }
+}
+
+/// Whether a wasmtime error is this node's rather than the call's.
+///
+/// Positive, by type: an `io::Error` (wasmtime's memory and code mappings
+/// report the operating system's refusal as one) or wasmtime's own
+/// `OutOfMemory`, anywhere in the chain. Anything else stays a failure of
+/// the call. The rule cannot be "not a `Trap`": wasmtime refuses some
+/// modules at instantiation with a plain error every node produces alike (a
+/// declared table, which the limiter refuses, is one), and a deterministic
+/// failure taken for a local one would stop every node building a block
+/// while that transaction is pooled.
+pub(crate) fn is_local_fault(error: &wasmtime::Error) -> bool {
+    error.is::<std::io::Error>() || error.is::<wasmtime::OutOfMemory>()
 }
 
 /// Convenience alias.

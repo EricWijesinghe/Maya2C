@@ -110,9 +110,7 @@ pub fn copy_from(
     let config = GenesisConfig::from_json(
         &std::fs::read_to_string(&source.genesis).context("reading the genesis")?,
     )?;
-    if source.dir.exists() {
-        std::fs::remove_dir_all(&source.dir)?;
-    }
+    crate::reset_scratch_dir(&source.dir)?;
     let state = Arc::new(StateDB::open(&source.dir)?);
     let tip = remote.tip_height()?.min(cap.unwrap_or(u64::MAX));
     let chain = match source.snapshot_depth {
