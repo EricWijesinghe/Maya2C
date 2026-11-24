@@ -67,6 +67,21 @@ pub struct MiningShare {
 }
 
 impl MiningShare {
+    /// The most shares a miner puts in one batch when a block takes
+    /// `max_shares_per_block`: a quarter of it, at least one.
+    ///
+    /// Miner policy, not consensus: any batch up to the block cap is valid.
+    /// A block admits a batch whole or not at all, so a batch as large as the
+    /// cap fits only a block with no other share in it; once blocks are busy
+    /// the small batches take the slots and the miner with the most hashrate
+    /// is the one left out. Batches of a quarter fit beside other miners' work
+    /// (`a_miner_with_more_finds_than_a_busy_block_has_room_for_is_still_credited`).
+    #[must_use]
+    pub const fn batch_limit(max_shares_per_block: u64) -> u64 {
+        let quarter = max_shares_per_block / 4;
+        if quarter == 0 { 1 } else { quarter }
+    }
+
     /// One share: the common case, and what a miner with one find sends.
     #[must_use]
     pub fn single(epoch: u64, nonce: u64) -> Self {

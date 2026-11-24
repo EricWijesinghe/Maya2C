@@ -286,6 +286,20 @@ amendment and the "fixed per-share reward" text above.
    closed epoch the sender holds a credit for. Shares and claims stay fee-free
    when they move nothing (FEE-7), and the mempool's one-entry-per-work rule
    (#653) applies to every nonce of a batch.
+   **Batches fit beside each other.** A block admits a batch whole or not at
+   all, so a batch as large as the block cap would fit only a block holding no
+   other share: once blocks are busy, the smaller batches take the slots and
+   the miner with the most hashrate is the one left out, block after block,
+   until its shares go stale. The miner therefore sends batches of at most a
+   quarter of `max_shares_per_block` (`MiningShare::batch_limit`, 4 at
+   mainnet's cap of 16), as many as it needs, and sends every find. This is
+   miner policy, not consensus: any batch up to the cap stays valid, and no
+   node rule changed. Pinned by
+   `a_miner_with_more_finds_than_a_busy_block_has_room_for_is_still_credited`
+   (a miner with a full block's worth of finds behind another miner's share in
+   every block is credited in every block; with cap-sized batches it was
+   credited nothing) and the miner's
+   `found_shares_go_in_ascending_batches_of_a_quarter_block_and_none_is_dropped`.
 4. **The anchor is the boundary block's parent** (issue #642). The next
    epoch's anchor is `header.prev_hash`, not `header.id()`. The id covers the
    state root, and the anchor is part of the state that root commits to, so a

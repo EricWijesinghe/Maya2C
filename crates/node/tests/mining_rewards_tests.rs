@@ -833,6 +833,70 @@ fn a_batch_counts_every_share_against_the_block_cap_and_fails_whole() {
     assert_eq!(c.state().committed_seen_shares(1).unwrap(), 2);
 }
 
+/// Two miners whose finds together exceed the block cap every round, in the
+/// order that hurts the larger one most: the small miner's share ahead of it
+/// in every block. Batched by [`MiningShare::batch_limit`], the large miner's
+/// work fits beside the small one's and both are credited within a few
+/// blocks. A batch as large as the cap (the rule before) fits no block that
+/// holds another share, so the large miner was credited nothing at all.
+#[test]
+fn a_miner_with_more_finds_than_a_busy_block_has_room_for_is_still_credited() {
+    const CAP: u64 = 16;
+    const ROUNDS: u64 = 3;
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(
+        &dir,
+        Some(MiningGenesis {
+            max_shares_per_block: CAP,
+            ..mining()
+        }),
+    );
+    to_epoch_one(&mut c);
+    let (large, small) = (miner(), signing_key_from_seed(&[0x52; 32]).unwrap());
+    let cap = usize::try_from(CAP).unwrap();
+    let rounds = usize::try_from(ROUNDS).unwrap();
+    let large_work = find_shares(&c, 1, 0, cap * rounds);
+    let small_work = find_shares_for(&c, &small.address(), 1, 0, rounds);
+    let limit = usize::try_from(MiningShare::batch_limit(CAP)).unwrap();
+    let (mut pending, mut large_nonce) = (Vec::new(), 0);
+    for (round, h) in (H1..H1 + ROUNDS).enumerate() {
+        for nonces in large_work[round * cap..(round + 1) * cap].chunks(limit) {
+            pending.push(batch_by(&large, 1, nonces.to_vec(), large_nonce));
+            large_nonce += 1;
+        }
+        let round_nonce = u64::try_from(round).unwrap();
+        let mut pool = vec![batch_by(&small, 1, vec![small_work[round]], round_nonce)];
+        pool.extend(pending.iter().cloned());
+        let picked = c
+            .state()
+            .select_applicable(
+                pool,
+                c.context_at(h).unwrap(),
+                c.next_target(&c.tip()).unwrap(),
+            )
+            .unwrap();
+        let landed: Vec<[u8; 32]> = picked.iter().map(Transaction::txid).collect();
+        pending.retain(|tx| !landed.contains(&tx.txid()));
+        mine(&mut c, h, picked).unwrap();
+    }
+    let credited = |key: &HybridSigningKey| {
+        c.state()
+            .committed_credit(&key.address())
+            .unwrap()
+            .map_or(0, |k| k.shares)
+    };
+    assert_eq!(
+        credited(&small),
+        ROUNDS,
+        "the small miner lands every round"
+    );
+    let large_shares = credited(&large);
+    assert!(
+        large_shares > 0 && large_shares + ROUNDS <= CAP * ROUNDS,
+        "the large miner fills the rest of each block: {large_shares}"
+    );
+}
+
 /// One credit per miner: a miner that keeps mining is paid for the closed
 /// epoch by its next epoch's first share, with no claim and no extra record.
 #[test]

@@ -1434,3 +1434,9 @@ red before the fix at height 5). The mainnet `target_shares` rises from 1,000 to
 target is no longer what bounds on-chain bytes. Consensus and state format
 change: spec 09 v0.2.0 (MINE-4, -5, -6, -7, -11 changed, MINE-12 new), record
 version 5, conformance vectors regenerated. Ships with the re-genesis.
+
+Review follow-up (same day, no consensus change): the miner sends batches of at
+most a quarter of `max_shares_per_block` (`MiningShare::batch_limit`) and every
+find, so a miner with more finds than a busy block has room for is still
+credited in every block, instead of its cap-sized batch fitting no block that
+already holds another share. Any batch up to the cap stays valid.

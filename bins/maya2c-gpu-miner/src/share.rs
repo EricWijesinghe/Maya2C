@@ -448,16 +448,15 @@ fn cpu_workers(
         .collect()
 }
 
-/// `first` and every other find already waiting, as the strictly ascending
-/// batch the chain decodes, no larger than one block may carry.
-fn batch(first: u64, found: &mpsc::Receiver<u64>, cap: u64) -> Vec<u64> {
+/// `first` and every other find already waiting, as strictly ascending
+/// batches the chain decodes, each within [`MiningShare::batch_limit`] of a
+/// block cap of `block_cap`. Every find is in one of them: none is dropped.
+fn batches(first: u64, found: &mpsc::Receiver<u64>, block_cap: u64) -> Vec<Vec<u64>> {
     let mut nonces: Vec<u64> = std::iter::once(first).chain(found.try_iter()).collect();
     nonces.sort_unstable();
     nonces.dedup();
-    // shortcut: finds past the cap are dropped, not carried to the next
-    // batch; upgrade if a 200 ms window ever finds more than a block takes.
-    nonces.truncate(usize::try_from(cap.max(1)).unwrap_or(usize::MAX));
-    nonces
+    let limit = usize::try_from(MiningShare::batch_limit(block_cap)).unwrap_or(usize::MAX);
+    nonces.chunks(limit).map(<[u64]>::to_vec).collect()
 }
 
 impl Session {
@@ -474,7 +473,9 @@ impl Session {
         let mut counted = 0u64;
         while !stop.load(Ordering::Relaxed) {
             if let Ok(first) = found.recv_timeout(Duration::from_millis(200))
-                && !self.submit(work, batch(first, found, work.max_shares_per_block))
+                && !batches(first, found, work.max_shares_per_block)
+                    .into_iter()
+                    .all(|nonces| self.submit(work, nonces))
             {
                 // A refusal usually means the epoch closed (work for it is
                 // stale): look now rather than hashing stale work.
@@ -549,17 +550,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn found_shares_go_in_one_ascending_batch_within_the_block_cap() {
+    fn found_shares_go_in_ascending_batches_of_a_quarter_block_and_none_is_dropped() {
         let (tx, rx) = mpsc::channel();
         for n in [9, 3, 9, 7] {
             tx.send(n).unwrap();
         }
-        assert_eq!(batch(5, &rx, 16), vec![3, 5, 7, 9]);
-        for n in [4, 2, 8] {
-            tx.send(n).unwrap();
+        assert_eq!(batches(5, &rx, 16), vec![vec![3, 5, 7, 9]]);
+        for n in 1..=16 {
+            tx.send(n * 10).unwrap();
         }
-        assert_eq!(batch(6, &rx, 2), vec![2, 4], "cut at the cap");
-        assert_eq!(batch(1, &rx, 0), vec![1], "no cap from the node: one share");
+        let split = batches(0, &rx, 16);
+        assert!(
+            split.iter().all(|b| b.len() <= 4),
+            "a quarter of the cap of 16: {split:?}"
+        );
+        let all: Vec<u64> = split.concat();
+        let want: Vec<u64> = std::iter::once(0).chain((1..=16).map(|n| n * 10)).collect();
+        assert_eq!(all, want, "every find sent, in ascending order");
+        tx.send(4).unwrap();
+        assert_eq!(
+            batches(6, &rx, 2),
+            vec![vec![4], vec![6]],
+            "one per batch below a cap of 4"
+        );
+        assert_eq!(
+            batches(1, &rx, 0),
+            vec![vec![1]],
+            "no cap from the node: one share"
+        );
     }
 
     #[test]
