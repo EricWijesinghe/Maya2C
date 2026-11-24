@@ -45,6 +45,23 @@ macro_rules! ml_kem_suite {
 
         impl ZeroizeOnDrop for MlKemKey<::ml_kem::$module::DecapsulationKey> {}
 
+        impl $name {
+            /// A keypair from a 64-byte FIPS 203 seed `d ‖ z` (`KeyGen_internal`),
+            /// for a static identity a node re-derives from a seed it already
+            /// protects (ADR-152). The caller owns the seed's secrecy.
+            #[must_use]
+            pub fn key_from_seed(
+                seed: &Zeroizing<[u8; 64]>,
+            ) -> (MlKemKey<::ml_kem::$module::DecapsulationKey>, Vec<u8>) {
+                let mut s = Zeroizing::new(::ml_kem::Seed::default());
+                s.copy_from_slice(seed.as_slice());
+                // The clone is consumed by ml-kem; `s` wipes on drop.
+                let dk = ::ml_kem::$module::DecapsulationKey::from_seed((*s).clone());
+                let ek = dk.encapsulation_key().to_bytes().to_vec();
+                (MlKemKey(dk), ek)
+            }
+        }
+
         impl KemSuite for $name {
             const ID: KemId = $id;
             const ENCAPSULATION_KEY_LEN: usize = $ek;

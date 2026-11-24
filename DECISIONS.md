@@ -923,3 +923,9 @@ Eric decided the open items from the pre-freeze review. These are decisions only
 - **Decision:** `deterministic_config` sets `memory_init_cow(false)` (ADR-034 amendment 2026-11-23), in `config_digest`. Data-segment gas is now the segments' own copy, the same on every host and tier (20 for that module), pinned by `a_data_segment_costs_the_same_gas_on_every_host_and_tier`. The golden vector is re-recorded to 204 / 181 with its breakdown written beside it.
 - **Takes effect at mainnet genesis.** Testnet validators move together or re-genesis (runbook row added).
 - **Not done:** `spec/` has no VM gas section and `spec-ref` cannot compute wasm gas, so there is no conformance vector here; #674 adds spec rule VMI-1. Stack depth is still a byte budget that differs by tier (open, ADR-034 amendment).
+
+## 2026-11-24 — Peers authenticate with static ML-KEM keys, not signatures (ADR-152, Eric 2026-11-24)
+
+- **Guarantee (once wired):** a pinned peer cannot be impersonated even by an attacker who breaks X25519 and ed25519 while the connection is being made. The pinned peers are bootnodes, validator private links and sentries. Only the holder of the pinned static ML-KEM-1024 key can decapsulate the handshake secret and produce its confirmation tag.
+- **Why KEM authentication:** it needs no signature, so a transcript is no transferable proof of who talked to whom, which serves user anonymity. It is smaller than ML-DSA-87, and it reuses the FIPS 203 code the transport already runs. The catalog row proposed signing the transcript with the validator key; ADR-152 records why that was rejected.
+- **State:** a sans-IO core in `maya-crypto-pq` with tests. Wiring it into the libp2p stack, the pin syntax and the TOFU store come next. This is not consensus: the protocol is negotiated per connection, so it ships in any release.

@@ -3873,3 +3873,14 @@ class = "REAL"
 status = "stub"
 tests = ["crate:attacknet-controller"]
 note = "Scaffold. Process kill (by data dir, zero matches is an error) and start are real; every other fault returns a not-implemented error since 2026-11-10 (before that, many logged Ok without acting). Its scenario verdicts and reports/attacknet/runs/ are not evidence; use cargo xtask attacknet."
+
+[[subsystem]]
+id = "pq-peer-auth"
+name = "Post-quantum peer authentication"
+domain = "Kernel, networking and transport"
+paths = "`crates/crypto-pq/src/peer_auth.rs`"
+tier = "core"
+class = "RESEARCH"
+status = "working"
+tests = ["crate:maya-crypto-pq"]
+note = "ADR-152. Static ML-KEM-1024 identity per node, mutual implicit authentication by encapsulation plus key confirmation, pinned or trust-on-first-use. Sans-IO core tested in memory (round trip, impersonator without the decapsulation key, pin mismatch, tampered ciphertext, relayed binding). Not wired into the libp2p upgrade stack: the swarm does not use it yet."
