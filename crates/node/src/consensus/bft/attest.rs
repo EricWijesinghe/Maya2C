@@ -57,7 +57,9 @@ pub fn attestation_digest(chain: &ChainTag, epoch: u64, height: u64, block: &[u8
 /// `ATTEST_DOMAIN ‖ height ‖ validator ‖ attestation_digest`
 /// ([`maya_dag_bft::slot_message`], CON-14). The height and the attester are
 /// signed as well as hashed, so a remote signer's one-block-per-height record
-/// protects the height the signature really fills (CT-05).
+/// protects the height the signature really fills (CT-05). That record is
+/// keyed by height alone, not by `(height, validator)`: the index changes
+/// between epochs and the epoch is only in the digest.
 #[must_use]
 pub fn attestation_bytes(
     chain: &ChainTag,

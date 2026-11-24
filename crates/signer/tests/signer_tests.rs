@@ -453,6 +453,30 @@ fn an_attestation_is_signed_once_per_height_under_its_own_domain() {
 }
 
 #[test]
+fn an_attestation_at_a_signed_height_is_refused_under_another_committee_index() {
+    // A validator's committee index changes between epochs, and the epoch is
+    // only inside the digest. Keyed by (height, index), a compromised node
+    // could get two blocks attested at one height, one per epoch; keyed by
+    // height, it cannot.
+    let dir = TempDir::new().unwrap();
+    let mut s = service(&dir)
+        .with_attestations(SlashingDb::open(&dir.path().join("attestations.jsonl")).unwrap());
+    assert!(signed(&s.handle(&req(
+        Kind::Attestation,
+        120,
+        3,
+        b"epoch e, block 1"
+    ))));
+    assert!(
+        !signed(&s.handle(&req(Kind::Attestation, 120, 4, b"epoch e+1, block 2"))),
+        "a second digest at height 120 under another index is refused"
+    );
+    // Votes keep their per-author slots: one validator votes for every author.
+    assert!(signed(&s.handle(&req(Kind::Vote, 7, 3, b"vertex of 3"))));
+    assert!(signed(&s.handle(&req(Kind::Vote, 7, 4, b"vertex of 4"))));
+}
+
+#[test]
 fn a_signer_without_an_attestation_database_refuses_attestations() {
     let dir = TempDir::new().unwrap();
     let mut s = service(&dir);

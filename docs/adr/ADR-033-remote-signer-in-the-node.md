@@ -156,6 +156,18 @@ would have sent the full vertex each time).
 **Not signed:** the kind. It needs no binding: a proposal's signature is its
 author's vote, and the protection record is keyed by slot whatever the kind.
 
+**An attestation's protected slot is its height alone** (review of #693). The
+committee index is signed, but it is not a stable name for the validator: it
+changes between epochs, and the epoch is only inside the digest. Keyed by
+`(height, index)`, the record would have approved `(h, idx_e, B1)` and
+`(h, idx_e+1, B2)`, two blocks at one height, each valid under its epoch's
+committee. The attestation database therefore keys by height and refuses a
+second digest at a height under any index (`crates/signer/src/protection.rs`
+`slot`; test `an_attestation_at_a_signed_height_is_refused_under_another_committee_index`).
+Votes keep `(round, author)`, because one validator votes for every author's
+vertex in a round. The guarantee: a remote-signer validator attests at most one
+block per height, whatever indices and epochs a compromised node names.
+
 **Compatibility.** A consensus wire change, landed with the genesis format.
 Local keys and remote signers sign the same new bytes, so mixed networks keep
 working. The testnet re-genesises (runbook `docs/runbooks/regenesis-checklist.md`).
