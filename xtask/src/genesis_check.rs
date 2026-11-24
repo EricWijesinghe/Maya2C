@@ -270,7 +270,7 @@ fn normalized_address(address: &str) -> String {
 /// empty means the genesis passes. The clock is a parameter so the window is
 /// testable and the policy never reads the wall clock itself.
 /// The launch rules that concern money, time and upgrades: no premine, no
-/// pending upgrade, a sane timestamp, and a tail. Split out of [`problems`] so
+/// pending upgrade, a sane timestamp, and a tail. Split out of [`problems_at`] so
 /// each function stays readable.
 fn launch_rules(g: &Genesis, now: u64) -> Vec<String> {
     let mut out = Vec::new();
@@ -333,11 +333,8 @@ fn launch_window_rule(g: &Genesis, launch: u64) -> Option<String> {
     })
 }
 
-fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
-    problems_at(text, now, now)
-}
-
-/// [`problems`] with a planned `launch` time for the launch-window rule.
+/// Every problem with the genesis `text`, checked at `now` and for a planned
+/// `launch` (the launch-window rule).
 fn problems_at(text: &str, now: u64, launch: u64) -> Result<Vec<String>, String> {
     let g: Genesis = serde_json::from_str(text).map_err(|e| format!("not a genesis file: {e}"))?;
     let mut out = launch_rules(&g, now);
@@ -469,6 +466,11 @@ mod tests {
     /// The node's `lifetime_emission` of the mainnet schedule at 3,600-block
     /// epochs (`deploy/genesis/mainnet/README.md`).
     const RESERVE: &str = "122753829695359067419575633036805965021648";
+
+    /// Checked at `now`, launching at `now`.
+    fn problems(text: &str, now: u64) -> Result<Vec<String>, String> {
+        problems_at(text, now, now)
+    }
 
     fn check(text: &str) -> Result<Vec<String>, String> {
         problems(text, NOW)
