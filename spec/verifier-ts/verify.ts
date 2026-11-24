@@ -198,7 +198,7 @@ function headers(): number {
   const doc = load("headers.json");
   for (const c of doc.cases) {
     const h = c.header;
-    const bytes = concat(fromHex(h.prev_hash), fromHex(h.state_root), le64(BigInt(h.timestamp)), le64(BigInt(h.nonce)), fromHex(h.difficulty_target), fromHex(h.tx_root), new Uint8Array([h.version])); // CON-1
+    const bytes = concat(fromHex(h.prev_hash), fromHex(h.state_root), le64(BigInt(h.timestamp)), le64(BigInt(h.nonce)), fromHex(h.difficulty_target), fromHex(h.tx_root), new Uint8Array([h.version]), new Uint8Array(32)); // CON-1: the reserved extension root is all zeros
     if (!c.transactions) {
       check(toHex(bytes) === c.expect.bytes, `${c.id}: bytes`);
       check(toHex(deriveKey("custom-l1-node header id v1", bytes)) === c.expect.id, `${c.id}: id`); // CON-2
