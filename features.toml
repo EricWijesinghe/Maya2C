@@ -2801,7 +2801,7 @@ tier = "extended"
 class = "REAL"
 status = "verified"
 tests = ["crate:maya2c-sdk", "sdks/rust/tests/gateway_contract_tests.rs", "crates/address/tests/shared_vectors.rs", "sdks/go/address_test.go", "sdks/go/wallet_test.go", "sdks/python/tests/test_wallet_password.py"]
-gate = "Go and Python unit tests run in the `sdks` workflow (.github/workflows/sdks.yml): `go test ./...` in sdks/go and `python -m unittest discover -s tests` in sdks/python. The live-node tests skip there and run only in nightly.yml's devnet job."
+gate = "The Rust crate's tests (client_tests.rs, and gateway_contract_tests.rs against the real `maya_api_gateway::app` router with a recorded node) run in ci.yml's whole-workspace nextest step on every PR. Go and Python unit tests run in the `sdks` workflow (.github/workflows/sdks.yml): `go test ./...` in sdks/go and `python -m unittest discover -s tests` in sdks/python. The live-node tests skip there and run only in nightly.yml's devnet job."
 note = "Typed blocking client over the gateway's REST /v1: retries GET only on 429/503 (max 3, Retry-After honoured up to 60 s, jittered), POSTs never retried, amounts exact 256-bit. client_tests.rs runs against a hand-written HTTP server; gateway_contract_tests.rs runs against the real gateway router (`maya_api_gateway::app`) over loopback with a recorded node, so routes, field names and status codes are the gateway's own. Verified to the same bar as the gateway entry (axum-rest-graphql-gateway, a recorded node behind the real router); the live-node tests (sdks/go/live_node_test.go, sdks/python/tests/test_live_node.py) skip without a node and no live run is recorded. Not published (publish needs Eric's APPROVED)."
 
 [[subsystem]]
