@@ -38,6 +38,7 @@ jobs:
     permissions:
       contents: read
       actions: read   # download the deployed manifest
+      attestations: read   # look up the manifest's provenance
       issues: write   # open or update the alert
     env:
       GH_TOKEN: ${{ github.token }}
@@ -86,10 +87,43 @@ jobs:
 
       - name: Verify the manifest's attestation
         if: steps.fresh.outputs.skip == 'false'
+        env:
+          REPO_ID: ${{ github.repository_id }}
+          # Transition, added 2026-11-27 (MAY-6). The repository moved from
+          # EricWijesinghe/Maya2C to maya2c/Maya2C on 2026-11-24. A manifest
+          # attested before then names the old repository in its certificate,
+          # and GitHub keeps that attestation under the old owner: the
+          # repository endpoint answers 404 for it (run 45940491617). Same
+          # approach as #689 for the release signing identities.
+          # DROP the fallback below, and these two values, once a `site`
+          # deploy after the move has succeeded: from then on the latest
+          # manifest carries the maya2c identity and the fallback is dead code.
+          LEGACY_REPO: EricWijesinghe/Maya2C
+          TRANSFER_AT: "2026-11-24T00:00:00Z"
         run: |
           set -euo pipefail
-          gh attestation verify "$DEPLOYED/integrity-manifest.json" \
-            --repo "$REPO" --signer-workflow "$REPO/.github/workflows/site.yml"
+          manifest="$DEPLOYED/integrity-manifest.json"
+          if gh attestation verify "$manifest" \
+               --repo "$REPO" --signer-workflow "$REPO/.github/workflows/site.yml"; then
+            exit 0
+          fi
+          # Only a deploy that finished before the move may use the old
+          # identity; anything newer must verify under the current one.
+          if [ "$(date -u -d "$UPDATED_AT" +%s)" -ge "$(date -u -d "$TRANSFER_AT" +%s)" ]; then
+            echo "::error::deploy at $UPDATED_AT is after the transfer and does not verify as $REPO"
+            exit 1
+          fi
+          echo "deploy at $UPDATED_AT predates the transfer; verifying as $LEGACY_REPO"
+          # A name can be re-registered; a repository ID cannot. The old-name
+          # certificate must still name this repository's ID.
+          ids=$(gh attestation verify "$manifest" --format json \
+            --owner "${LEGACY_REPO%%/*}" --signer-workflow "$LEGACY_REPO/.github/workflows/site.yml" \
+            --jq '[.[].verificationResult.signature.certificate.sourceRepositoryIdentifier] | unique | join(",")')
+          if [ "$ids" != "$REPO_ID" ]; then
+            echo "::error::legacy attestation names repository id(s) '$ids', expected $REPO_ID"
+            exit 1
+          fi
+          echo "verified as $LEGACY_REPO, repository id $ids"
 
       - name: Fetch every listed file from maya2c.dev
         if: steps.fresh.outputs.skip == 'false'
