@@ -130,13 +130,13 @@ pub(crate) fn config_for(target: Option<&str>, isa_flags: &[&str]) -> Result<Con
         let refused = |e: wasmtime::Error| VmError::EngineConfig(e.to_string());
         config.target(target).map_err(refused)?;
         for flag in isa_flags {
-            // SAFETY: each flag is an ISA feature Cranelift knows (an unknown
-            // name fails `Engine::new`), and wasmtime checks the host CPU
-            // has every one enabled before it compiles or loads code
-            // (`check_compatible_with_native_host`), so no instruction the
-            // CPU lacks is ever executed. `deterministic_engine` makes that
-            // check run at start-up; pinned by
+            // Each flag is an ISA feature Cranelift knows (an unknown name
+            // fails `Engine::new`). `deterministic_engine` makes the host
+            // check below run at start-up; pinned by
             // `an_engine_refuses_a_cpu_without_its_isa_level`.
+            // SAFETY: wasmtime checks the host CPU has every flag enabled
+            // before it compiles or loads code (`check_compatible_with_native_host`),
+            // so no instruction the CPU lacks is ever executed.
             unsafe {
                 config.cranelift_flag_enable(flag);
             }
