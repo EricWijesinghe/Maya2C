@@ -79,7 +79,15 @@ verify:  ML-DSA verify(pk_ML, m, σ_ML)   AND
 Both halves sign `TX_DOMAIN ‖ chain_tag ‖ body`, so a signature cannot be
 moved to another chain (ADR-036) or re-attached to a different key pair.
 
-### Python: sign and verify
+### Python: sign and verify messages
+
+`sign()` and `verify()` are for **messages**, not transactions. They sign
+`MESSAGE_DOMAIN || message`, where `MESSAGE_DOMAIN` is the fixed prefix
+`maya2c.sdk-ffi.signed-message.v1\0`. Every transaction the node checks starts
+with a different prefix (`custom-l1-node.tx`), so a signature from `sign()` is
+never a valid transaction signature, whatever bytes you pass it. The FFI SDK
+has no transaction-signing call yet; sign transactions with the `l1-wallet`
+binary or `sdks/sdk-wasm` (`@maya2c/sdk-wasm`).
 
 The bindings are generated with UniFFI from `sdks/sdk-ffi` and load a compiled
 Rust library. **Not published to PyPI yet**, so build from source:
@@ -114,7 +122,9 @@ except Exception as error:
     print("tampered:   rejected ->", type(error).__name__)
 ```
 
-Output from a real run (2026-09-29):
+Output from a real run (2026-09-29, before `sign()` gained the message prefix;
+the sizes and results are unchanged by the prefix, but this run has not been
+repeated since):
 
 ```text
 address:    efd70367be6299b044f01da60263382a146abf988d8363659e0f045aa020a316
@@ -135,8 +145,9 @@ where you sign in bulk; verifying is cheap.
 - **The secret key cannot be exported.** Inside the Rust object it is zeroised
   on drop; once copied into Python it could not be wiped.
 - **Signing is deterministic.** The same key and message give the same
-  signature, which is required on-chain because a transaction id hashes its
   signature.
+- **A message signature only verifies as a message.** Signatures made by
+  `sign()` before the message prefix was added no longer pass `verify()`.
 
 ### Other languages
 
