@@ -112,13 +112,13 @@ fn chain(dir: &TempDir, mining: Option<MiningGenesis>) -> Chain {
 
 /// Nonces at or after `from` whose work meets the target, for `epoch`.
 fn find_shares(c: &Chain, epoch: u64, from: u64, count: usize) -> Vec<u64> {
+    find_shares_for(c, &miner().address(), epoch, from, count)
+}
+
+/// As [`find_shares`], for the payee `who`.
+fn find_shares_for(c: &Chain, who: &[u8; 32], epoch: u64, from: u64, count: usize) -> Vec<u64> {
     let record = c.state().committed_mining().unwrap().unwrap();
-    let header = share_header(
-        &common::test_chain().0,
-        epoch,
-        &record.anchor,
-        &miner().address(),
-    );
+    let header = share_header(&common::test_chain().0, epoch, &record.anchor, who);
     let registry = CacheRegistry::new(DagConfig {
         params: Params::TESTING,
         activation_height: 0,
@@ -135,9 +135,13 @@ fn find_shares(c: &Chain, epoch: u64, from: u64, count: usize) -> Vec<u64> {
 }
 
 fn share(epoch: u64, nonce: u64, tx_nonce: u64) -> Transaction {
+    share_by(&miner(), epoch, nonce, tx_nonce)
+}
+
+fn share_by(key: &HybridSigningKey, epoch: u64, nonce: u64, tx_nonce: u64) -> Transaction {
     let mut tx = Transaction::new(vec![], vec![], tx_nonce);
     tx.kind = TxKind::MiningShare(MiningShare { epoch, nonce });
-    tx.sign(&miner(), &common::test_chain()).unwrap();
+    tx.sign(key, &common::test_chain()).unwrap();
     tx
 }
 
@@ -458,4 +462,45 @@ fn a_tail_needs_a_reserve_that_pays_it_until_the_last_height() {
     config.allocations[0].balance = lifetime;
     let state = Arc::new(StateDB::open(funded.path()).unwrap());
     config.seed_state(&state).unwrap();
+}
+
+/// Red team: a share found for one payee, resubmitted under another key, is
+/// work over the thief's header, so it misses the target and pays nobody.
+#[test]
+fn a_share_found_for_one_miner_cannot_be_claimed_by_another() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let thief = signing_key_from_seed(&[0x52; 32]).unwrap();
+    let ours = find_shares(&c, 1, 0, 64);
+    let theirs = find_shares_for(&c, &thief.address(), 1, 0, 64);
+    let limit = *theirs.last().unwrap();
+    // Work for the miner that, over the range checked, is not work for the thief.
+    let nonce = *ours
+        .iter()
+        .find(|n| **n <= limit && !theirs.contains(n))
+        .unwrap();
+
+    let err = c
+        .candidate_block(1_000_000 + H1, vec![share_by(&thief, 1, nonce, 0)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+    mine(&mut c, H1, vec![share(1, nonce, 0)]).unwrap();
+    assert_eq!(balance(&c, &thief.address()), 0);
+    assert_eq!(balance(&c, &miner().address()), per_share());
+}
+
+/// Red team: the same work twice inside one block. The second copy must see
+/// the first one's spent record in the block's own overlay.
+#[test]
+fn the_same_share_twice_in_one_block_is_refused() {
+    let dir = TempDir::new().unwrap();
+    let mut c = chain(&dir, Some(mining()));
+    to_epoch_one(&mut c);
+    let nonce = find_shares(&c, 1, 0, 1)[0];
+    let err = c
+        .candidate_block(1_000_000 + H1, vec![share(1, nonce, 0), share(1, nonce, 1)])
+        .unwrap_err();
+    assert!(matches!(err, NodeError::Mining(_)), "{err:?}");
+    assert_eq!(balance(&c, &miner().address()), 0);
 }
