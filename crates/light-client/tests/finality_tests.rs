@@ -542,3 +542,191 @@ fn a_weighted_chain_rotates_with_the_weights_the_node_committed() {
     client.advance(&ho1, 10).unwrap();
     assert_eq!(client.weights(), Some(&[2, 2, 2, 2, 2][..]));
 }
+
+// ---------------------------------------------------------------------------
+// red team: replay, ordering, malformed rotations, refused-means-unchanged
+// ---------------------------------------------------------------------------
+
+/// What a refusal must leave untouched.
+fn snapshot(c: &FinalityClient) -> (u64, u64, [u8; 32], Vec<VerifyingKey>, Option<Vec<u64>>) {
+    (
+        c.epoch(),
+        c.height(),
+        c.block(),
+        c.committee().to_vec(),
+        c.weights().map(<[u64]>::to_vec),
+    )
+}
+
+fn assert_rotation_refused(client: &mut FinalityClient, handoff: &EpochHandoff, why: &str) {
+    let before = snapshot(client);
+    assert!(
+        matches!(
+            client.advance(handoff, handoff.checkpoint.height),
+            Err(LightClientError::RotationRejected(_))
+        ),
+        "{why}"
+    );
+    assert_eq!(
+        snapshot(client),
+        before,
+        "{why}: a refused handoff moved the client"
+    );
+}
+
+#[test]
+fn an_anchor_with_no_committee_or_mismatched_weights_is_refused() {
+    let (_, keys) = members(1..=4);
+    assert!(matches!(
+        FinalityClient::new(CHAIN, policy(), anchor(vec![], None)),
+        Err(LightClientError::TrustConfig(_))
+    ));
+    assert!(matches!(
+        FinalityClient::new(CHAIN, policy(), anchor(keys, Some(vec![1, 1, 1]))),
+        Err(LightClientError::TrustConfig(_))
+    ));
+}
+
+#[test]
+fn a_handoff_replayed_or_taken_out_of_order_is_refused() {
+    let (mut client, ho1, ho2, _) = three_epoch_chain();
+    // Epoch 1's handoff before epoch 0's: the checkpoint is not the trusted epoch's.
+    assert!(matches!(
+        client.advance(&ho2, 20),
+        Err(LightClientError::WrongEpoch {
+            expected: 0,
+            got: 1
+        })
+    ));
+    client.advance(&ho1, 10).unwrap();
+    let after_one = snapshot(&client);
+    // The same handoff again must not rotate a second time.
+    assert!(matches!(
+        client.advance(&ho1, 10),
+        Err(LightClientError::WrongEpoch {
+            expected: 1,
+            got: 0
+        })
+    ));
+    assert_eq!(snapshot(&client), after_one);
+}
+
+#[test]
+fn the_old_committee_cannot_sign_once_it_has_handed_off() {
+    let (mut client, ho1, _, signing0) = three_epoch_chain();
+    client.advance(&ho1, 10).unwrap();
+    // A full quorum of the epoch-0 committee, on a later block.
+    let h = header([7; 32], 15);
+    let stale_epoch = checkpoint(&signing0, &CHAIN, 0, 15, h.id(), &[0, 1, 2, 3]);
+    assert!(matches!(
+        client.accept_checkpoint(&stale_epoch, &h, 15),
+        Err(LightClientError::WrongEpoch { .. })
+    ));
+    // The same signers claiming epoch 1 are not epoch 1's committee.
+    let wrong_keys = checkpoint(&signing0, &CHAIN, 1, 15, h.id(), &[0, 1, 2, 3]);
+    assert!(matches!(
+        client.accept_checkpoint(&wrong_keys, &h, 15),
+        Err(LightClientError::CheckpointRejected(_))
+    ));
+    assert_eq!(client.height(), 10);
+}
+
+#[test]
+fn a_handoff_older_than_the_trusted_period_is_refused() {
+    let (mut client, ho1, _, _) = three_epoch_chain();
+    let now = ho1.checkpoint.height + WINDOW + 1;
+    assert!(matches!(
+        client.advance(&ho1, now),
+        Err(LightClientError::StaleCheckpoint { height: 10, .. })
+    ));
+    assert_eq!(client.epoch(), 0);
+}
+
+#[test]
+fn key_records_reordered_or_missing_are_refused() {
+    let (mut client, ho1, _, _) = three_epoch_chain();
+    let mut swapped = ho1.clone();
+    swapped.keys.swap(0, 1);
+    assert_rotation_refused(&mut client, &swapped, "keys out of committee order");
+    let mut short = ho1.clone();
+    short.keys.pop();
+    assert_rotation_refused(&mut client, &short, "a member's key missing");
+    let mut extra = ho1.clone();
+    extra.keys.push(ho1.keys[0].clone());
+    assert_rotation_refused(&mut client, &extra, "a key with no member");
+    // The untouched handoff still goes through: the refusals were the edits.
+    client.advance(&ho1, 10).unwrap();
+}
+
+#[test]
+fn state_layers_repeated_or_reordered_are_refused() {
+    let (mut client, ho1, _, _) = three_epoch_chain();
+    assert!(!ho1.layers.is_empty());
+    let mut repeated = ho1.clone();
+    repeated.layers.push(*ho1.layers.last().unwrap());
+    assert_rotation_refused(&mut client, &repeated, "a layer folded twice");
+    if ho1.layers.len() > 1 {
+        let mut reversed = ho1.clone();
+        reversed.layers.reverse();
+        assert_rotation_refused(&mut client, &reversed, "layers out of fold order");
+    }
+    let mut no_staking = ho1.clone();
+    no_staking.layers.retain(|d| d.layer != StateLayer::Staking);
+    assert_rotation_refused(&mut client, &no_staking, "no staking layer");
+}
+
+#[test]
+fn a_committee_naming_one_validator_twice_is_refused() {
+    let (signing0, keys0) = members(1..=4);
+    let (_, keys1) = members(11..=15);
+    let mut node = Node::new();
+    node.commit_epoch(1, &keys1, None);
+    // Committed under the state root, so only the client's own check stops it.
+    let id = validator_id(&keys1[0].to_bytes());
+    let other = validator_id(&keys1[1].to_bytes());
+    node.put(committee_record(1), encode_committee(&[id, id, other]));
+    let h1 = node.header(10);
+    let cp1 = checkpoint(&signing0, &CHAIN, 0, 10, h1.id(), &[0, 1, 2]);
+    let ho1 = node.handoff(h1, cp1, 1);
+    let mut client = FinalityClient::new(CHAIN, policy(), anchor(keys0, None)).unwrap();
+    assert_rotation_refused(&mut client, &ho1, "a duplicated member");
+}
+
+#[test]
+fn weights_that_do_not_match_the_committee_or_the_chain_are_refused() {
+    let (signing0, keys0) = members(1..=4);
+    let (_, keys1) = members(11..=15);
+    let weights0 = Some(vec![1, 1, 1, 10]);
+
+    // Four weights for five members, committed under the state root.
+    let mut node = Node::new();
+    node.commit_epoch(1, &keys1, Some(&[2, 2, 2, 2]));
+    let h1 = node.header(10);
+    let cp1 = checkpoint(&signing0, &CHAIN, 0, 10, h1.id(), &[0, 1, 2, 3]);
+    let ho1 = node.handoff(h1, cp1, 1);
+    let mut client =
+        FinalityClient::new(CHAIN, policy(), anchor(keys0.clone(), weights0.clone())).unwrap();
+    assert_rotation_refused(&mut client, &ho1, "weights shorter than the committee");
+
+    // An unweighted chain offered weights: the weighting is fixed at the anchor.
+    let mut node = Node::new();
+    node.commit_epoch(1, &keys1, Some(&[2, 2, 2, 2, 2]));
+    let h1 = node.header(10);
+    let cp1 = checkpoint(&signing0, &CHAIN, 0, 10, h1.id(), &[0, 1, 2]);
+    let ho1 = node.handoff(h1, cp1, 1);
+    let mut client = FinalityClient::new(CHAIN, policy(), anchor(keys0.clone(), None)).unwrap();
+    assert_rotation_refused(
+        &mut client,
+        &ho1,
+        "weights appearing on an unweighted chain",
+    );
+
+    // A weights record of another epoch, under the right root.
+    node.commit_epoch(2, &keys1, Some(&[3, 3, 3, 3, 3]));
+    let h1 = node.header(11);
+    let cp1 = checkpoint(&signing0, &CHAIN, 0, 11, h1.id(), &[0, 1, 2, 3]);
+    let mut ho1 = node.handoff(h1, cp1, 1);
+    ho1.weights = Some(node.prove(&committee_weights_record(2)));
+    let mut client = FinalityClient::new(CHAIN, policy(), anchor(keys0, weights0)).unwrap();
+    assert_rotation_refused(&mut client, &ho1, "epoch 2's weights for epoch 1");
+}

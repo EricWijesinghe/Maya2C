@@ -3224,7 +3224,7 @@ domain = "Consensus and execution"
 paths = "`crates/history-compactor`"
 tier = "core"
 class = "RESEARCH"
-status = "working"
+status = "verified"
 tests = ["crate:maya-history-compactor", "crates/history-compactor/tests/compaction_tests.rs"]
 note = "Master Prompt 3 §6, accumulator half only. 1M blocks fold in 0.31 s; pruned node holds 7 peaks (224 B); max proof 818 B (reports/03-state.md). Not a validity proof: recursive STARK folding is not started."
 
@@ -3345,9 +3345,9 @@ domain = "Consensus and execution"
 paths = "`crates/state-sync`"
 tier = "core"
 class = "RESEARCH"
-status = "working"
+status = "verified"
 tests = ["crates/state-sync/tests/sync_tests.rs"]
-note = "Master Prompt 14 §2. Liars banned, every record imported once; 100M-account run in reports/14-scale.md."
+note = "Master Prompt 14 §2. Liars banned, every record imported once; 100M-account run in reports/14-scale.md. Red-team tests (wrong-index chunk, sibling added/dropped/moved, interior-node second preimage, unsolicited/duplicate/post-ban replies) were mutation-checked: dropping the index check or the chunk domain tag fails them."
 
 
 [[subsystem]]
