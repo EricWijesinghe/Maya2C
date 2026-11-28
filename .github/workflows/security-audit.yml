@@ -361,6 +361,13 @@ jobs:
   # their Cargo.lock files; this checks advisories over each one.
   # GHSA-wrw7 (glib, via gtk-rs 0.18) is accepted in deny.tauri.toml with its
   # reason. Flip continue-on-error off once the open advisories are cleared.
+  #
+  # Both cargo-deny jobs log "override toolchain 'nightly-...-musl' is not
+  # installed" near the top. That line is the action's `rustup show`, before
+  # rustup installs the toolchain rust-toolchain.toml names; the check then
+  # runs on it. It is not the failure: read the `error[...]` lines below it.
+  # Do not override RUSTUP_TOOLCHAIN to silence it — that would have a second,
+  # older cargo read the manifests and lockfiles than the one the tree pins.
   tauri-manifests:
     name: discover tauri manifests
     runs-on: ubuntu-latest
