@@ -37,6 +37,7 @@
 //! would re-walk a ledger that has moved on, and the second answer would not
 //! match the first.
 
+use std::collections::{BTreeMap, btree_map};
 use std::path::Path;
 
 use custom_l1_node::consensus::U256;
@@ -46,7 +47,7 @@ use rocksdb::{DB, IteratorMode, Options, WriteBatch};
 use crate::error::{PoolError, Result};
 use crate::model::{PayoutBatch, PayoutEntry, PayoutState, ShareRecord};
 
-use super::{BlockState, FoundBlock, MinerBalance, ShareLedger, WindowSlice, accumulate};
+use super::{BlockState, FoundBlock, MinerBalance, ShareLedger, WindowSlice, accumulate, debit};
 
 /// Prefix for share records.
 const SHARE: u8 = b's';
@@ -395,12 +396,19 @@ impl ShareLedger for RocksLedger {
             return Ok(());
         }
 
-        let mut write = WriteBatch::default();
+        // Staged per miner, so a miner listed twice is debited twice rather
+        // than from a stale read, and a refused entry writes nothing.
+        let mut staged: BTreeMap<Address, MinerBalance> = BTreeMap::new();
         for entry in &batch.entries {
-            let mut balance = self.read_balance(&entry.miner)?;
-            balance.unpaid = balance.unpaid.saturating_sub(entry.amount);
-            balance.paid = balance.paid.saturating_add(entry.amount);
-            self.stage_balance(&mut write, &entry.miner, &balance)?;
+            let balance = match staged.entry(entry.miner) {
+                btree_map::Entry::Occupied(slot) => slot.into_mut(),
+                btree_map::Entry::Vacant(slot) => slot.insert(self.read_balance(&entry.miner)?),
+            };
+            debit(balance, entry.amount)?;
+        }
+        let mut write = WriteBatch::default();
+        for (miner, balance) in &staged {
+            self.stage_balance(&mut write, miner, balance)?;
         }
 
         write.put(counter_key(BATCH, batch.id), encode(batch)?);

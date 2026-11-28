@@ -238,6 +238,28 @@ pub trait ShareLedger: Send + Sync {
     fn prune_shares_below(&self, sequence: u64) -> Result<u64>;
 }
 
+/// Moves `amount` of a miner's credit from unpaid to paid.
+///
+/// Refuses rather than flooring at zero: a batch paying more than is owed is
+/// an accounting bug upstream, and a saturating debit would pay it out unseen.
+/// Shared by both implementations, like [`accumulate`].
+pub(crate) fn debit(balance: &mut MinerBalance, amount: primitive_types::U256) -> Result<()> {
+    let unpaid = balance.unpaid.checked_sub(amount).ok_or_else(|| {
+        crate::error::PoolError::Ledger(format!(
+            "batch pays {amount} to a miner owed {}",
+            balance.unpaid
+        ))
+    })?;
+    let paid = balance.paid.checked_add(amount).ok_or_else(|| {
+        crate::error::PoolError::Ledger(format!(
+            "batch pays {amount} to a miner already paid {}: the paid total overflows",
+            balance.paid
+        ))
+    })?;
+    (balance.unpaid, balance.paid) = (unpaid, paid);
+    Ok(())
+}
+
 /// Accumulates a window from an iterator of records, newest first.
 ///
 /// Shared by both implementations so the stopping rule — which decides what a
