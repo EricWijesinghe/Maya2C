@@ -111,14 +111,12 @@ pub fn address_from_public_key(public_key: &[u8]) -> Result<String, JsError> {
 /// Anything that decides to *spend* must use [`verify_hybrid`].
 #[wasm_bindgen]
 pub fn verify_ml_dsa(public_key: &[u8], message: &[u8], signature: &[u8]) -> bool {
-    let Ok(pk_bytes): Result<[u8; ML_DSA_PUBLIC_KEY_LEN], _> =
-        public_key[..public_key.len().min(ML_DSA_PUBLIC_KEY_LEN)].try_into()
-    else {
+    // Exact lengths, not a prefix: trailing bytes would make two byte strings
+    // "the same" valid signature.
+    let Ok(pk_bytes): Result<[u8; ML_DSA_PUBLIC_KEY_LEN], _> = public_key.try_into() else {
         return false;
     };
-    let Ok(sig_bytes): Result<[u8; ML_DSA_SIGNATURE_LEN], _> =
-        signature[..signature.len().min(ML_DSA_SIGNATURE_LEN)].try_into()
-    else {
+    let Ok(sig_bytes): Result<[u8; ML_DSA_SIGNATURE_LEN], _> = signature.try_into() else {
         return false;
     };
     let Ok(pk) = ml_dsa_65::PublicKey::try_from_bytes(pk_bytes) else {
@@ -191,5 +189,20 @@ mod tests {
             b"m",
             &[0u8; 10]
         ));
+    }
+
+    #[test]
+    fn verify_ml_dsa_refuses_trailing_bytes_rather_than_ignoring_them() {
+        use fips204::traits::{KeyGen as _, Signer as _};
+        let (pk, sk) = ml_dsa_65::try_keygen().unwrap();
+        let (pk, msg) = (pk.into_bytes(), b"m");
+        let sig = sk.try_sign(msg, &[]).unwrap();
+        assert!(verify_ml_dsa(&pk, msg, &sig), "the honest signature");
+        // Two byte strings that both "verify" break anyone deduplicating by
+        // signature bytes; an oversized key is not that key.
+        let long_sig = [&sig[..], &[0]].concat();
+        assert!(!verify_ml_dsa(&pk, msg, &long_sig));
+        let long_pk = [&pk[..], &[0]].concat();
+        assert!(!verify_ml_dsa(&long_pk, msg, &sig));
     }
 }
