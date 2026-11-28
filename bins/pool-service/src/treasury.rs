@@ -14,7 +14,10 @@
 //! with a public mining port. That is a real exposure and it is not resolved by
 //! being careful. What is here instead is a bound on the damage:
 //!
-//! - [`PoolConfig::max_batch_value`] caps what one batch can move;
+//! - [`PoolConfig::max_batch_value`] caps what one batch can move, the
+//!   chain's fee included;
+//! - the fee output only ever pays the protocol's compiled-in fee collector,
+//!   so the node the pool reads fee terms from cannot name a recipient;
 //! - the balance floor check refuses to sign against an account that cannot
 //!   cover the batch, so a drained treasury fails loudly rather than emitting
 //!   transactions the mempool will reject;
@@ -43,6 +46,7 @@ use std::path::Path;
 use custom_l1_node::core::{ChainTag, Transaction, TxOutput};
 use custom_l1_node::crypto::hybrid::HybridSigningKey;
 use custom_l1_node::state::Address;
+use custom_l1_node::state::fees::FEE_COLLECTOR;
 
 use crate::config::PoolConfig;
 use crate::error::{PoolError, Result};
@@ -54,6 +58,25 @@ use crate::model::PayoutEntry;
 /// variable is not written to disk by default and is not visible in `ps` on a
 /// modern system, where a command-line flag is both.
 pub const PASSWORD_ENV: &str = "MAYA_POOL_TREASURY_PASSWORD";
+
+/// What the chain charges a transaction, from `get_fee_info` (ADR-029).
+///
+/// A fee counts only when paid as an ordinary output to `collector`, and the
+/// mempool refuses a transfer that pays less than `base_fee` times its signed
+/// size. `None` where the chain charges no fee.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChainFees {
+    /// Where fees are paid.
+    pub collector: Address,
+    /// Base units per byte of the signed transaction.
+    pub base_fee: primitive_types::U256,
+}
+
+/// The payout pays this many times the base fee, as the wallet and the faucet
+/// do, so a batch still clears if the base fee rises by one step before it
+/// lands. A batch's nonce is fixed once signed, so an underpaid one would wedge
+/// every later payout behind it.
+const FEE_HEADROOM: u64 = 2;
 
 /// The failure a first-time operator hits, and the one place it is explained.
 ///
@@ -150,6 +173,10 @@ impl Treasury {
     /// transaction is a liability even if it is never broadcast: it sits on
     /// disk holding a nonce that nothing else may use.
     ///
+    /// With `fees`, one more output pays the collector [`FEE_HEADROOM`] times
+    /// the base fee on the signed size. The fee comes from the treasury, not
+    /// from the miners, and the balance check covers payouts plus fee.
+    ///
     /// # Errors
     ///
     /// Returns [`PoolError::Treasury`] for an empty batch, a batch over the
@@ -163,6 +190,7 @@ impl Treasury {
         balance: primitive_types::U256,
         config: &PoolConfig,
         chain_tag: &ChainTag,
+        fees: Option<ChainFees>,
     ) -> Result<Transaction> {
         if entries.is_empty() {
             return Err(PoolError::Treasury(
@@ -191,22 +219,7 @@ impl Treasury {
             PoolError::Treasury("payout outputs overflow 256 bits in total".to_string())
         })?;
 
-        if total > config.max_batch_value {
-            return Err(PoolError::Treasury(format!(
-                "batch value {total} exceeds the per-batch cap of {}",
-                config.max_batch_value
-            )));
-        }
-
-        if total > balance {
-            return Err(PoolError::Treasury(format!(
-                "treasury holds {balance} and the batch needs {total}. The pool \
-                 pays from an operator-funded account because this chain mints \
-                 no block reward; fund it or lower reward_per_block"
-            )));
-        }
-
-        let outputs: Vec<TxOutput> = entries
+        let mut outputs: Vec<TxOutput> = entries
             .iter()
             .map(|entry| TxOutput {
                 amount: entry.amount,
@@ -214,9 +227,73 @@ impl Treasury {
             })
             .collect();
 
+        let fee = match fees {
+            Some(fees) => self.fee_output(&mut outputs, nonce, chain_tag, fees)?,
+            None => primitive_types::U256::zero(),
+        };
+        let needed = total.checked_add(fee).ok_or_else(|| {
+            PoolError::Treasury("payout outputs and fee overflow 256 bits in total".to_string())
+        })?;
+
+        // The fee terms come from the node over RPC, so the cap covers the fee
+        // too: an inflated base fee must not move more than one batch may.
+        if needed > config.max_batch_value {
+            return Err(PoolError::Treasury(format!(
+                "batch value {needed} ({total} to miners, {fee} in fees) exceeds                  the per-batch cap of {}",
+                config.max_batch_value
+            )));
+        }
+
+        if needed > balance {
+            return Err(PoolError::Treasury(format!(
+                "treasury holds {balance} and the batch needs {needed} ({total} \
+                 to miners, {fee} in fees). The pool pays from an operator-funded \
+                 account because this chain mints no block reward; fund it or \
+                 lower reward_per_block"
+            )));
+        }
+
         let mut transaction = Transaction::new(Vec::new(), outputs, nonce);
         transaction.sign(&self.key, chain_tag)?;
         Ok(transaction)
+    }
+
+    /// Appends the output that pays the chain's fee and returns its amount.
+    ///
+    /// The size is measured on a signed probe that already carries the fee
+    /// output: an output's encoding does not depend on its amount, so the fee
+    /// covers exactly the bytes sent (the wallet's and the faucet's rule).
+    fn fee_output(
+        &self,
+        outputs: &mut Vec<TxOutput>,
+        nonce: u64,
+        chain_tag: &ChainTag,
+        fees: ChainFees,
+    ) -> Result<primitive_types::U256> {
+        // The collector is a protocol constant; a node that names another
+        // address is not describing this chain's fee rule.
+        if fees.collector != FEE_COLLECTOR {
+            return Err(PoolError::Treasury(format!(
+                "fee collector {} is not the protocol fee collector",
+                hex::encode(fees.collector)
+            )));
+        }
+        outputs.push(TxOutput {
+            amount: primitive_types::U256::zero(),
+            recipient: fees.collector,
+        });
+        let mut probe = Transaction::new(Vec::new(), outputs.clone(), nonce);
+        probe.sign(&self.key, chain_tag)?;
+        let size = u64::try_from(probe.to_bytes().len()).unwrap_or(u64::MAX);
+        let fee = fees
+            .base_fee
+            .checked_mul(primitive_types::U256::from(size))
+            .and_then(|fee| fee.checked_mul(primitive_types::U256::from(FEE_HEADROOM)))
+            .ok_or_else(|| PoolError::Treasury("the chain's fee overflows 256 bits".to_string()))?;
+        if let Some(last) = outputs.last_mut() {
+            last.amount = fee;
+        }
+        Ok(fee)
     }
 }
 
@@ -266,6 +343,7 @@ mod tests {
                 primitive_types::U256::from(1_000),
                 &config(),
                 &tag,
+                None,
             )
             .unwrap();
 
@@ -286,7 +364,8 @@ mod tests {
                 0,
                 primitive_types::U256::from(1_000),
                 &config(),
-                &test_tag()
+                &test_tag(),
+                None,
             ),
             Err(PoolError::Treasury(_))
         ));
@@ -306,7 +385,8 @@ mod tests {
                 0,
                 primitive_types::U256::from(u64::MAX),
                 &config,
-                &test_tag()
+                &test_tag(),
+                None,
             ),
             Err(PoolError::Treasury(_))
         ));
@@ -321,7 +401,8 @@ mod tests {
                 0,
                 primitive_types::U256::from(1_000),
                 &config(),
-                &test_tag()
+                &test_tag(),
+                None,
             ),
             Err(PoolError::Treasury(_))
         ));
@@ -338,7 +419,8 @@ mod tests {
                 0,
                 primitive_types::U256::from(u64::MAX),
                 &config(),
-                &test_tag()
+                &test_tag(),
+                None,
             ),
             Err(PoolError::Treasury(_))
         ));
@@ -358,7 +440,111 @@ mod tests {
                 0,
                 primitive_types::U256::from(1_000),
                 &config,
-                &test_tag()
+                &test_tag(),
+                None,
+            ),
+            Err(PoolError::Treasury(_))
+        ));
+    }
+
+    const FEES: ChainFees = ChainFees {
+        collector: FEE_COLLECTOR,
+        base_fee: primitive_types::U256([3, 0, 0, 0]),
+    };
+
+    #[test]
+    fn a_payout_on_a_fee_charging_chain_pays_the_collector_for_its_own_size() {
+        // The mempool refuses a transfer whose outputs to the collector are
+        // below base_fee x signed size; without this output every batch on a
+        // fee-charging chain is refused.
+        let treasury = treasury();
+        let tag = test_tag();
+        let transaction = treasury
+            .sign_payout(
+                &entries(&[10, 20]),
+                0,
+                primitive_types::U256::from(u64::MAX),
+                &config(),
+                &tag,
+                Some(FEES),
+            )
+            .unwrap();
+
+        assert_eq!(transaction.outputs.len(), 3, "two miners and the collector");
+        assert_eq!(
+            transaction.outputs[0].amount,
+            primitive_types::U256::from(10)
+        );
+        assert_eq!(
+            transaction.outputs[1].amount,
+            primitive_types::U256::from(20)
+        );
+        let fee = &transaction.outputs[2];
+        assert_eq!(fee.recipient, FEES.collector);
+        let size = transaction.to_bytes().len() as u64;
+        assert_eq!(
+            fee.amount,
+            FEES.base_fee * primitive_types::U256::from(size * FEE_HEADROOM)
+        );
+        assert!(transaction.verify(&tag).is_ok());
+    }
+
+    #[test]
+    fn the_fee_counts_against_the_treasury_balance() {
+        // A balance that covers the payouts but not the fee is a transaction
+        // the chain refuses, signed into a nonce slot nothing else may use.
+        assert!(matches!(
+            treasury().sign_payout(
+                &entries(&[500, 500]),
+                0,
+                primitive_types::U256::from(1_000),
+                &config(),
+                &test_tag(),
+                Some(FEES),
+            ),
+            Err(PoolError::Treasury(_))
+        ));
+    }
+
+    #[test]
+    fn a_fee_to_a_foreign_collector_is_refused() {
+        let foreign = ChainFees {
+            collector: [0xC0; 32],
+            ..FEES
+        };
+        assert!(matches!(
+            treasury().sign_payout(
+                &entries(&[10, 20]),
+                0,
+                primitive_types::U256::from(u64::MAX),
+                &config(),
+                &test_tag(),
+                Some(foreign),
+            ),
+            Err(PoolError::Treasury(_))
+        ));
+    }
+
+    #[test]
+    fn the_fee_counts_against_the_batch_cap() {
+        // Payouts of 30 fit a cap of 1,000; a base fee inflated so the fee
+        // alone exceeds it must not be signed, however much the treasury holds.
+        let capped = PoolConfig {
+            max_batch_value: primitive_types::U256::from(1_000),
+            ..config()
+        };
+        let inflated = ChainFees {
+            base_fee: primitive_types::U256::from(1_000),
+            ..FEES
+        };
+        assert!(matches!(
+            treasury().sign_payout(
+                &entries(&[10, 20]),
+                0,
+                primitive_types::U256::MAX,
+                &capped,
+                &test_tag(),
+                Some(inflated),
             ),
             Err(PoolError::Treasury(_))
         ));

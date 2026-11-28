@@ -39,7 +39,9 @@
 //! strands every batch behind it. The engine therefore starts a new batch only
 //! when nothing is open.
 
+use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use custom_l1_node::state::Address;
@@ -49,7 +51,15 @@ use crate::error::Result;
 use crate::ledger::{BlockState, FoundBlock, ShareLedger};
 use crate::model::{PayoutBatch, PayoutEntry, PayoutState, now_millis};
 use crate::pplns;
-use crate::treasury::Treasury;
+use crate::treasury::{ChainFees, Treasury};
+
+/// Tries at submitting a solved block: a timeout or a busy node must not cost
+/// a block.
+pub const SUBMIT_ATTEMPTS: u32 = 3;
+
+/// Wait before the first retry, growing linearly. Short, because a block
+/// loses value with every second another miner can build on the same parent.
+const SUBMIT_BACKOFF: Duration = Duration::from_secs(1);
 
 /// What the payout engine needs from the chain.
 ///
@@ -73,6 +83,11 @@ pub trait ChainView: Send + Sync {
 
     /// The chain's genesis block id, used as the chain tag for signatures (ADR-036).
     async fn chain_tag(&self) -> Result<custom_l1_node::core::ChainTag>;
+
+    /// What the chain charges a transaction now; `None` where it charges none.
+    ///
+    /// Read before every batch, not cached: the base fee moves block by block.
+    async fn fees(&self) -> Result<Option<ChainFees>>;
 }
 
 /// What one settlement pass did.
@@ -168,6 +183,50 @@ impl PayoutEngine {
 
         self.ledger.record_block(&block, &credits)?;
         Ok(credits)
+    }
+
+    /// Records a solved block's credits, then hands it to the chain through
+    /// `submit`, retrying a failed submission.
+    ///
+    /// Recorded first, so that a crash, a lost answer or a failed credit after
+    /// the node takes the block cannot leave an on-chain block the ledger does
+    /// not know. A block the chain never takes costs nothing: the maturity
+    /// check compares the id at its height and orphans it, reversing the
+    /// credits. Every refusal reaches the pool as an RPC error, so a transient
+    /// one (timeout, "busy, retry", a rate limit) cannot be told from a final
+    /// one; each is retried, and a final refusal fails every try cheaply.
+    ///
+    /// # Errors
+    ///
+    /// The last submission error, after [`SUBMIT_ATTEMPTS`] tries. A failed
+    /// credit is logged, not returned: the block is still worth submitting.
+    pub async fn land_block<F, Fut>(
+        &self,
+        block_id: &str,
+        height: u64,
+        sequence: u64,
+        finder: Address,
+        network_target: &[u8; 32],
+        mut submit: F,
+    ) -> Result<String>
+    where
+        F: FnMut() -> Fut,
+        Fut: Future<Output = Result<String>>,
+    {
+        if let Err(error) = self.credit_block(block_id, height, sequence, finder, network_target) {
+            // Submitted anyway: the block is still worth landing. Its credits
+            // are not in the ledger, and nothing here can fix that.
+            eprintln!("pool: BLOCK {block_id} COULD NOT BE CREDITED: {error}");
+        }
+
+        let mut outcome = submit().await;
+        for retry in 1..SUBMIT_ATTEMPTS {
+            let Err(error) = &outcome else { break };
+            eprintln!("pool: submitting block {block_id} failed ({error}); retry {retry}");
+            tokio::time::sleep(SUBMIT_BACKOFF * retry).await;
+            outcome = submit().await;
+        }
+        outcome
     }
 
     /// Runs one settlement pass.
@@ -307,35 +366,39 @@ impl PayoutEngine {
         let (balance, nonce) = self.chain.account(&self.treasury.address()).await?;
         let id = self.ledger.next_batch_id()?;
         let chain_tag = self.chain.chain_tag().await?;
+        let fees = self.chain.fees().await?;
 
-        let transaction =
-            match self
-                .treasury
-                .sign_payout(&entries, nonce, balance, &self.config, &chain_tag)
-            {
-                Ok(transaction) => transaction,
-                Err(error) => {
-                    // The treasury refused: unfunded, over a cap, or over the output
-                    // limit. Write the refusal down so an operator can see it, and
-                    // leave the credits with the miners.
-                    let refused = PayoutBatch {
-                        id,
-                        nonce,
-                        entries,
-                        signed_tx: Vec::new(),
-                        txid: None,
-                        state: PayoutState::Failed,
-                        created_at_millis: now_millis(),
-                        included_height: None,
-                    };
-                    // The refusal is written down and then raised. It is not folded
-                    // into the report: every case here is a policy or custody
-                    // condition that no retry clears, so the daemon has to see an
-                    // error rather than a counter that ticked.
-                    self.ledger.put_batch(&refused)?;
-                    return Err(error);
-                }
-            };
+        let transaction = match self.treasury.sign_payout(
+            &entries,
+            nonce,
+            balance,
+            &self.config,
+            &chain_tag,
+            fees,
+        ) {
+            Ok(transaction) => transaction,
+            Err(error) => {
+                // The treasury refused: unfunded, over a cap, or over the output
+                // limit. Write the refusal down so an operator can see it, and
+                // leave the credits with the miners.
+                let refused = PayoutBatch {
+                    id,
+                    nonce,
+                    entries,
+                    signed_tx: Vec::new(),
+                    txid: None,
+                    state: PayoutState::Failed,
+                    created_at_millis: now_millis(),
+                    included_height: None,
+                };
+                // The refusal is written down and then raised. It is not folded
+                // into the report: every case here is a policy or custody
+                // condition that no retry clears, so the daemon has to see an
+                // error rather than a counter that ticked.
+                self.ledger.put_batch(&refused)?;
+                return Err(error);
+            }
+        };
 
         let batch = PayoutBatch {
             id,
@@ -423,6 +486,8 @@ mod tests {
         broadcasts: Vec<Vec<u8>>,
         /// Whether the next broadcast should fail.
         refuse_broadcast: bool,
+        /// What the chain charges, `None` for a chain without fees.
+        fees: Option<ChainFees>,
     }
 
     impl FakeChain {
@@ -491,6 +556,10 @@ mod tests {
         async fn chain_tag(&self) -> Result<custom_l1_node::core::ChainTag> {
             // Test chain: use a fixed tag
             Ok(custom_l1_node::core::ChainTag::from_genesis([0; 32]))
+        }
+
+        async fn fees(&self) -> Result<Option<ChainFees>> {
+            Ok(self.state.lock().unwrap().fees)
         }
     }
 
@@ -580,6 +649,181 @@ mod tests {
             ledger.balance(&ALICE).unwrap().immature,
             primitive_types::U256::from(900)
         );
+    }
+
+    #[tokio::test]
+    async fn a_found_block_is_recorded_before_it_is_submitted() {
+        // A crash or a lost answer after the node takes the block must not
+        // leave an on-chain block with no ledger record and no credits.
+        let (ledger, _chain, engine) = seeded();
+        let tip = ledger.tip_sequence().unwrap().unwrap();
+        let mut recorded_at_submit = None;
+
+        engine
+            .land_block(
+                "block-a",
+                100,
+                tip,
+                ALICE,
+                &target_from_leading_zero_bits(8),
+                || {
+                    recorded_at_submit = Some(ledger.block("block-a").unwrap().is_some());
+                    async { Ok("extended".to_string()) }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(recorded_at_submit, Some(true));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_block_submission_is_retried() {
+        let (ledger, _chain, engine) = seeded();
+        let tip = ledger.tip_sequence().unwrap().unwrap();
+        let mut calls = 0;
+
+        let outcome = engine
+            .land_block(
+                "block-a",
+                100,
+                tip,
+                ALICE,
+                &target_from_leading_zero_bits(8),
+                || {
+                    calls += 1;
+                    let attempt = calls;
+                    async move {
+                        if attempt < SUBMIT_ATTEMPTS {
+                            Err(PoolError::NodeRpc(
+                                "busy verifying other blocks; retry".into(),
+                            ))
+                        } else {
+                            Ok("extended".to_string())
+                        }
+                    }
+                },
+            )
+            .await;
+
+        assert_eq!(outcome.unwrap(), "extended");
+        assert_eq!(calls, SUBMIT_ATTEMPTS);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_block_the_chain_never_took_is_orphaned_and_its_credits_reversed() {
+        // Recording before submit must not pay for a block that never landed.
+        let (ledger, chain, engine) = seeded();
+        let tip = ledger.tip_sequence().unwrap().unwrap();
+
+        let outcome = engine
+            .land_block(
+                "block-a",
+                100,
+                tip,
+                ALICE,
+                &target_from_leading_zero_bits(8),
+                || async { Err(PoolError::NodeRpc("invalid block".into())) },
+            )
+            .await;
+        assert!(outcome.is_err());
+        assert_eq!(
+            ledger.block("block-a").unwrap().map(|b| b.state),
+            Some(BlockState::Immature)
+        );
+
+        chain.put_block(100, "someone-else");
+        chain.set_height(103);
+        assert_eq!(engine.settle().await.unwrap().orphaned, 1);
+        assert_eq!(
+            ledger.balance(&ALICE).unwrap(),
+            crate::ledger::MinerBalance::default()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_batch_on_a_fee_charging_chain_carries_the_fee_output() {
+        let (ledger, chain, engine) = seeded();
+        let tip = ledger.tip_sequence().unwrap().unwrap();
+        engine
+            .credit_block(
+                "block-a",
+                100,
+                tip,
+                ALICE,
+                &target_from_leading_zero_bits(8),
+            )
+            .unwrap();
+        chain.put_block(100, "block-a");
+        chain.set_height(103);
+        let fees = ChainFees {
+            collector: custom_l1_node::state::fees::FEE_COLLECTOR,
+            base_fee: primitive_types::U256::from(1),
+        };
+        chain.state.lock().unwrap().fees = Some(fees);
+
+        engine.settle().await.unwrap();
+
+        let broadcasts = chain.broadcasts();
+        assert_eq!(broadcasts.len(), 1);
+        let transaction = custom_l1_node::core::Transaction::from_bytes(&broadcasts[0]).unwrap();
+        assert!(
+            transaction
+                .outputs
+                .iter()
+                .any(|output| output.recipient == fees.collector && !output.amount.is_zero()),
+            "the payout pays the chain's fee collector"
+        );
+    }
+
+    #[tokio::test]
+    async fn fee_terms_that_name_a_foreign_collector_or_break_the_cap_broadcast_nothing() {
+        let honest = custom_l1_node::state::fees::FEE_COLLECTOR;
+        let cases = [
+            (
+                "foreign collector",
+                [0xC0; 32],
+                primitive_types::U256::from(1),
+            ),
+            (
+                "inflated base fee",
+                honest,
+                primitive_types::U256::from(1_000_000),
+            ),
+        ];
+        for (case, collector, base_fee) in cases {
+            let ledger = Arc::new(MemoryLedger::new());
+            for _ in 0..5 {
+                ledger.append_share(&ALICE, "rig", 100, 0).unwrap();
+                ledger.append_share(&BOB, "rig", 100, 0).unwrap();
+            }
+            let chain = Arc::new(FakeChain::with(100, u64::MAX));
+            let capped = PoolConfig {
+                // Far above an honest fee on a ~kB signed batch, far below the inflated one.
+                max_batch_value: primitive_types::U256::from(1_000_000_000u64),
+                ..config()
+            };
+            let engine = engine(Arc::clone(&ledger), Arc::clone(&chain), capped);
+            let tip = ledger.tip_sequence().unwrap().unwrap();
+            engine
+                .credit_block(
+                    "block-a",
+                    100,
+                    tip,
+                    ALICE,
+                    &target_from_leading_zero_bits(8),
+                )
+                .unwrap();
+            chain.put_block(100, "block-a");
+            chain.set_height(103);
+            chain.state.lock().unwrap().fees = Some(ChainFees {
+                collector,
+                base_fee,
+            });
+
+            assert!(engine.settle().await.is_err(), "{case}: batch refused");
+            assert!(chain.broadcasts().is_empty(), "{case}: nothing broadcast");
+        }
     }
 
     #[tokio::test]
@@ -907,6 +1151,7 @@ mod tests {
                 primitive_types::U256::from(1_000_000),
                 &config(),
                 &test_tag,
+                None,
             )
             .unwrap();
         let orphan_batch = PayoutBatch {

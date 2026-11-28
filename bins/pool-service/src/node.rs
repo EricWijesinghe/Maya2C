@@ -22,7 +22,8 @@ use jsonrpsee::rpc_params;
 
 use custom_l1_node::core::ChainTag;
 use custom_l1_node::rpc::{
-    AccountInfo, BlockInfo, ChainInfo, MiningCandidate, SubmitBlockResult, SubmitTransactionResult,
+    AccountInfo, BlockInfo, ChainInfo, FeeInfo, MiningCandidate, SubmitBlockResult,
+    SubmitTransactionResult,
 };
 
 use crate::error::{PoolError, Result};
@@ -266,6 +267,39 @@ impl crate::payout::ChainView for NodeClient {
     async fn chain_tag(&self) -> Result<ChainTag> {
         self.get_chain_tag().await
     }
+
+    async fn fees(&self) -> Result<Option<crate::treasury::ChainFees>> {
+        let info: FeeInfo = self
+            .client
+            .request("get_fee_info", rpc_params![])
+            .await
+            .map_err(|e| PoolError::NodeRpc(format!("get_fee_info: {e}")))?;
+        fees_from(&info)
+    }
+}
+
+/// The fee terms in a `get_fee_info` answer, `None` where fees are off.
+fn fees_from(info: &FeeInfo) -> Result<Option<crate::treasury::ChainFees>> {
+    if !info.active {
+        return Ok(None);
+    }
+    let base_fee = primitive_types::U256::from_dec_str(&info.base_fee)
+        .map_err(|e| PoolError::NodeRpc(format!("get_fee_info base_fee: {e}")))?;
+    let collector = hex::decode(&info.collector)
+        .ok()
+        .and_then(|bytes| <[u8; 32]>::try_from(bytes).ok())
+        .ok_or_else(|| PoolError::NodeRpc("get_fee_info collector is not 32 bytes".into()))?;
+    // The node serves a compiled-in constant; any other answer is not this chain.
+    if collector != custom_l1_node::state::fees::FEE_COLLECTOR {
+        return Err(PoolError::NodeRpc(format!(
+            "get_fee_info collector {} is not the protocol fee collector",
+            info.collector
+        )));
+    }
+    Ok(Some(crate::treasury::ChainFees {
+        collector,
+        base_fee,
+    }))
 }
 
 /// `value`, or `u64::MAX` when it does not fit.
@@ -289,6 +323,33 @@ mod tests {
         assert!(ACCEPTED_OUTCOMES.contains(&"side_branch"));
         assert!(ACCEPTED_OUTCOMES.contains(&"extended"));
         assert!(ACCEPTED_OUTCOMES.contains(&"duplicate"));
+    }
+
+    #[test]
+    fn fee_info_is_read_as_the_node_serves_it() {
+        let info = |active: bool, base_fee: &str, collector: &str| FeeInfo {
+            active,
+            base_fee: base_fee.to_string(),
+            collector: collector.to_string(),
+        };
+        let pinned = custom_l1_node::state::fees::FEE_COLLECTOR;
+        let collector = hex::encode(pinned);
+
+        assert_eq!(fees_from(&info(false, "0", &collector)).unwrap(), None);
+        assert_eq!(
+            fees_from(&info(true, "7", &collector)).unwrap(),
+            Some(crate::treasury::ChainFees {
+                collector: pinned,
+                base_fee: primitive_types::U256::from(7),
+            })
+        );
+        // A malformed answer is an error, never a chain "without fees": that
+        // would sign a payout the mempool refuses.
+        assert!(fees_from(&info(true, "seven", &collector)).is_err());
+        assert!(fees_from(&info(true, "7", "c0c0")).is_err());
+        // A well-formed but foreign collector would let the node pick where
+        // the treasury's fee goes.
+        assert!(fees_from(&info(true, "7", &hex::encode([0xC0u8; 32]))).is_err());
     }
 
     #[test]

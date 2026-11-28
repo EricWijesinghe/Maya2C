@@ -132,4 +132,9 @@ impl ChainView for FakeChain {
         // Test chain: use a fixed tag
         Ok(custom_l1_node::core::ChainTag::from_genesis([0; 32]))
     }
+
+    async fn fees(&self) -> Result<Option<maya_pool_service::treasury::ChainFees>> {
+        // A chain without fees; the fee output is covered by the treasury tests.
+        Ok(None)
+    }
 }
