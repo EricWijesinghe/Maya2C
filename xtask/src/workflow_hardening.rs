@@ -6,6 +6,7 @@
 const PUBLISH_SDK: &str = include_str!("../../.github/workflows/publish_sdk.yml");
 const RELEASE_BINARIES: &str = include_str!("../../.github/workflows/release-binaries.yml");
 const SITE_LINKS: &str = include_str!("../../.github/workflows/site-links.yml");
+const SITE_PR: &str = include_str!("../../.github/workflows/site-pr.yml");
 const DEPENDABOT: &str = include_str!("../../.github/dependabot.yml");
 
 /// Directories holding a Cargo.lock or package-lock.json outside the root
@@ -174,6 +175,20 @@ mod tests {
     fn site_links_install_without_lifecycle_scripts() {
         assert!(SITE_LINKS.contains("npm ci --ignore-scripts"));
         assert!(SITE_LINKS.contains("persist-credentials: false"));
+    }
+
+    /// site-pr runs on pull requests, so on code nobody has reviewed yet: it
+    /// may build and test the site, never publish it or hold a write token.
+    #[test]
+    fn site_pr_builds_the_site_without_publishing() {
+        assert!(block(SITE_PR, "on:").contains("pull_request:"));
+        for step in ["npm ci --ignore-scripts", "persist-credentials: false", "npm test", "npm run build"] {
+            assert!(SITE_PR.contains(step), "site-pr lost `{step}`");
+        }
+        assert!(!SITE_PR.contains(": write"), "site-pr grants a write permission");
+        for publisher in ["deploy-pages", "upload-pages-artifact", "attest-build-provenance", "id-token"] {
+            assert!(!SITE_PR.contains(publisher), "site-pr names `{publisher}`");
+        }
     }
 
     #[test]

@@ -8,7 +8,7 @@
     "health": "node scripts/gen-health.mjs && node scripts/gen-progress.mjs",
     "dev": "npm run ingest && npm run health && astro dev",
     "build": "npm run ingest && npm run health && node scripts/gen-updates.mjs && node scripts/gen-og.mjs && astro build && node scripts/check-csp.mjs && node scripts/check-fields.mjs && node scripts/check-seo.mjs",
-    "test": "node --test src/scripts/escape.test.ts src/components/math/math.test.ts \"test/*.test.ts\"",
+    "test": "node --test src/scripts/escape.test.ts src/components/math/math.test.ts src/data/ecosystem.test.ts \"test/*.test.ts\"",
     "preview": "astro preview"
   },
   "dependencies": {

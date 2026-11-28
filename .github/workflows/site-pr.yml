@@ -1,0 +1,58 @@
+# Builds docs/site on a pull request, so a change that breaks the site build
+# is red before it merges instead of after.
+#
+# Why it exists: site.yml builds only on master. On 2026-11-15 (UTC) #418 put
+# a status note in a CATALOG.md Wave cell; the roadmap page refuses such a
+# row, so every master build failed from run 43749589486 on and maya2c.dev
+# kept serving the 2026-11-15 deploy. Nothing on the pull request had built
+# the site.
+#
+# This is site.yml's build job up to `npm run build`, and nothing after: no
+# subresource integrity, no manifest, no attestation, no deploy. It holds no
+# credential beyond a read-only token and cannot publish. Keep the steps in
+# step with site.yml's build job when that job changes.
+name: site-pr
+
+on:
+  pull_request:
+    # site.yml's push paths: ingest.mjs copies docs/*.md into the site, and the
+    # health and progress pages read the ledger and the status files.
+    paths: ["docs/**", ".github/workflows/site.yml", ".github/workflows/site-pr.yml", "features.toml", "PROGRESS.md", "BACKLOG.md", "STATE.md", "reports/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: docs/site
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+          check-latest: true
+          cache: npm
+          cache-dependency-path: docs/site/package-lock.json
+      # --ignore-scripts for the same reason as site.yml: lifecycle scripts run
+      # arbitrary code from the dependency tree, and the build needs none.
+      - name: Install dependencies (no lifecycle scripts)
+        run: npm ci --ignore-scripts
+      # Includes src/data/ecosystem.test.ts: a malformed CATALOG.md row fails
+      # here with its path, line, row and the cell format expected.
+      - name: Unit tests (page data mapping, node --test)
+        run: npm test
+      - name: Build the site
+        run: npm run build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
