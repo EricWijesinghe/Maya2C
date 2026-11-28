@@ -81,7 +81,9 @@ const SIGNING_CONTEXT: &[u8] = b"";
 pub fn chain_key_from_secret(secret: &Scalar) -> Zeroizing<[u8; 32]> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(CHAIN_KEY_DOMAIN);
-    hasher.update(&secret.to_bytes());
+    // A named, wiped copy: the temporary `to_bytes()` would outlive the call unwiped.
+    let secret_bytes = Zeroizing::new(secret.to_bytes());
+    hasher.update(secret_bytes.as_ref());
     Zeroizing::new(*hasher.finalize().as_bytes())
 }
 

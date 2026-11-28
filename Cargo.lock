@@ -7065,6 +7065,7 @@ dependencies = [
  "hex",
  "maya-wgpu-miner",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "zeroize",

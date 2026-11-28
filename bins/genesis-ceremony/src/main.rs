@@ -52,6 +52,9 @@ use custom_l1_node::state::mining::{DagProfile, MINING_RESERVE, MiningGenesis};
 
 mod committee;
 mod council;
+mod secret_file;
+
+use secret_file::write_secret;
 
 /// Default number of root keys.
 ///
@@ -544,26 +547,6 @@ fn split_supply(
         .checked_sub(treasury)
         .ok_or("treasury exceeds total supply")?;
     Ok((treasury, remainder))
-}
-
-/// Writes `bytes` to a new file at `path` with an owner-only mode where the
-/// platform has one.
-///
-/// `create_new` makes the open fail on any existing path, a symlink included,
-/// so a planted link is never followed and an existing secret is never
-/// truncated. The mode is set at creation, so no path-based chmod is needed.
-fn write_secret(path: &Path, bytes: &[u8]) -> Result<(), Box<dyn Error>> {
-    use std::io::Write as _;
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    // Owner-only from creation, not after: no window with the default mode.
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(bytes)?;
-    // Windows inherits the directory ACL, which is why the ceremony directory
-    // itself is created fresh rather than reused — an existing directory may
-    // already be readable by someone.
-    Ok(())
 }
 
 /// Stack for the worker thread `main` hands off to.
