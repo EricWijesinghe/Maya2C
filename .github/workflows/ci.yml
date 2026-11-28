@@ -382,6 +382,13 @@ jobs:
       - name: Test (whole workspace)
         run: cargo nextest run --cargo-profile ci --workspace --no-fail-fast
 
+      # The mainnet binary's own key rules (ADR-049): a production build refuses
+      # to write or load a plaintext validator key. Those tests are
+      # cfg(feature = "production"), so no default-feature run above compiles
+      # them, and release-binaries.yml builds the feature without testing it.
+      - name: Test (production feature, validator keys)
+        run: cargo nextest run --cargo-profile ci -p maya2c-node --no-default-features --features production --no-fail-fast -E 'test(validator_key::)'
+
       # RESEARCH features no default build enables. Compiled and tested here
       # so their contract cannot rot while nobody turns them on (ADR-011).
       - name: Test (research features)
