@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Real mainnet headers, the retarget rule, and a six-block reorg.
 
 #![allow(

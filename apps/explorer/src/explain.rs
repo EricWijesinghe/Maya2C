@@ -119,6 +119,8 @@ pub fn explain_block(block: &IndexedBlock, txs: &[IndexedTx]) -> String {
 
 #[cfg(test)]
 mod tests {
+    // Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use custom_l1_node::rpc::{MultisigInfo, OutputInfo, SuiteKeyInfo};
     use primitive_types::U256;

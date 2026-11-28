@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! 500 generated transactions checked against independent references: the
 //! dark pool's clearing against a brute-force auction, and the tax
 //! calculators against conservation identities and hand-worked cases.

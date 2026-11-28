@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Compile and memory work in shapes built to be slow per byte, against
 //! their price (ADR-142 review, 2026-11-14).
 //!

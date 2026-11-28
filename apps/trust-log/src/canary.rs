@@ -104,6 +104,8 @@ pub fn check(
 
 #[cfg(test)]
 mod tests {
+    // Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::anchor::tests::{SENDER, anchored};
     use crate::chain::fake::FakeChain;

@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Staking driving DAG-BFT (ADR-028), end to end through real chains.
 //!
 //! Five nodes; four are genesis validators bonded in genesis, the fifth holds

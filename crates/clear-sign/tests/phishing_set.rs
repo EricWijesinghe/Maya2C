@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Master Prompt 22 §4: the wallet must warn on every phishing and drainer
 //! pattern in the test set, and the rate of false alarms on ordinary
 //! transactions is measured.

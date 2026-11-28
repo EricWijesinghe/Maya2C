@@ -711,6 +711,8 @@ pub async fn serve(address: SocketAddr, state: AppState) -> Result<ExplorerServe
 
 #[cfg(test)]
 mod parse_address_tests {
+    // Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::parse_address;
     use maya_address::Network;
 
