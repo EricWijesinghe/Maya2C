@@ -129,6 +129,7 @@ below that line is intent.
 | Component | Status | Where | Notes |
 |---|---|---|---|
 | libp2p transport, PQ Noise handshake | **SHIPPED** | `crates/node/src/network/` | ML-KEM-768; HQC available as the second KEM |
+| Post-quantum peer authentication (static ML-KEM-1024 keys) | **RESEARCH** | `crates/crypto-pq/src/peer_auth.rs` | ADR-152. A pinned peer proves it holds its static key by decapsulating, with key confirmation before any frame; no signatures, so a transcript proves nothing to a third party. Sans-IO core with tests; not yet in the libp2p upgrade stack, so the swarm does not use it |
 | Byzantine peer guard | **SHIPPED** | `crates/node/src/network/peer_health.rs`, `sync.rs`, `node/guard.rs` | Gossip validated before it is forwarded; gossipsub P4 scoring only; an expiring, escalating quarantine (blacklist + block list + disconnect) on attributable offences; 2 connections per peer, 256 total; bounded parent fetch. Latency recorded, never scored; no double-proposal metric, because a PoW block has no proposer. Node-local — [peer-health.md](peer-health.md) |
 | Stratum V2 pool protocol | **SHIPPED** | `stratum-v2`, `pool-service` | No chain dependency in the protocol crate, so it fuzzes alone |
 | SPV light client | **SHIPPED** | `light-client` | Header fork choice and state-proof verification |

@@ -47,5 +47,6 @@ pub mod hqc;
 pub mod kem;
 pub mod kem_suite;
 pub mod multisig;
+pub mod peer_auth;
 pub mod sig;
 pub mod suite;
