@@ -44,9 +44,18 @@ fn attempt(relay: &mut Relay, client: &mut Client, id: &[u8; 32], now: u64, lost
 fn collect(relay: &mut Relay, who: &mut Client, now: u64) -> Vec<Frame> {
     let address = who.identity().address();
     let nonce = relay.challenge(address, now).unwrap();
-    let signature = who.identity().sign(&fetch_bytes(&address, &nonce)).unwrap();
+    let signature = who
+        .identity()
+        .sign(&fetch_bytes(relay.id(), &address, &nonce))
+        .unwrap();
     let envelopes = relay
-        .fetch(address, who.identity().public_key(), &signature, now)
+        .fetch(
+            address,
+            &nonce,
+            who.identity().public_key(),
+            &signature,
+            now,
+        )
         .unwrap();
     let frames = envelopes
         .iter()

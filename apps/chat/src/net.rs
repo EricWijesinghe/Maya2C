@@ -44,6 +44,8 @@ pub enum Request {
     Fetch {
         /// The mailbox.
         address: Address,
+        /// The challenge the relay issued; it keeps none (ADR-149).
+        nonce: [u8; 32],
         /// The owner's identity key.
         identity_key: Vec<u8>,
         /// Signature over [`crate::relay::fetch_bytes`].
@@ -122,10 +124,11 @@ pub fn serve(relay: &mut Relay, request: Request) -> Response {
         Request::Challenge(address) => relay.challenge(address, t).map(Response::Challenge),
         Request::Fetch {
             address,
+            nonce,
             identity_key,
             signature,
         } => relay
-            .fetch(address, &identity_key, &signature, t)
+            .fetch(address, &nonce, &identity_key, &signature, t)
             .map(Response::Envelopes),
     };
     answer.unwrap_or_else(|e| Response::Refused(e.to_string()))
@@ -141,10 +144,11 @@ pub fn serve(relay: &mut Relay, request: Request) -> Response {
 pub async fn run_relay(
     keypair: identity::Keypair,
     listen: Vec<Multiaddr>,
-    mut relay: Relay,
+    relay: Relay,
 ) -> Result<(), ChatError> {
     let mut swarm = swarm(keypair).await?;
     let peer = *swarm.local_peer_id();
+    let mut relay = relay.with_id(peer.to_bytes());
     for addr in listen {
         swarm
             .listen_on(addr)
