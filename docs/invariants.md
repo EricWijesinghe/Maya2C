@@ -140,7 +140,8 @@ phase that did it.
 24. **A block's id and proof of work cover its transactions, and its declared
     state root is checked.** `BlockHeader::tx_root` (bytes 112..144, after the
     nonce so `NONCE_RANGE` never moved) is a `state::merkle` root over
-    `transaction_leaf(txid)`. `Chain::insert_block` calls `check_tx_root`
+    `block_leaf(tx)` (the txid's leaf; a v8 multisig leaf also hashes the
+    wire frame, because its id omits the approvals). `Chain::insert_block` calls `check_tx_root`
     *first*, ahead of the duplicate check and before anything is stored: a
     mismatched body filed under an honest id would turn the genuine block into
     a `Duplicate`, which is censorship by one relay. `apply_block_journaled` —
