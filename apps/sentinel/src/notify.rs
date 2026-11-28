@@ -115,6 +115,22 @@ impl RateLimit {
     }
 }
 
+/// Longest one push may take. Unbounded, a hung ntfy server stalls the poll
+/// loop that delivers it, and with it every later alert and heartbeat.
+pub const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The HTTP client for [`send`]; every request on it is bounded by `timeout`.
+///
+/// # Errors
+///
+/// The TLS backend failed to initialise.
+pub fn client(timeout: std::time::Duration) -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
 /// POSTs one message to `base/topic`.
 ///
 /// # Errors
@@ -150,6 +166,23 @@ mod tests {
             title: "Maya2C chain halted".into(),
             body: "no new block".into(),
         })
+    }
+
+    #[tokio::test]
+    async fn a_push_to_a_server_that_never_answers_times_out() {
+        // Accepts and holds the connection without a byte of reply.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let base = format!("http://{}", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            let held = listener.accept();
+            std::thread::sleep(std::time::Duration::from_secs(30));
+            drop(held);
+        });
+        let http = client(std::time::Duration::from_millis(300)).expect("client");
+        let started = std::time::Instant::now();
+        let sent = send(&http, &base, "topic", &render(&raised(Severity::Critical))).await;
+        assert!(sent.is_err(), "{sent:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
     }
 
     #[test]

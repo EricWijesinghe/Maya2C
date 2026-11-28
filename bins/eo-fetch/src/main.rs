@@ -65,6 +65,41 @@ fn args() -> anyhow::Result<Args> {
     Ok(a)
 }
 
+/// A search item's acquisition day, `YYYY-MM-DD`; `None` when the service
+/// sent no usable datetime. `get`, not `[..10]`: the string is the remote
+/// service's, and a byte slice of a shorter one panics.
+fn scene_day(f: &Value) -> Option<&str> {
+    f["properties"]["datetime"]
+        .as_str()
+        .and_then(|d| d.get(..10))
+}
+
+/// One scene per acquisition day in UTM `epsg`, oldest first, at most
+/// `scenes`; and how many were skipped for having no usable datetime.
+///
+/// Skipped, not keyed on an empty day: `dedup_by_key` would merge every
+/// undated scene into one and drop the rest unseen.
+fn pick(features: &[Value], epsg: u32, scenes: usize) -> (Vec<Value>, usize) {
+    let (mut picked, undated): (Vec<Value>, Vec<Value>) = features
+        .iter()
+        .filter(|f| {
+            let p = &f["properties"];
+            p["proj:epsg"].as_u64() == Some(u64::from(epsg))
+                || p["proj:code"].as_str() == Some(&format!("EPSG:{epsg}"))
+        })
+        .cloned()
+        .partition(|f| scene_day(f).is_some());
+    picked.sort_by_key(|f| {
+        f["properties"]["datetime"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    });
+    picked.dedup_by_key(|f| scene_day(f).map(str::to_owned));
+    picked.truncate(scenes);
+    (picked, undated.len())
+}
+
 fn search(client: &reqwest::blocking::Client, a: &Args) -> anyhow::Result<Vec<Value>> {
     let body = json!({
         "collections": ["sentinel-2-l2a"],
@@ -82,27 +117,12 @@ fn search(client: &reqwest::blocking::Client, a: &Args) -> anyhow::Result<Vec<Va
     let features = found["features"]
         .as_array()
         .ok_or_else(|| anyhow!("no features in the search result"))?;
-    // One scene per acquisition day and platform, in the point's own UTM zone.
+    // One scene per acquisition day, in the point's own UTM zone.
     let zone = utm::zone(a.lon);
-    let mut picked: Vec<Value> = features
-        .iter()
-        .filter(|f| {
-            let p = &f["properties"];
-            p["proj:epsg"].as_u64() == Some(u64::from(32_600 + zone))
-                || p["proj:code"].as_str() == Some(&format!("EPSG:{}", 32_600 + zone))
-        })
-        .cloned()
-        .collect();
-    picked.sort_by_key(|f| {
-        f["properties"]["datetime"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()
-    });
-    picked.dedup_by_key(|f| {
-        f["properties"]["datetime"].as_str().unwrap_or_default()[..10].to_owned()
-    });
-    picked.truncate(a.scenes);
+    let (picked, undated) = pick(features, 32_600 + zone, a.scenes);
+    if undated > 0 {
+        eprintln!("warning: skipped {undated} scene(s) with no usable datetime");
+    }
     if picked.is_empty() {
         bail!("no low-cloud scene in UTM zone {zone} for that point and range");
     }
@@ -115,9 +135,14 @@ fn range(
     start: u64,
     len: u64,
 ) -> anyhow::Result<Vec<u8>> {
+    // A zero-length range has no last byte; `start + len - 1` would underflow.
+    let last = len
+        .checked_sub(1)
+        .and_then(|l| start.checked_add(l))
+        .ok_or_else(|| anyhow!("bad byte range: {len} bytes at {start}"))?;
     let response = client
         .get(url)
-        .header("Range", format!("bytes={start}-{}", start + len - 1))
+        .header("Range", format!("bytes={start}-{last}"))
         .send()?
         .error_for_status()?;
     let mut out = Vec::new();
@@ -186,4 +211,53 @@ fn main() -> anyhow::Result<()> {
         .with_context(|| format!("writing {}", a.out))?;
     println!("wrote {}", a.out);
     Ok(())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_short_or_missing_datetime_from_the_search_is_no_day_not_a_panic() {
+        let item = |d: Value| json!({"properties": {"datetime": d}});
+        assert_eq!(
+            scene_day(&item(json!("2025-06-14T18:39:21Z"))),
+            Some("2025-06-14")
+        );
+        assert_eq!(scene_day(&item(json!("2025"))), None);
+        assert_eq!(
+            scene_day(&item(json!("2025-06-1é"))),
+            None,
+            "byte 10 is inside a character"
+        );
+        assert_eq!(scene_day(&item(Value::Null)), None);
+        assert_eq!(scene_day(&json!({})), None);
+    }
+
+    #[test]
+    fn an_empty_or_overflowing_byte_range_is_refused_before_any_request() {
+        // Port 9 (discard) is never contacted: both are refused up front.
+        let client = reqwest::blocking::Client::new();
+        for (start, len) in [(5, 0), (u64::MAX, 2)] {
+            let err = range(&client, "http://127.0.0.1:9/", start, len).unwrap_err();
+            assert!(err.to_string().contains("bad byte range"), "{err}");
+        }
+    }
+
+    #[test]
+    fn undated_scenes_are_counted_as_skipped_not_merged_into_one() {
+        let item = |id: &str, d: Value| json!({"id": id, "properties": {"datetime": d, "proj:epsg": 32_610}});
+        let features = [
+            item("a", json!("2025-06-14T18:39:21Z")),
+            item("b", Value::Null),
+            item("c", json!("2025")),
+            item("d", json!("2025-06-14T18:40:00Z")),
+            item("e", json!("2025-06-19T18:39:21Z")),
+        ];
+        let (picked, undated) = pick(&features, 32_610, 10);
+        let ids: Vec<_> = picked.iter().map(|f| f["id"].as_str()).collect();
+        assert_eq!(ids, [Some("a"), Some("e")], "one per day, none undated");
+        assert_eq!(undated, 2);
+    }
 }

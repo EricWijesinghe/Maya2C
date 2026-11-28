@@ -52,6 +52,9 @@ const LIVE_POLL: Duration = Duration::from_secs(1);
 /// "stopped answering" and came "back" every few seconds while healthy.
 const LIVE_TIMEOUT: Duration = Duration::from_secs(3);
 
+/// Longest one ntfy alert may take.
+const ALERT_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Headers per `get_headers` call: the node's own cap.
 const BATCH: u64 = 2_000;
 
@@ -210,7 +213,15 @@ async fn timestamps(client: &HttpClient, from: u64, to: u64) -> Option<Vec<u64>>
 }
 
 async fn notify(http: &reqwest::Client, url: &str, text: String) {
-    if let Err(e) = http.post(url).body(text).send().await {
+    // Bounded: `follow` awaits this, so a hung ntfy server would stop the
+    // timeline from advancing.
+    let sent = http
+        .post(url)
+        .body(text)
+        .timeout(ALERT_TIMEOUT)
+        .send()
+        .await;
+    if let Err(e) = sent {
         eprintln!("{}", delivery_failure(e));
     }
 }
@@ -621,6 +632,22 @@ mod router_tests {
         let line = delivery_failure(err);
         assert!(line.starts_with("status: alert not delivered"), "{line}");
         assert!(!line.contains("secret-topic"), "{line}");
+    }
+
+    #[tokio::test]
+    async fn an_alert_to_a_server_that_never_answers_gives_up() {
+        // Accepts and holds the connection without a byte of reply; before the
+        // timeout, `notify` awaited it forever and `follow` stopped with it.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let url = format!("http://{}/topic", listener.local_addr().expect("addr"));
+        std::thread::spawn(move || {
+            let held = listener.accept();
+            std::thread::sleep(ALERT_TIMEOUT * 3);
+            drop(held);
+        });
+        let http = reqwest::Client::new();
+        let bounded = tokio::time::timeout(ALERT_TIMEOUT * 2, notify(&http, &url, "x".into()));
+        assert!(bounded.await.is_ok(), "notify outlived its timeout");
     }
 
     fn shared_with(incidents: Option<incidents::Log>, finality: Option<Finality>) -> Arc<Shared> {

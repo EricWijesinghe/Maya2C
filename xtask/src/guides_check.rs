@@ -75,9 +75,15 @@ fn packages(root: &Path) -> Result<Targets, String> {
     Ok(all)
 }
 
-fn markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
+/// Every `.md` under `dir` into `out`; a directory that cannot be listed goes
+/// into `failures`, since its guides would otherwise pass unread.
+fn markdown_files(dir: &Path, out: &mut Vec<PathBuf>, failures: &mut Vec<String>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            failures.push(format!("{}: cannot list: {e}", dir.display()));
+            return;
+        }
     };
     for entry in entries.flatten() {
         let path = entry.path();
@@ -88,7 +94,7 @@ fn markdown_files(dir: &Path, out: &mut Vec<PathBuf>) {
                 name.as_str(),
                 "node_modules" | "target" | "src" | "dist" | ".astro"
             ) {
-                markdown_files(&path, out);
+                markdown_files(&path, out, failures);
             }
         } else if path
             .extension()
@@ -193,43 +199,94 @@ pub fn run(_args: &[String]) -> Result<(), String> {
     let root = crate::workspace_root();
     let pkgs = packages(&root)?;
     let mut files = vec![root.join("README.md")];
-    markdown_files(&root.join("docs"), &mut files);
+    let mut unreadable = Vec::new();
+    markdown_files(&root.join("docs"), &mut files, &mut unreadable);
+    let (resolved, unchecked, missing) = check(&files, &root, &pkgs, &mut unreadable);
+    println!(
+        "guides-check: {} files, {resolved} commands resolved, {} name something missing, {} files unreadable, {unchecked} not checkable here",
+        files.len(),
+        missing.len(),
+        unreadable.len()
+    );
+    if missing.is_empty() && unreadable.is_empty() {
+        return Ok(());
+    }
+    for m in unreadable.iter().chain(&missing) {
+        eprintln!("{m}");
+    }
+    Err(format!(
+        "{} guide commands or files failed ({} name something missing, {} unreadable)",
+        missing.len() + unreadable.len(),
+        missing.len(),
+        unreadable.len()
+    ))
+}
+
+/// `(resolved, unchecked, missing)` over `files`; a file that cannot be read
+/// goes into `unreadable` rather than counting as checked.
+fn check(
+    files: &[PathBuf],
+    root: &Path,
+    pkgs: &Targets,
+    unreadable: &mut Vec<String>,
+) -> (usize, usize, Vec<String>) {
     let (mut resolved, mut unchecked, mut missing) = (0usize, 0usize, Vec::new());
-    for file in &files {
-        let Ok(text) = std::fs::read_to_string(file) else {
-            continue;
+    for file in files {
+        let rel = file.strip_prefix(root).unwrap_or(file).display();
+        let text = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(e) => {
+                unreadable.push(format!("{rel}: cannot read: {e}"));
+                continue;
+            }
         };
         for (line, cmd) in commands(&text) {
-            match resolve(&cmd, &root, &pkgs) {
+            match resolve(&cmd, root, pkgs) {
                 Some(Ok(())) => resolved += 1,
-                Some(Err(why)) => missing.push(format!(
-                    "{}:{line}: {why}\n    {cmd}",
-                    file.strip_prefix(&root).unwrap_or(file).display()
-                )),
+                Some(Err(why)) => missing.push(format!("{rel}:{line}: {why}\n    {cmd}")),
                 None => unchecked += 1,
             }
         }
     }
-    println!(
-        "guides-check: {} files, {resolved} commands resolved, {} name something missing, {unchecked} not checkable here",
-        files.len(),
-        missing.len()
-    );
-    if missing.is_empty() {
-        return Ok(());
-    }
-    for m in &missing {
-        eprintln!("{m}");
-    }
-    Err(format!(
-        "{} guide commands name something that does not exist",
-        missing.len()
-    ))
+    (resolved, unchecked, missing)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn an_unreadable_guide_or_directory_fails_rather_than_passing_unread() {
+        let d = std::env::temp_dir().join(format!("guides-check-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        // UTF-16 with a BOM: read_to_string refuses it, so its commands were never checked.
+        let utf16: Vec<u8> = [0xFF, 0xFE]
+            .into_iter()
+            .chain(
+                "```sh\ncargo test -p gone\n```\n"
+                    .encode_utf16()
+                    .flat_map(u16::to_le_bytes),
+            )
+            .collect();
+        std::fs::write(d.join("guide.md"), utf16).unwrap();
+
+        let mut unreadable = Vec::new();
+        let (resolved, _, missing) =
+            check(&[d.join("guide.md")], &d, &Targets::new(), &mut unreadable);
+        assert_eq!((resolved, missing.len()), (0, 0));
+        assert_eq!(unreadable.len(), 1, "{unreadable:?}");
+        assert!(
+            unreadable[0].starts_with("guide.md: cannot read"),
+            "{unreadable:?}"
+        );
+
+        let mut files = Vec::new();
+        markdown_files(&d.join("no-such-dir"), &mut files, &mut unreadable);
+        assert!(files.is_empty());
+        assert!(unreadable[1].contains("cannot list"), "{unreadable:?}");
+        std::fs::remove_dir_all(&d).unwrap();
+    }
 
     #[test]
     fn only_shell_blocks_are_read_and_prompts_are_stripped() {

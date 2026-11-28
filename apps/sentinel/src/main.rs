@@ -63,7 +63,7 @@ async fn run() -> Result<(), String> {
         .map(|(name, url)| rpc::client(url).map(|c| (name.clone(), c)))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let http = reqwest::Client::new();
+    let http = notify::client(notify::SEND_TIMEOUT)?;
     let start = Instant::now();
     let mut detector = Detector::new(cfg.thresholds);
     let mut incidents = Incidents::new(CLEAR_MS);
@@ -111,7 +111,10 @@ async fn check_heartbeat(path: &Path, max_age_secs: u64, dry_run: bool) -> Resul
     }
     match topic {
         None => println!("[dry-run] P{} {summary}", msg.priority),
-        Some(t) => notify::send(&reqwest::Client::new(), notify::NTFY_BASE, &t, &msg).await?,
+        Some(t) => {
+            let http = notify::client(notify::SEND_TIMEOUT)?;
+            notify::send(&http, notify::NTFY_BASE, &t, &msg).await?;
+        }
     }
     std::fs::write(&marker, &stamp).map_err(|e| {
         format!(

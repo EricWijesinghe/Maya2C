@@ -759,7 +759,7 @@ impl<'a> ScenarioRunner<'a> {
 
     async fn verify_validators_committing(&self) -> Result<bool> {
         // Check that remaining validators continued to commit blocks
-        let client = reqwest::Client::new();
+        let client = crate::validators::http_client();
         let validators = self.lab.config.validator_names();
         let mut total_blocks = 0u64;
 
@@ -798,7 +798,7 @@ impl<'a> ScenarioRunner<'a> {
         let mut heights = Vec::new();
         let mut block_ids = Vec::new();
 
-        let client = reqwest::Client::new();
+        let client = crate::validators::http_client();
 
         for name in &validators {
             let Some(v) = self.lab.config.get_validator(name) else {
@@ -869,7 +869,7 @@ impl<'a> ScenarioRunner<'a> {
 
     async fn collect_scenario_metrics(&self) -> Result<ScenarioMetrics> {
         let mut metrics = ScenarioMetrics::default();
-        let client = reqwest::Client::new();
+        let client = crate::validators::http_client();
 
         // Collect from each validator
         for name in self.lab.config.validator_names() {
@@ -944,7 +944,7 @@ impl<'a> ScenarioRunner<'a> {
         let timeout = Duration::from_secs(120);
         let start = Instant::now();
 
-        let client = reqwest::Client::new();
+        let client = crate::validators::http_client();
 
         while start.elapsed() < timeout {
             let mut all_healthy = true;
