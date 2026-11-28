@@ -59,9 +59,9 @@ pub struct Decentralization {
 /// decimal number or the sum overflows.
 #[must_use]
 pub fn stake(seat: &Seat) -> Option<U256> {
-    let bond = U256::from_dec_str(&seat.self_bond).ok()?;
-    let delegated = U256::from_dec_str(&seat.delegated).ok()?;
-    bond.checked_add(delegated)
+    // `from_dec_str("")` is Ok(0): an empty field would read as no stake.
+    let dec = |s: &str| (!s.is_empty()).then(|| U256::from_dec_str(s).ok())?;
+    dec(&seat.self_bond)?.checked_add(dec(&seat.delegated)?)
 }
 
 /// Fewest leading stakes (largest first) whose sum is strictly more than

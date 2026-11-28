@@ -57,7 +57,8 @@ fn claimed_text(value: &str, max: usize, what: &str) -> Result<String> {
 /// `maya:<bech32m>?amount=<base units>&label=&message=&exp=<unix s>&id=`.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct PaymentRequest {
-    /// Hex-encoded recipient address.
+    /// Hex-encoded recipient address: checksummed (mixed case) when the
+    /// input carried a checksum, lowercase when it did not.
     pub recipient: String,
     /// The address prefix the request was written for (`maya`, `tmaya`,
     /// `dmaya`); `None` for a hex address, which names no network.
@@ -126,7 +127,14 @@ impl PaymentRequest {
             None => (body, None),
         };
 
-        let recipient = normalize_address(address)?;
+        let normalized = normalize_address(address)?;
+        // Keep the checksum the sender gave (Bech32m or mixed case), so the
+        // confirm screen warns only about a recipient that never had one.
+        let recipient = if has_checksum(address) {
+            checksummed(&decode_address(&normalized)?)
+        } else {
+            normalized
+        };
         let compact: String = address.split_whitespace().collect();
         let network = maya_address::decode_any(&compact)
             .ok()
@@ -323,6 +331,19 @@ pub fn normalize_address(address: &str) -> Result<String> {
         )));
     }
     Ok(hex::encode(array))
+}
+
+/// Whether `address` (already accepted by [`normalize_address`]) carries a
+/// checksum: Bech32m, or mixed-case hex. All-lower or all-upper hex does not.
+#[must_use]
+pub fn has_checksum(address: &str) -> bool {
+    let compact: String = address.split_whitespace().collect();
+    let cleaned = compact.trim_start_matches("0x");
+    if !cleaned.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return true;
+    }
+    cleaned.bytes().any(|b| b.is_ascii_lowercase())
+        && cleaned.bytes().any(|b| b.is_ascii_uppercase())
 }
 
 /// Decodes a `[u8; 32]` address.
