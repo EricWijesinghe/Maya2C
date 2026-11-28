@@ -341,17 +341,16 @@ fn a_slow_gateway_hits_the_client_timeout() {
 
 #[test]
 fn an_unreachable_gateway_is_a_network_error() {
-    // A port that was just released refuses at once. Port 1 does not: on
-    // Windows the connect to it waits out the timeout instead.
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
+    // The listener stays alive for the whole test. Dropping it released the
+    // port, and a parallel test's mock gateway could bind the same port and
+    // answer 200 (nightly 2026-11-27: "got Ok(Health { status: \"ok\" })").
+    // Held open, the kernel accepts the connect into the backlog but nothing
+    // ever answers, so the request times out: an unreachable gateway.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
     let client =
         Client::with_timeout(&format!("http://127.0.0.1:{port}"), Duration::from_secs(2)).unwrap();
-    // Refused and connect-timeout are both "unreachable". This Windows host
-    // reports the closed port as a connect timeout, so either is accepted.
+    // Connect-timeout and refused are both "unreachable"; either is accepted.
     let result = client.health();
     assert!(
         matches!(result, Err(Error::Network(_) | Error::Timeout)),

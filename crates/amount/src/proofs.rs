@@ -54,7 +54,11 @@ fn any_u128_amount() -> Amount {
 /// For 64-bit factors the product fits a `u128`, so it can be checked
 /// exactly against the compiler's own multiplication; `checked_mul` agrees.
 #[kani::proof]
-#[kani::unwind(5)]
+// 65, not 5: `assert!(w == ...)` compares a `Wide` (64 bytes), and CBMC's
+// memcmp model unwinds once per byte. The run that set 5 failed with
+// "unwinding assertion loop 0" in memcmp (kani-heavy 2026-11-27); no
+// arithmetic check failed. Loops in mul_wide itself need only 5.
+#[kani::unwind(65)]
 fn mul_wide_matches_u128_multiplication() {
     let x: u64 = kani::any();
     let y: u64 = kani::any();
@@ -68,7 +72,7 @@ fn mul_wide_matches_u128_multiplication() {
 /// here, so the upper partial products are not exercised; full-width
 /// products are property-tested (`tests/property_tests.rs`), not proved.
 #[kani::proof]
-#[kani::unwind(5)]
+#[kani::unwind(65)] // memcmp over a 64-byte `Wide`; see mul_wide_matches_u128_multiplication
 fn mul_wide_is_commutative() {
     let a = any_u128_amount();
     let b = any_u128_amount();
@@ -79,7 +83,7 @@ fn mul_wide_is_commutative() {
 /// 256-bit `a` and every non-zero divisor that fits in a `u64`; and every
 /// division satisfies `q·d + r = n`, `r < d`.
 #[kani::proof]
-#[kani::unwind(9)]
+#[kani::unwind(65)] // the `==` on `Wide` is a 64-byte memcmp; see mul_wide_matches_u128_multiplication
 fn mul_then_div_round_trips() {
     let a = any_amount();
     let d: u64 = kani::any();
