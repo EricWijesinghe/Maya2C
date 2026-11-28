@@ -439,9 +439,32 @@ mod tests {
 
         let response = get(server.address, "/api/v1/supply").await;
         assert!(response.starts_with("HTTP/1.1 200"));
-        for field in ["total", "circulating", "shielded", "burned"] {
+        for field in ["total", "circulating", "shielded", "burned", "reserve"] {
             assert!(response.contains(field), "missing {field}");
         }
+    }
+
+    #[tokio::test]
+    async fn circulating_supply_excludes_the_mining_reserve() {
+        // The reserve is keyless and pays rewards out over time: it is in
+        // total, not in circulating, until a reward moves it.
+        let (server, _dir) = start_funded(
+            MarketFeed::empty(),
+            &[
+                ([1u8; 32], 900),
+                (crate::state::mining::MINING_RESERVE, 100),
+            ],
+        )
+        .await;
+
+        assert_eq!(
+            body(&get(server.address, "/api/v1/total_supply").await),
+            "1000"
+        );
+        assert_eq!(
+            body(&get(server.address, "/api/v1/circulating_supply").await),
+            "900"
+        );
     }
 
     #[tokio::test]

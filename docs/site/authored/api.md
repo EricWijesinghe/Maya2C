@@ -89,8 +89,10 @@ not real chain figures.
 `total` counts every unit that exists, including units that can never move;
 `circulating` counts the units that can. For the breakdown, ask the node's
 `get_supply` JSON-RPC method: it also reports `shielded` (units inside the
-shielded pool, already included in `circulating`) and `burned` (units at
-addresses that can never spend them). The gateway's `/v1/supply` returns only
+shielded pool, already included in `circulating`), `burned` (fees sent to the
+fee sink, which nobody can spend) and `reserve` (the mining reserve, not yet
+paid out as rewards). `circulating + burned + reserve` equals `total`. The
+gateway's `/v1/supply` returns only
 the two headline figures.
 
 ## Submitting

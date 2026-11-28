@@ -41,12 +41,6 @@ use crate::consensus::chain::Chain;
 use crate::error::Result;
 use crate::state::Address;
 
-/// Addresses whose balances are not in circulation.
-///
-/// The fee sink accumulates burned fees. They are unspendable — nobody holds
-/// its key — so counting them as circulating would inflate the figure forever.
-const NON_CIRCULATING: &[Address] = &[crate::state::shielded::FEE_SINK];
-
 /// A supply figure, in base units.
 ///
 /// Base units, matching every other amount in the codebase — account balances,
@@ -72,9 +66,16 @@ pub struct SupplyReport {
     /// auditor most wants and the one a transparent scan cannot recover.
     #[serde(with = "crate::state::amount_serde")]
     pub shielded: U256,
-    /// Units held at addresses that can never spend them.
+    /// Units held at addresses that can never spend them: the fee sink, which
+    /// only grows. Excluded from `circulating`.
     #[serde(with = "crate::state::amount_serde")]
     pub burned: U256,
+    /// Units still in the keyless mining reserve, not yet paid out as rewards.
+    ///
+    /// Counted in `total`, excluded from `circulating`, and falls as rewards are
+    /// paid out (a transfer, so `burned` does not move).
+    #[serde(with = "crate::state::amount_serde")]
+    pub reserve: U256,
 }
 
 /// Computes supply from committed state.
@@ -88,16 +89,11 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let state = chain.state();
 
-    let mut transparent = U256::zero();
-    let mut burned = U256::zero();
-
-    for (address, account) in state.all_accounts()? {
-        transparent = transparent.saturating_add(account.balance);
-        if NON_CIRCULATING.contains(&address) {
-            burned = burned.saturating_add(account.balance);
-        }
-    }
-
+    let balances: Vec<(Address, U256)> = state
+        .all_accounts()?
+        .into_iter()
+        .map(|(address, account)| (address, account.balance))
+        .collect();
     let shielded = state.stored_pool()?.balance();
     // Bonds, delegations and unbonding funds were debited from accounts but
     // still exist; genesis counts them in total supply, so this must too.
@@ -105,14 +101,39 @@ pub fn supply(chain: &Arc<Mutex<Chain>>) -> Result<SupplyReport> {
         .committed_staking()?
         .and_then(|r| r.staking.held())
         .map_or(U256::zero(), maya_stateless_core::amount::to_u256);
+
+    Ok(tally(balances, shielded, staked))
+}
+
+/// Folds account balances into a [`SupplyReport`].
+///
+/// The fee sink and the mining reserve are both keyless, so both sit in `total`
+/// and out of `circulating`. Staked funds stay in circulation.
+fn tally(
+    balances: impl IntoIterator<Item = (Address, U256)>,
+    shielded: U256,
+    staked: U256,
+) -> SupplyReport {
+    let mut transparent = U256::zero();
+    let mut burned = U256::zero();
+    let mut reserve = U256::zero();
+    for (address, balance) in balances {
+        transparent = transparent.saturating_add(balance);
+        if address == crate::state::shielded::FEE_SINK {
+            burned = burned.saturating_add(balance);
+        } else if address == crate::state::mining::MINING_RESERVE {
+            reserve = reserve.saturating_add(balance);
+        }
+    }
     let total = transparent.saturating_add(shielded).saturating_add(staked);
 
-    Ok(SupplyReport {
+    SupplyReport {
         total,
-        circulating: total.saturating_sub(burned),
+        circulating: total.saturating_sub(burned).saturating_sub(reserve),
         shielded,
         burned,
-    })
+        reserve,
+    }
 }
 
 /// A quote from an exchange feed.
@@ -250,6 +271,63 @@ impl MarketFeed {
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
+    use crate::state::mining::MINING_RESERVE;
+    use crate::state::shielded::FEE_SINK;
+
+    #[test]
+    fn a_mining_reserve_balance_is_in_total_but_not_circulating() {
+        let report = tally(
+            [
+                (MINING_RESERVE, U256::from(1_000)),
+                ([7; 32], U256::from(10)),
+            ],
+            U256::zero(),
+            U256::zero(),
+        );
+        assert_eq!(report.total, U256::from(1_010));
+        assert_eq!(report.reserve, U256::from(1_000));
+        assert_eq!(report.circulating, U256::from(10));
+        assert_eq!(report.burned, U256::zero());
+    }
+
+    #[test]
+    fn fee_sink_and_reserve_leave_circulating_and_staked_funds_stay() {
+        let report = tally(
+            [
+                (FEE_SINK, U256::from(50)),
+                (MINING_RESERVE, U256::from(1_000)),
+                ([7; 32], U256::from(10)),
+            ],
+            U256::from(5),
+            U256::from(20),
+        );
+        assert_eq!(report.total, U256::from(1_085));
+        assert_eq!(report.burned, U256::from(50));
+        assert_eq!(report.reserve, U256::from(1_000));
+        // 10 transparent + 5 shielded + 20 staked.
+        assert_eq!(report.circulating, U256::from(35));
+    }
+
+    #[test]
+    fn a_reward_paid_from_the_reserve_moves_units_into_circulating() {
+        let before = tally(
+            [
+                (MINING_RESERVE, U256::from(1_000)),
+                ([7; 32], U256::from(7)),
+            ],
+            U256::zero(),
+            U256::zero(),
+        );
+        let after = tally(
+            [(MINING_RESERVE, U256::from(990)), ([7; 32], U256::from(17))],
+            U256::zero(),
+            U256::zero(),
+        );
+        assert_eq!(after.total, before.total);
+        assert_eq!(after.burned, before.burned);
+        assert_eq!(after.reserve, U256::from(990));
+        assert_eq!(after.circulating, U256::from(17));
+    }
 
     fn quote(pair: &str) -> MarketQuote {
         MarketQuote {

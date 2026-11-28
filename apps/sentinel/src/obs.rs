@@ -52,6 +52,20 @@ pub struct Supply {
     pub circulating: U256,
     /// Units at addresses that can never spend them.
     pub burned: U256,
+    /// Units still in the mining reserve. Zero from a node that predates the
+    /// field, whose `circulating` already leaves them out of the sum.
+    pub reserve: U256,
+}
+
+impl Supply {
+    /// Whether every unit sits in exactly one bucket. An overflow fails it.
+    #[must_use]
+    pub fn adds_up(&self) -> bool {
+        self.circulating
+            .checked_add(self.burned)
+            .and_then(|sum| sum.checked_add(self.reserve))
+            == Some(self.total)
+    }
 }
 
 /// The part of `get_bft_status` the liveness detector reads. The node answers
@@ -208,6 +222,10 @@ async fn fetch_supply<T: Transport>(t: &T) -> Option<Supply> {
         total: amount("total")?,
         circulating: amount("circulating")?,
         burned: amount("burned")?,
+        reserve: match v.get("reserve") {
+            None => U256::zero(),
+            Some(_) => amount("reserve")?,
+        },
     })
 }
 
