@@ -297,12 +297,16 @@ fn a_validator_that_misses_its_rounds_is_slashed_and_sits_out() {
     assert!(!out.active.contains(&id(2)));
     assert_eq!(out.active.len(), 5);
     assert_eq!(s.validators[&id(2)].self_bond, a(9_900));
-    // Back after the jail term.
+    // After the jail term the validator is a newcomer again. Below seven
+    // seats STK-23 admits no newcomer (entry_limit(5) = 0), so it does not
+    // return, and the five-seat committee stays as it is. This is the
+    // consequence of the rule, not a regression: see STK-23 in spec/06.
     for _ in 0..Params::DEVNET.jail_epochs {
         s.end_epoch(&Participation::default(), Amount::ZERO)
             .unwrap();
     }
-    assert!(s.active.contains(&id(2)));
+    assert!(!s.active.contains(&id(2)));
+    assert_eq!(s.active.len(), 5);
 }
 
 /// ADR-046: stake, delegations and rewards past `u64::MAX` (about 0.0000184 coins at

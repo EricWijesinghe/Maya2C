@@ -99,13 +99,62 @@ fn the_entry_limit_keeps_half_the_seat_faults_for_honest_ones() {
     assert_eq!(entry_limit(100), 16);
     for n in MIN_COMMITTEE..=300 {
         let l = entry_limit(n);
+        if n < 7 {
+            // Below seven seats the budget is zero: no newcomer joins, so the
+            // seats of four honest validators cannot be outvoted by joiners.
+            assert_eq!(l, 0, "n = {n}: a newcomer joined below seven seats");
+            continue;
+        }
         assert!(l >= 1, "n = {n}: the committee could never grow");
         // `l` absent newcomers in a committee of `n + l` leave at least one
         // seat fault for an honest outage once n ≥ 7.
-        if n >= 7 {
-            assert!(2 * l <= seat_faults(n + l), "n = {n}, l = {l}");
-        }
+        assert!(2 * l <= seat_faults(n + l), "n = {n}, l = {l}");
     }
+}
+
+#[test]
+fn four_honest_seats_with_two_attacker_seats_never_halt() {
+    // The review's path (issue 2): four honest seats are the smallest
+    // committee the floor allows, and two minimum-bond seats join. Before
+    // this rule one joined at the first boundary and the second a boundary
+    // later, so two of six seats went dark against f_n = 1 and the chain
+    // halted. Below seven seats nobody joins, so the honest four carry on.
+    let mut s = genesis(4);
+    for i in 20..22 {
+        s.register(account(i), id(i), a(1_000), 0).unwrap();
+    }
+    for epoch in 0..6 {
+        epoch_where(&mut s, |v| v[0] <= 4);
+        assert_eq!(s.active.len(), 4, "epoch {epoch}: a seat joined");
+        assert!(
+            s.active.iter().all(|v| v[0] <= 4),
+            "epoch {epoch}: an attacker seat entered"
+        );
+    }
+}
+
+#[test]
+fn outranked_members_of_a_full_committee_are_not_skipped() {
+    // Issue 3: `seated` is the ending committee's members still eligible.
+    // Three waiting validators each outrank D, but four members are seated,
+    // so the limit is zero and the committee keeps A, B, C and D.
+    let params = Params {
+        max_validators: 4,
+        ..Params::DEVNET
+    };
+    let mut s = Staking::new(params).unwrap();
+    for i in 1..=4 {
+        s.register(account(i), id(i), a(10_000), 0).unwrap();
+    }
+    s.active = (1..=4).map(id).collect();
+    for i in 20..23 {
+        s.register(account(i), id(i), a(50_000), 0).unwrap();
+    }
+    epoch_where(&mut s, |_| true);
+    let expected: Vec<_> = (1..=4).map(id).collect();
+    let mut active = s.active.clone();
+    active.sort_unstable();
+    assert_eq!(active, expected);
 }
 
 #[test]

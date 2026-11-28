@@ -32,7 +32,9 @@ const BPS: u64 = 10_000;
 #[must_use]
 pub fn cap_operator_weights(weights: &[u64], operators: &[[u8; 32]]) -> Vec<u64> {
     let mut totals: BTreeMap<[u8; 32], u128> = BTreeMap::new();
-    for (w, op) in weights.iter().zip(operators) {
+    // Only weight makes an operator: a zero seat (a held tombstone, STK-22)
+    // counted here would let the level fall to 0 and flatten every voter.
+    for (w, op) in weights.iter().zip(operators).filter(|(w, _)| **w > 0) {
         *totals.entry(*op).or_insert(0) += u128::from(*w);
     }
     let mut ranked: Vec<([u8; 32], u128)> = totals.into_iter().collect();
@@ -127,6 +129,23 @@ mod tests {
         let ops: Vec<_> = (1..=4).map(op).collect();
         let w = [9_000, 9_000, 10, 10];
         assert_eq!(cap_operator_weights(&w, &ops), w.to_vec());
+    }
+
+    /// A held tombstone's zero weight (STK-22) is no operator: three voters
+    /// and a zero seat are three operators, below five, so nothing is cut.
+    /// Counted as a fourth, the water-filling level fell to 0 and every
+    /// voter was flattened to weight 1.
+    #[test]
+    fn a_zero_weight_seat_is_not_an_operator_the_cap_counts() {
+        let ops: Vec<_> = (1..=4).map(op).collect();
+        let w = [9_000, 5_000, 3_000, 0];
+        assert_eq!(cap_operator_weights(&w, &ops), w.to_vec());
+        // With five voters the cap still applies, and the zero stays zero.
+        let ops: Vec<_> = (1..=6).map(op).collect();
+        let w = [10_000, 1_000, 1_000, 1_000, 1_000, 0];
+        let capped = cap_operator_weights(&w, &ops);
+        assert_eq!(capped[0], 1_000, "c = 2000 x 4000 / 8000");
+        assert_eq!(&capped[1..], &w[1..]);
     }
 
     /// Mainnet magnitudes: the largest weight sits in [2^63, 2^64) after the

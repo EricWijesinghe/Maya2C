@@ -13,14 +13,24 @@ use crate::types::{Address, Effect, StakeError, Staking, Status, ValidatorId};
 pub const MIN_COMMITTEE: usize = 4;
 
 /// Most tombstoned validators the floor may hold in one committee (CON-07):
-/// `f` of the `MIN_COMMITTEE = 3f + 1` seats. A held one spends that fault
-/// budget, so the floor then has no margin for a further Byzantine member.
+/// `f` of the `MIN_COMMITTEE = 3f + 1` seats. A held one has zero consensus
+/// weight (STK-22), so it adds no weight to any quorum, but it stays a seat:
+/// the other three voters must then all be online, and one honest outage
+/// halts the chain until a replacement bonds.
 pub const MAX_HELD_TOMBSTONES: usize = (MIN_COMMITTEE - 1) / 3;
 
 /// Most validators that may join a committee in which `seated` members of the
 /// ending committee stay (STK-23): half its seat-fault budget
-/// `⌊⌊(seated − 1) ÷ 3⌋ ÷ 2⌋`, at least one so the committee can grow, and
-/// enough to refill it to [`MIN_COMMITTEE`].
+/// `⌊⌊(seated − 1) ÷ 3⌋ ÷ 2⌋`, and enough to refill a committee that has
+/// fallen below [`MIN_COMMITTEE`].
+///
+/// Below seven seats the budget term is zero, so a committee of four to six
+/// admits no newcomer: four honest seats with two attacker seats cannot be
+/// reached by one boundary. Only the refill term can admit one there, and it
+/// is zero from four seats up. Downtime jailing counts eligible validators
+/// that are not seated, so a committee can still fall below the floor; then
+/// the refill admits up to the floor, or the chain would stall with no way
+/// to grow again.
 ///
 /// Under the dual quorum (CON-20) a third of the seats stops finality, and a
 /// chain with no commits reaches no epoch boundary to jail them. Entering at
@@ -30,9 +40,12 @@ pub const MAX_HELD_TOMBSTONES: usize = (MIN_COMMITTEE - 1) / 3;
 #[must_use]
 pub const fn entry_limit(seated: usize) -> usize {
     let half_faults = seated.saturating_sub(1) / 3 / 2;
-    let grow = if half_faults == 0 { 1 } else { half_faults };
     let refill = MIN_COMMITTEE.saturating_sub(seated);
-    if refill > grow { refill } else { grow }
+    if refill > half_faults {
+        refill
+    } else {
+        half_faults
+    }
 }
 
 /// How much each active validator took part in the ending epoch.
@@ -143,14 +156,19 @@ impl Staking {
     ///
     /// CON-07: where fewer than [`MIN_COMMITTEE`] are eligible, a member of
     /// the ending committee that was tombstoned keeps its seat until a
-    /// replacement bonds. At most [`MAX_HELD_TOMBSTONES`] are held. The hold
-    /// puts liveness before safety: four seats with a held equivocator have
-    /// `f = 1` already spent on it, so one more Byzantine member can break
-    /// safety, where three seats without it (`f = 0`) could only be halted.
+    /// replacement bonds. At most [`MAX_HELD_TOMBSTONES`] are held. The held
+    /// seat carries zero weight (STK-22), so it votes in no quorum; what it
+    /// keeps is the seat count, which leaves three voters, all of which must
+    /// be online. One honest outage then halts the chain until a replacement
+    /// bonds. The equivocator is never trusted again: its weight is zero, so
+    /// it cannot make a quorum or a validity set by itself.
     ///
     /// STK-23: of validators not in the ending committee, at most
-    /// [`entry_limit`] join, the highest stakes first. A chain with no
-    /// committee yet seats the top `max_validators` at once.
+    /// [`entry_limit`] join, the highest stakes first. `seated` is the number
+    /// of the ending committee's members still eligible, capped at
+    /// `max_validators`. Members of the ending committee are never skipped
+    /// for being outranked. A chain with no committee yet seats the top
+    /// `max_validators` at once.
     fn next_committee(&self) -> Vec<ValidatorId> {
         let max = usize::from(self.params.max_validators);
         let ranked = self.ranked();

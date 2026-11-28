@@ -371,7 +371,7 @@ genesis size, seven online at 10,000 and four registrations at the minimum that 
 `n` = 11, `n − f_n` = 8 and seven answering seats. Nothing is committed, so the epoch never
 ends, `punish_downtime` never jails them, the bonds are never slashed, and a `--trusted-block`
 restart keeps the same committee. At most `entry_limit(seated) = max(MIN_COMMITTEE − seated,
-max(1, ⌊f_n(seated) ÷ 2⌋))` validators that were not in the ending committee now join at a
+⌊f_n(seated) ÷ 2⌋)` (no `max(1, …)` term since 2026-11-28: below seven seats nobody joins) validators that were not in the ending committee now join at a
 boundary (`maya_staking::entry_limit`, `Staking::next_committee`). From seven seats up the
 newcomers of one epoch hold at most half of `f_n`, so absent ones cannot stop finality, and the
 boundary after their first epoch jails and slashes them while the next one joins. Both rows

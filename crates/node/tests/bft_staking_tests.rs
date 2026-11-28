@@ -765,6 +765,60 @@ fn a_weighted_node_restarts_after_a_mid_epoch_tombstone_and_keeps_weights() {
     assert!(!ids.contains(&offender));
 }
 
+#[test]
+fn a_tombstone_held_by_the_floor_has_zero_weight_in_the_recorded_committee() {
+    // STK-22 / CON-20, on the chain and not only in `Committee`: four seats
+    // and one equivocator. The floor holds the tombstoned seat (CON-07), and
+    // the weights the chain records for that epoch give it zero, so the
+    // three voters carry every quorum beside it.
+    let mut mesh = Mesh::with(true);
+    mesh.run_until(|m| m.all_in_epoch(1));
+    assert!(mesh.all_in_epoch(1), "no epoch boundary reached");
+    let keys0: Arc<[VerifyingKey]> = genesis().bft.unwrap().verifying_keys().unwrap().into();
+    let tag = ChainTag::from_genesis(mesh.members[0].chain.genesis());
+    mesh.submit(&staking_tx(double_proposal(3, &keys0, tag), 1));
+    let offender = validator_id(&validator_key(3).verifying_key().to_bytes());
+    mesh.run_until(|m| m.all_in_epoch(2));
+    assert!(
+        mesh.all_in_epoch(2),
+        "no epoch boundary after the tombstone"
+    );
+    mesh.agree();
+
+    let state = mesh.members[0].chain.state();
+    let epoch = mesh.members[0].driver.epoch();
+    let ids = state.committee_ids(epoch).unwrap().unwrap();
+    let weights = state.committee_weights(epoch).unwrap().unwrap();
+    assert_eq!(ids.len(), weights.len());
+    let held = ids
+        .iter()
+        .position(|id| *id == offender)
+        .expect("the floor holds the tombstoned seat at four seats");
+    assert_eq!(weights[held], 0, "a held tombstone has no say");
+    for (i, w) in weights.iter().enumerate() {
+        if i != held {
+            assert!(*w > 0, "voter {i} keeps a positive weight");
+        }
+    }
+    // The quorum the engine computes from these weights: the three voters
+    // together are one, and the held seat beside any two of them is not.
+    let committee = maya_dag_bft::Committee::weighted(weights.clone()).expect("a voter remains");
+    let voters: Vec<maya_dag_bft::ValidatorId> = (0..weights.len())
+        .filter(|i| *i != held)
+        .map(|i| i as maya_dag_bft::ValidatorId)
+        .collect();
+    assert!(
+        committee.is_quorum(voters.iter().copied()),
+        "all three voters"
+    );
+    let mut beside_held = voters[..2].to_vec();
+    beside_held.push(held as maya_dag_bft::ValidatorId);
+    assert!(
+        !committee.is_quorum(beside_held),
+        "a held seat adds no weight and no seat to two voters"
+    );
+}
+
 /// A peer's checkpoints and blocks, as a catching-up node sees them: the
 /// book a running node keeps (closing and live checkpoints, by epoch).
 struct PeerBook<'a> {
