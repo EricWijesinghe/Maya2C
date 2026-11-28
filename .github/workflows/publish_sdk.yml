@@ -32,7 +32,9 @@ name: publish-sdk
 on:
   push:
     tags:
-      - "v*"
+      # Release versions (v1.2.3, v1.2.3-rc1): a stray tag such as
+      # `v-test` must not reach the publish jobs.
+      - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -108,7 +110,7 @@ jobs:
       - name: Check the tag matches package.json
         # A tag that disagrees with the version publishes something nobody
         # asked for, under a number that then cannot be reused.
-        if: github.event_name == 'push'
+        if: startsWith(github.ref, 'refs/tags/v')
         working-directory: sdks/sdk-js
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -156,10 +158,21 @@ jobs:
       # RocksDB is C++ and is built from source by the `rocksdb` crate. On
       # manylinux this needs a toolchain the default image does not have, which
       # is why cibuildwheel drives the Linux build inside a container.
+      - name: Check the tag matches pyproject.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(grep -m1 '^version = ' sdks/sdk-ffi/pyproject.toml | cut -d'"' -f2)"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $GITHUB_REF_NAME does not match pyproject.toml version $pkg" >&2
+            exit 1
+          fi
+
       - name: Build wheels
         uses: pypa/cibuildwheel@f9b966cfadf4109556cadc5bb39ddb72d0ce664e # v4.3.5
         with:
-          package-dir: sdk-ffi
+          package-dir: sdks/sdk-ffi
         env:
           # 3.9 is the floor declared in pyproject.toml. PyPy is excluded: the
           # extension is a cdylib loaded through ctypes by uniffi, and PyPy's
@@ -167,8 +180,21 @@ jobs:
           # measured.
           CIBW_BUILD: "cp39-* cp310-* cp311-* cp312-* cp313-*"
           CIBW_SKIP: "*-musllinux_* pp*"
-          CIBW_BEFORE_ALL_LINUX: >-
-            curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.88 --profile minimal
+          # A pinned rustup-init checked against its published SHA-256, not a
+          # script piped to sh: the wheels built here go to PyPI. Bump the
+          # version and both sums together from
+          # https://static.rust-lang.org/rustup/archive/<ver>/<triple>/rustup-init.sha256
+          CIBW_BEFORE_ALL_LINUX: |
+            set -eu
+            case "$(uname -m)" in
+              x86_64) triple=x86_64-unknown-linux-gnu; sum=20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c ;;
+              i686) triple=i686-unknown-linux-gnu; sum=a5db2c4b29d23e9b318b955dd0337d6b52e93933608469085c924e0d05b1df1f ;;
+              *) echo "no pinned rustup-init for $(uname -m)" >&2; exit 1 ;;
+            esac
+            curl -sSfo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/1.28.2/$triple/rustup-init"
+            echo "$sum  /tmp/rustup-init" | sha256sum -c -
+            chmod +x /tmp/rustup-init
+            /tmp/rustup-init -y --default-toolchain 1.88 --profile minimal
           CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -184,6 +210,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      attestations: write
     # A dedicated environment so the trusted-publisher binding is scoped to it
     # rather than to the whole repository, and so a publish can require a
     # reviewer if you configure one.
@@ -197,6 +224,14 @@ jobs:
 
       - name: List what would be published
         run: ls -l dist/
+
+      # Signed build provenance (Sigstore) for each wheel, so a consumer can
+      # check with `gh attestation verify` which run and commit built it.
+      - name: Attest wheel provenance
+        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.dry_run == false)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.whl
 
       # No sdist. `sdk-ffi` links `custom-l1-node`, so the extension embeds
       # RocksDB's C++: a source distribution would make every `pip install`
