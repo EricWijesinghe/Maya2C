@@ -1,6 +1,6 @@
 # ADR-075: Node "update available" notice, notify only
 
-**Status:** Implemented (2026-11-01), approval not recorded. Backlog B4. Nothing here installs anything. Shipped: `bins/maya2c-node/src/update_notice.rs` (version compare, no I/O).
+**Status:** Implemented (2026-11-01; fetch and `--check-updates` added 2026-11-15), approval not recorded. Backlog B4. Nothing here installs anything. Shipped: `bins/maya2c-node/src/update_notice.rs` (version compare, fetch with timeout and size cap) and the opt-in `--check-updates` flag in `bins/maya2c-node/src/main.rs`.
 **Date:** 2026-11-01
 
 ## Context
