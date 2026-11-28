@@ -1,0 +1,34 @@
+[package]
+name = "maya-wgpu-verify"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "HW-3 stage G0: ML-DSA-65 verification's NTT step on wgpu, with a CPU differential harness"
+
+[features]
+# Off by default, as `wgpu-miner`'s `gpu` feature is: a runner with no adapter
+# and no graphics driver must build and test the CPU half, which is the half
+# every GPU answer is compared against.
+default = []
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck"]
+
+[dependencies]
+# The authoritative verdict (ADR-137 O-6 A). This crate depends on
+# `crypto-pq`, never the reverse (threat model G-11).
+maya-crypto-pq = { path = "../../crates/crypto-pq" }
+# SHAKE-128/256 for the CPU half of verification: ExpandA, mu, SampleInBall
+# and the final challenge hash.
+sha3.workspace = true
+thiserror.workspace = true
+
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+hex.workspace = true
+
+[lints]
+workspace = true
