@@ -44,7 +44,7 @@ Now, before genesis. Non-consensus work only; the frozen node binary is not touc
 
 - `constitution`: Short list of rules no vote or council can change, each checkable
 
-## W1 (35 entries)
+## W1 (36 entries)
 
 Mainnet to +3 months. User apps and builder tools; no consensus changes.
 
@@ -56,6 +56,10 @@ Mainnet to +3 months. User apps and builder tools; no consensus changes.
 - `chat-expression` (L): Reactions, replies, disappearing and delete-for-both messages, custom emoji, profile themes, stories, pairwise anonymous identities, gifts as tips, safety pack. **Design only** ([ADR-140](../adr/ADR-140-chat-expression-and-privacy.md)); ten `planned` ledger entries
 - `explorer-v2` (M): Graphs, address pages in Bech32m, validator and mining pages, screenshot-diff CI (C10). Built on `feat/explorer-v2`; uptime not shown (RPC has no uptime); explorer baselines pending
 - `status-v2` (S): Public network status with a history of incidents and gate progress. Started 2026-11-10: the site's [Live network](https://maya2c.dev/network/) page draws validators, blocks and finality from the existing endpoints *(built on `feat/status-v2`: chained, operator-signed incident log; halt drafts; gate and SLO views; see architecture-vision.md)*
+
+**B. Money and commerce**
+
+- `merchant-checkout` (M): Payment links, QR invoices and a webhook for shops. **Built:** `apps/checkout`, ADR-091, `features.toml` `merchant-checkout` (working)
 
 **C. Identity and trust**
 

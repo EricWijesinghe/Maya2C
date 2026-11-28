@@ -83,7 +83,9 @@ export interface Ecosystem {
   links: { catalog: string; competitors: string };
 }
 
-type Table = { header: string[]; rows: string[][] };
+/** A table row and its 1-based line in the source document, for error messages. */
+type Row = { line: number; cells: string[] };
+type Table = { header: string[]; headerLine: number; rows: Row[] };
 
 /** Full names for the chain codes in COMPETITORS.md. An unknown code is shown as-is. */
 const CHAIN_NAMES: Record<string, string> = {
@@ -120,46 +122,69 @@ function cellsOf(line: string): string[] {
   return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
 }
 
+/**
+ * Where a parse error points: `docs/ecosystem/CATALOG.md:56`, a form editors
+ * and terminals open directly. The build log is the only place this error is
+ * read. From 2026-11-15 (run 43749589486, #418) it named neither the path nor
+ * the line, and one mis-filled cell stopped every site deploy until 2026-11-28.
+ */
+const at = (file: string, line: number) => `${file}:${line}`;
+
 /** The first pipe table under the heading that matches `title`. Throws on a malformed table. */
 function tableUnder(md: string, title: RegExp, file: string): Table {
-  const lines = md.split("\n");
+  // CRLF too: a Windows checkout with autocrlf must parse like the CI runner.
+  const lines = md.split(/\r?\n/);
   const start = lines.findIndex((l) => title.test(l));
   if (start < 0) throw new Error(`${file}: no heading matches ${title}`);
   let i = start + 1;
   while (i < lines.length && !lines[i].startsWith("|")) {
-    if (/^#{1,6} /.test(lines[i])) throw new Error(`${file}: heading ${title} has no table`);
+    if (/^#{1,6} /.test(lines[i])) throw new Error(`${at(file, i + 1)}: heading ${title} has no table above the next heading`);
     i += 1;
   }
+  const headerLine = i + 1;
   const header = cellsOf(lines[i] ?? "");
   i += 1;
-  if (!/^\|[\s:|-]+\|?$/.test(lines[i] ?? "")) throw new Error(`${file}: ${title} table has no separator row`);
+  if (!/^\|[\s:|-]+\|?$/.test(lines[i] ?? "")) {
+    throw new Error(`${at(file, i + 1)}: the table under ${title} has no |---| separator row after its header`);
+  }
   i += 1;
-  const rows: string[][] = [];
+  const rows: Row[] = [];
   for (; i < lines.length && lines[i].startsWith("|"); i += 1) {
     const cells = cellsOf(lines[i]);
     if (cells.length !== header.length) {
-      throw new Error(`${file}: row "${cells[0]}" under ${title} has ${cells.length} cells, header has ${header.length}`);
+      throw new Error(
+        `${at(file, i + 1)}: row "${cells[0]}" has ${cells.length} cells, expected ${header.length} ` +
+          `(${header.join(" | ")}); a literal | inside a cell splits it`,
+      );
     }
-    rows.push(cells);
+    rows.push({ line: i + 1, cells });
   }
-  return { header, rows };
+  return { header, headerLine, rows };
 }
 
-function expectHeader(t: Table, want: string[], where: string): void {
+function expectHeader(t: Table, want: string[], file: string, where: string): void {
   if (t.header.join("|") !== want.join("|")) {
-    throw new Error(`${where}: header is [${t.header.join(", ")}], expected [${want.join(", ")}]`);
+    throw new Error(`${at(file, t.headerLine)}: ${where} header is [${t.header.join(", ")}], expected [${want.join(", ")}]`);
   }
 }
 
-function asWave(value: string, where: string): Wave {
+/**
+ * A Wave cell holds one wave id and nothing else. The roadmap page groups by
+ * it, and `cargo xtask devlog roadmap` (ROADMAP.md) skips a row whose cell is
+ * anything longer, so a note here would hide the entry there without a word.
+ */
+function asWave(value: string, where: string, hint = ""): Wave {
   if ((WAVES as readonly string[]).includes(value)) return value as Wave;
-  throw new Error(`${where}: wave "${value}" is not one of ${WAVES.join(", ")}`);
+  throw new Error(`${where}: Wave cell is "${value}", expected exactly one of ${WAVES.join(", ")}${hint}`);
 }
+
+const WAVE_HINT =
+  ' (the bare id, per "Cell format in sections A to F" in CATALOG.md; a status note goes in the "What, for whom" cell)';
 
 function asId(value: string, where: string): string {
   // Lower-case, digits, hyphens and dots: "sdks-1.0" is a real id.
   if (/^[a-z0-9][a-z0-9.-]*$/.test(value)) return value;
-  throw new Error(`${where}: id "${value}" is not a lower-case slug`);
+  throw new Error(`${where}: id "${value}" is not a lower-case slug (a-z, 0-9, "." and "-", starting with a letter or digit)`);
 }
 
 /** Named sections A to I, from the `## X. Name` headings, with the parenthetical dropped. */
@@ -172,17 +197,22 @@ function sectionHeadings(md: string): { key: string; name: string }[] {
 
 function parseEntries(md: string, file: string, sections: { key: string; name: string }[]): Entry[] {
   const out: Entry[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   // A to F are the wave-scheduled tables. G is a fact list and H has no wave
   // column; I is the horizon table, parsed separately.
   for (const { key, name } of sections.filter((s) => s.key <= "F")) {
     const t = tableUnder(md, new RegExp(`^## ${key}\\. `), file);
-    expectHeader(t, ENTRY_HEADER, `${file} section ${key}`);
-    for (const [id, what, builds, gate, size, wave] of t.rows) {
-      asId(id, file);
-      if (seen.has(id)) throw new Error(`${file}: duplicate id ${id}`);
-      seen.add(id);
-      if (size !== "S" && size !== "M" && size !== "L") throw new Error(`${file}: ${id} size "${size}" is not S, M or L`);
+    expectHeader(t, ENTRY_HEADER, file, `section ${key}`);
+    for (const { line, cells } of t.rows) {
+      const [id, what, builds, gate, size, wave] = cells;
+      const where = `${at(file, line)}: section ${key}, row ${id}`;
+      asId(id, where);
+      const first = seen.get(id);
+      if (first !== undefined) throw new Error(`${where}: duplicate id, first used at line ${first}`);
+      seen.set(id, line);
+      if (size !== "S" && size !== "M" && size !== "L") {
+        throw new Error(`${where}: Size cell is "${size}", expected exactly one of S, M, L`);
+      }
       out.push({
         id,
         section: key,
@@ -192,7 +222,7 @@ function parseEntries(md: string, file: string, sections: { key: string; name: s
         gate: plain(gate),
         gateKind: gateKind(plain(gate)),
         size,
-        wave: asWave(wave, `${file}: ${id}`),
+        wave: asWave(wave, where, WAVE_HINT),
       });
     }
   }
@@ -201,19 +231,28 @@ function parseEntries(md: string, file: string, sections: { key: string; name: s
 
 function parseWaves(md: string, file: string): Ecosystem["waves"] {
   const t = tableUnder(md, /^## Waves$/, file);
-  expectHeader(t, ["Wave", "When", "Rule"], `${file} waves`);
-  if (t.rows.length !== WAVES.length) throw new Error(`${file}: expected ${WAVES.length} waves, found ${t.rows.length}`);
-  return t.rows.map(([w, when, rule]) => ({ id: asWave(w, `${file} waves`), when: plain(when), rule: plain(rule) }));
+  expectHeader(t, ["Wave", "When", "Rule"], file, "Waves");
+  if (t.rows.length !== WAVES.length) {
+    throw new Error(`${at(file, t.headerLine)}: Waves table has ${t.rows.length} rows, expected ${WAVES.length} (${WAVES.join(", ")})`);
+  }
+  return t.rows.map(({ line, cells: [w, when, rule] }) => ({
+    id: asWave(w, `${at(file, line)}: Waves table`),
+    when: plain(when),
+    rule: plain(rule),
+  }));
 }
 
 function parseHorizon(md: string, file: string): Horizon[] {
   const t = tableUnder(md, /^## I\. /, file);
-  expectHeader(t, HORIZON_HEADER, `${file} section I`);
-  return t.rows.map(([id, need, rung, builds, prior]) => {
-    if (!(RUNGS as readonly string[]).includes(rung)) throw new Error(`${file}: ${id} rung "${rung}" is not R0, R1 or R2`);
+  expectHeader(t, HORIZON_HEADER, file, "section I");
+  return t.rows.map(({ line, cells: [id, need, rung, builds, prior] }) => {
+    const where = `${at(file, line)}: section I, row ${id}`;
+    if (!(RUNGS as readonly string[]).includes(rung)) {
+      throw new Error(`${where}: Rung cell is "${rung}", expected exactly one of ${RUNGS.join(", ")}`);
+    }
     const link = /\]\((\.\.\/prior-art\/[^)\s]+)\)/.exec(prior);
     return {
-      id: asId(id, file),
+      id: asId(id, where),
       need: plain(need),
       rung: rung as Rung,
       builds: plain(builds),
@@ -226,11 +265,18 @@ function parseHorizon(md: string, file: string): Horizon[] {
 
 function parseMatrix(md: string, file: string): Matrix {
   const t = tableUnder(md, /^## 3\. /, file);
-  if (t.header[0] !== "Dimension" || t.header.length < 2) throw new Error(`${file}: verdict matrix header is malformed`);
+  if (t.header[0] !== "Dimension" || t.header.length < 2) {
+    throw new Error(`${at(file, t.headerLine)}: verdict matrix header is [${t.header.join(", ")}], expected [Dimension, <chain code>, ...]`);
+  }
   const tally = Object.fromEntries(VERDICTS.map((v) => [v, 0])) as Record<Verdict, number>;
-  const rows = t.rows.map((cells) => {
-    const verdicts = cells.slice(1).map((c) => {
-      if (!(VERDICTS as readonly string[]).includes(c)) throw new Error(`${file}: verdict "${c}" under "${cells[0]}" is not Lead, Par, Trail or n/a`);
+  const rows = t.rows.map(({ line, cells }) => {
+    const verdicts = cells.slice(1).map((c, k) => {
+      if (!(VERDICTS as readonly string[]).includes(c)) {
+        throw new Error(
+          `${at(file, line)}: verdict matrix, row "${cells[0]}", column ${t.header[k + 1]}: cell is "${c}", ` +
+            `expected exactly one of ${VERDICTS.join(", ")}`,
+        );
+      }
       tally[c as Verdict] += 1;
       return c as Verdict;
     });
@@ -242,8 +288,8 @@ function parseMatrix(md: string, file: string): Matrix {
 
 function parseClosures(md: string, file: string, knownIds: Set<string>): Closure[] {
   const t = tableUnder(md, /^## 4\. /, file);
-  expectHeader(t, ["Trail cell", "Closed by", "Notes"], `${file} section 4`);
-  return t.rows.map(([cell, closedBy, notes]) => ({
+  expectHeader(t, ["Trail cell", "Closed by", "Notes"], file, "section 4");
+  return t.rows.map(({ cells: [cell, closedBy, notes] }) => ({
     cell: plain(cell),
     closedBy: plain(closedBy),
     ids: [...closedBy.matchAll(/`([a-z0-9-]+)`/g)].map((m) => m[1]).filter((id) => knownIds.has(id)),
@@ -251,12 +297,22 @@ function parseClosures(md: string, file: string, knownIds: Set<string>): Closure
   }));
 }
 
+/** Repository-relative names, so an error is a path a reader can open. */
+const CATALOG_FILE = "docs/ecosystem/CATALOG.md";
+const COMPETITORS_FILE = "docs/ecosystem/COMPETITORS.md";
+
 /** Everything the roadmap page shows, read from the two docs. */
 export function loadEcosystem(): Ecosystem {
-  const catalogFile = "CATALOG.md";
-  const competitorsFile = "COMPETITORS.md";
-  const catalog = read("CATALOG.md");
-  const competitors = read("COMPETITORS.md");
+  return parseEcosystem(read("CATALOG.md"), read("COMPETITORS.md"));
+}
+
+/**
+ * The same, from the two documents' text: the test suite feeds it a broken
+ * row to prove the build stops with the file, line, row and expected form.
+ */
+export function parseEcosystem(catalog: string, competitors: string): Ecosystem {
+  const catalogFile = CATALOG_FILE;
+  const competitorsFile = COMPETITORS_FILE;
 
   const sections = sectionHeadings(catalog);
   const entries = parseEntries(catalog, catalogFile, sections);

@@ -31,6 +31,14 @@ what must happen before code: an ADR, consensus review, an approval or an
 outside dependency. *Size*: S is up to a few days, M is one to three weeks,
 L is more. *Wave* is when, defined at the end of the file.
 
+**Cell format in sections A to F.** These six tables are read by programs:
+the site's roadmap page (`docs/site/src/data/ecosystem.ts`, which stops the
+site build on a malformed row) and `cargo xtask devlog roadmap`
+(ROADMAP.md). *Size* is exactly `S`, `M` or `L` and *Wave* exactly one of
+`W0` to `W4`, nothing else in the cell. A status note such as **Built:**
+goes at the end of *What, for whom*, as in hub-launch and wallet-v2. A
+literal `|` inside a cell splits it.
+
 ## A. Core user apps
 
 | id | What, for whom | Builds on | Gate | Size | Wave |
@@ -53,7 +61,7 @@ L is more. *Wave* is when, defined at the end of the file.
 
 | id | What, for whom | Builds on | Gate | Size | Wave |
 |---|---|---|---|---|---|
-| merchant-checkout | Payment links, QR invoices and a webhook for shops | wallet core `payment.rs`, SDKs | none | M | W1. **Built:** `apps/checkout`, ADR-091, `features.toml` `merchant-checkout` (working) |
+| merchant-checkout | Payment links, QR invoices and a webhook for shops. **Built:** `apps/checkout`, ADR-091, `features.toml` `merchant-checkout` (working) | wallet core `payment.rs`, SDKs | none | M | W1 |
 | pos-terminal | Point of sale on an Android phone: QR request, wait for finality, receipt | merchant-checkout, light client | none | M | W2 |
 | recurring-payments | Subscriptions and payroll with spending limits | `crates/smart-account` session keys; protocol execution at a height: ADR-109 (proposed, `sp:` prefix) | [ADR-135](../adr/ADR-135-v4-umbrella.md) §P-7 Proposed (prefix `sp:`, v4); consensus review (ADR-109) | M | W2 |
 | escrow | Two-party escrow and milestone payments | `crates/htlc-lattice`, `bins/htlc-watcher` | none | M | W2 |
