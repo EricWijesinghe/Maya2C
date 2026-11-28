@@ -57,7 +57,7 @@ fn any_u128_amount() -> Amount {
 // 65, not 5: `assert!(w == ...)` compares a `Wide` (64 bytes), and CBMC's
 // memcmp model unwinds once per byte. The run that set 5 failed with
 // "unwinding assertion loop 0" in memcmp (kani-heavy 2026-11-27); no
-// arithmetic check failed. Loops in mul_wide itself need only 5.
+// arithmetic check failed.
 #[kani::unwind(65)]
 fn mul_wide_matches_u128_multiplication() {
     let x: u64 = kani::any();

@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Smart accounts with real ML-DSA-65 keys (Master Prompts 13 §2, 22).
 
 #![allow(

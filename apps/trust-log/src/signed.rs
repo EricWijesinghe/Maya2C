@@ -97,6 +97,8 @@ impl<T: Serialize> Signed<T> {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    // Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use zeroize::Zeroizing;
 

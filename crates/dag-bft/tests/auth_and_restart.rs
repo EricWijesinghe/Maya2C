@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The engine under an authenticator that can actually refuse: forged votes
 //! and certificates do nothing, a double proposal becomes evidence, and a
 //! validator restored from its own safety records does not sign twice.

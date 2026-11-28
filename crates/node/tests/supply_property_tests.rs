@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Randomised transaction sequences never change total supply
 //! (Master Prompt 3 §2: "random transaction sequences never change total
 //! supply except through defined mint/burn rules").

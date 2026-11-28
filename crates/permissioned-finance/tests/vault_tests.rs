@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The CBDC vault end to end: STARK-proved KYC admission, then 50,000
 //! compliant settlements with supply conserved throughout.
 

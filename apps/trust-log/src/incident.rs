@@ -186,6 +186,8 @@ pub fn anchor_for(seq: u64, head: [u8; 32]) -> Result<Anchor> {
 
 #[cfg(test)]
 mod tests {
+    // Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::signed::tests::key;
 

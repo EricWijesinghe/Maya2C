@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! 100,000 deposits with the service killed (SIGKILL) at random points
 //! (Master Prompt 17 §1): zero double credits, zero missed credits.
 //!

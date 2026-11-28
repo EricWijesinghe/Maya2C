@@ -1,3 +1,5 @@
+// Test scope: unwrapping a fixed, known-good input is how a test fails loudly.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! [SIM] Adversarial scenarios from Master Prompt 16 §4, run with and without
 //! the defences.
 //!
